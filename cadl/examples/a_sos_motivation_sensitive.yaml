@@ -1,0 +1,51 @@
+# ============================================================
+# A-SoS Motivation-Sensitive Configuration
+# ============================================================
+# Directed SoS with motivation-sensitive governance.
+# The central authority considers each robot's commitment
+# tolerance when making routing decisions.
+#
+# Key parameter: ρ (rho) = sensitivity to motivation
+#   ρ = 0.0 → identical to baseline (ignore motivation)
+#   ρ = 0.5 → moderate sensitivity
+#   ρ = 1.0 → full sensitivity (strict budget enforcement)
+# ============================================================
+
+name: "A-SoS-MotivationSensitive"
+sos_type: directed
+description: >
+  Motivation-sensitive A-SoS. Central authority grants each robot
+  a commitment budget B_i = B_base + kappa * m_i. When a robot's
+  cumulative goals exceed B_i, the authority throttles it by
+  injecting extra wait ticks proportional to rho * overshoot.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.3    # Low autonomy (central authority dominant)
+  beta: 0.7     # High centralization
+  lambda: 0.0   # No exploration
+
+motivation:
+  agent:
+    profile: linear     # Robots have different motivation levels
+    # Resolved as: [0.2, 0.4, 0.6, 0.8, 1.0] for 5 robots
+  governance:
+    model: hybrid       # Commitment budget + preference sensitivity
+    rho: 0.5            # Moderate sensitivity (will be swept)
+    kappa: 5.0          # Budget extension factor
+    budget_base: 3      # Base budget per robot
+    wait_scale: 3.0     # Overshoot-to-retry conversion
+
+experiment:
+  duration_seconds: 300
+  sweep:
+    rho: [0.0, 0.25, 0.5, 1.0]
+    motivation_profiles: [uniform, linear, polarized]
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    kappa: [5.0]
+    budget_base: [3]

@@ -1,0 +1,35 @@
+# ============================================================
+# A-SoS Baseline Configuration
+# ============================================================
+# Standard directed SoS: central authority assigns routes,
+# robots fully comply. No motivation consideration (ρ = 0).
+# This is the existing A-SoS behavior.
+# ============================================================
+
+name: "A-SoS-Baseline"
+sos_type: directed
+description: >
+  Baseline A-SoS (Directed SoS). Central authority makes all routing
+  decisions via DirectionDijkstra. Robots are homogeneous and fully
+  compliant. Motivation parameter exists but is ignored (rho=0).
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.3    # Low autonomy (central authority dominant)
+  beta: 0.7     # High centralization
+  lambda: 0.0   # No exploration (deterministic routing)
+
+motivation:
+  agent:
+    profile: uniform    # All robots m_i = 0.5 (irrelevant since rho=0)
+  governance:
+    model: none         # Central authority ignores motivation
+    rho: 0.0            # Sensitivity = 0 (baseline)
+    kappa: 5.0
+    budget_base: 3
+    wait_scale: 3.0

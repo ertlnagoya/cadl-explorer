@@ -1,0 +1,44 @@
+# ============================================================
+# C-SoS Reference Configuration
+# ============================================================
+# Collaborative SoS: robots autonomously decide participation
+# and propose routes. Arbitrator verifies and may reject.
+# Motivation determines robot's willingness to participate.
+# This serves as the comparison baseline for C-SoS region.
+# ============================================================
+
+name: "C-SoS-Reference"
+sos_type: collaborative
+description: >
+  Reference C-SoS (Collaborative SoS). Robots propose routes
+  via local Dijkstra, arbitrator verifies and may reject.
+  Robot motivation affects participation willingness and
+  exploration behavior through the governance lambda parameter.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.7    # High autonomy (robots have local judgment)
+  beta: 0.3     # Low centralization
+  lambda: 0.3   # Moderate exploration
+
+motivation:
+  agent:
+    profile: linear     # Same distribution for fair comparison
+  governance:
+    model: none         # C-SoS motivation is emergent (via lambda/alpha)
+    rho: 0.0
+    kappa: 0.0
+    budget_base: 0
+    wait_scale: 0.0
+
+experiment:
+  duration_seconds: 300
+  sweep:
+    rho: [0.0]    # Not applicable for C-SoS (kept for schema consistency)
+    motivation_profiles: [uniform, linear, polarized]
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
