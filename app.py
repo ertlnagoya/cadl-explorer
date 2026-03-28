@@ -19,9 +19,12 @@ from backend.services.cadl_service import (
 )
 from backend.services.diff_service import (
     compute_cadl_diff, compute_ir_diff, compute_config_diff, tagged_lines_to_html,
+    semantic_diff_cadl, semantic_diff_ir, semantic_diff_config, semantic_diff_result,
+    SemanticDiffResult,
 )
 from backend.services.experiment_service import run_sweep, run_comparison_sweep
-from backend.services.evaluation_service import evaluate, generate_summary
+from backend.services.evaluation_service import evaluate, evaluate_full, generate_summary
+from backend.services.pipeline import run_pipeline, compare_pipelines
 from backend.plotting.interactive import (
     scatter_performance_autonomy, line_rho_effects,
     bar_comparison, individual_robot_scatter,
@@ -143,13 +146,68 @@ if run_pipeline:
     time.sleep(0.5)
     progress.empty()
 
+# ── Run pipelines ──────────────────────────────────────────────────
+pipeline_baseline = run_pipeline(template="A-SoS", profile="uniform", rho=0.0, num_seeds=10)
+pipeline_selected = run_pipeline(template=template, profile=profile, rho=rho, num_seeds=10)
+
 # ── Tabs (all always visible) ──────────────────────────────────────
-tab_service, tab_cadl, tab_config, tab_results = st.tabs([
+tab_chain, tab_service, tab_cadl, tab_config, tab_results = st.tabs([
+    "Causal Chain",
     "Service View",
     "CADL / IR Diff",
     "Simulator Config Diff",
     "Results & Evaluation",
 ])
+
+# ── Tab 0: Causal Chain ────────────────────────────────────────────
+with tab_chain:
+    st.subheader("CADL -> IR -> Config -> Result : Causal Traceability")
+
+    # Compute semantic diffs for the full chain
+    sd_cadl = semantic_diff_cadl(
+        pipeline_baseline.cadl, pipeline_selected.cadl,
+        pipeline_baseline.name, pipeline_selected.name,
+    )
+    sd_ir = semantic_diff_ir(
+        pipeline_baseline.ir, pipeline_selected.ir,
+        pipeline_baseline.name, pipeline_selected.name,
+    )
+    sd_config = semantic_diff_config(
+        pipeline_baseline.config, pipeline_selected.config,
+        pipeline_baseline.name, pipeline_selected.name,
+    )
+    sd_result = semantic_diff_result(
+        pipeline_baseline.evaluation.to_dict() if pipeline_baseline.evaluation else {},
+        pipeline_selected.evaluation.to_dict() if pipeline_selected.evaluation else {},
+        pipeline_baseline.name, pipeline_selected.name,
+    )
+
+    # Display chain as 4 stages
+    stages = [
+        ("1. CADL (Institution Design)", sd_cadl),
+        ("2. IR (Governance Structure)", sd_ir),
+        ("3. Config (Execution Settings)", sd_config),
+        ("4. Result (Behavioral Outcome)", sd_result),
+    ]
+
+    for title, sd in stages:
+        with st.expander(title, expanded=True):
+            st.markdown(sd.to_html(), unsafe_allow_html=True)
+
+    # Overall pipeline summary
+    st.markdown("---")
+    st.markdown("### Pipeline Summary")
+    all_labels = []
+    for _, sd in stages:
+        all_labels.extend(sd.labels)
+
+    if all_labels:
+        for lbl in all_labels:
+            icon = {"increased": "+", "decreased": "-", "changed": "~"}.get(lbl.direction, "?")
+            st.markdown(f"- **[{icon}] {lbl.category}**: {lbl.summary}")
+    else:
+        st.info("No differences detected — try changing the governance template or rho.")
+
 
 # ── Tab 1: Service View ────────────────────────────────────────────
 with tab_service:

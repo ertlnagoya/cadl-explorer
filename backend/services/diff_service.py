@@ -1,15 +1,23 @@
 """Diff service — structured 4-type diff API for the governance pipeline.
 
 Provides:
-  diff_cadl()   — CADL YAML diff
-  diff_ir()     — per-layer IR diff
-  diff_config() — Unity config diff
-  diff_result() — evaluation result diff
+  Syntactic diffs:
+    diff_cadl()   — CADL YAML diff
+    diff_ir()     — per-layer IR diff
+    diff_config() — Unity config diff
+    diff_result() — evaluation result diff
+
+  Semantic diffs (with human-readable interpretation):
+    semantic_diff_cadl()   — institutional design diff
+    semantic_diff_ir()     — governance structure diff
+    semantic_diff_config() — execution settings diff
+    semantic_diff_result() — behavioral/performance diff with meaning labels
 """
 
 import difflib
 import json
 import yaml
+import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional
 
@@ -114,6 +122,220 @@ def diff_result(eval_a: dict, eval_b: dict, label_a: str = "A", label_b: str = "
     jb = json.dumps(eval_b, indent=2, sort_keys=True)
     tagged = _unified_diff(ja, jb, label_a, label_b)
     return DiffResult(category="result", label_a=label_a, label_b=label_b, tagged_lines=tagged)
+
+
+# ── Semantic diff: meaning-labeled diff results ─────────────────────
+
+
+@dataclass
+class SemanticLabel:
+    """A human-readable interpretation of a diff."""
+    category: str       # "institution", "protocol", "algorithm", "performance", etc.
+    field: str          # "rho", "throughput", etc.
+    direction: str      # "increased", "decreased", "changed", "added", "removed"
+    magnitude: str      # "significant", "moderate", "minimal"
+    summary: str        # e.g. "Throughput decreased by 12.2%"
+
+
+@dataclass
+class SemanticDiffResult:
+    """Diff with semantic interpretation."""
+    category: str
+    label_a: str = ""
+    label_b: str = ""
+    syntactic: DiffResult = field(default_factory=lambda: DiffResult(category=""))
+    labels: List[SemanticLabel] = field(default_factory=list)
+    summary: str = ""
+
+    def to_html(self) -> str:
+        """Render semantic diff as HTML with labels."""
+        parts = []
+        if self.labels:
+            parts.append('<div style="margin-bottom: 12px;">')
+            for lbl in self.labels:
+                icon = {"increased": "arrow_upward", "decreased": "arrow_downward",
+                        "changed": "swap_horiz", "added": "add", "removed": "remove"}.get(lbl.direction, "")
+                color = {"increased": "#22863a", "decreased": "#cb2431",
+                         "changed": "#b08800"}.get(lbl.direction, "#586069")
+                parts.append(
+                    f'<div style="padding: 4px 12px; margin: 2px 0; border-left: 3px solid {color}; '
+                    f'background: #f8f9fa; font-size: 13px;">'
+                    f'<strong>{lbl.category}</strong>: {lbl.summary}</div>'
+                )
+            parts.append('</div>')
+        if self.summary:
+            parts.append(f'<div style="padding: 8px 12px; background: #e8f4fd; border-radius: 4px; '
+                         f'margin-bottom: 8px; font-size: 13px;">{self.summary}</div>')
+        parts.append(self.syntactic.to_html())
+        return "\n".join(parts)
+
+
+def _classify_magnitude(ratio: float) -> str:
+    if abs(ratio) > 0.15:
+        return "significant"
+    elif abs(ratio) > 0.05:
+        return "moderate"
+    return "minimal"
+
+
+def _field_diff(d_a: dict, d_b: dict, path: str = "") -> List[Tuple[str, object, object]]:
+    """Recursively find differing fields. Returns [(path, val_a, val_b), ...]."""
+    diffs = []
+    all_keys = sorted(set(list(d_a.keys()) + list(d_b.keys())))
+    for key in all_keys:
+        full_path = f"{path}.{key}" if path else key
+        va = d_a.get(key)
+        vb = d_b.get(key)
+        if isinstance(va, dict) and isinstance(vb, dict):
+            diffs.extend(_field_diff(va, vb, full_path))
+        elif va != vb:
+            diffs.append((full_path, va, vb))
+    return diffs
+
+
+def semantic_diff_cadl(cadl_a: dict, cadl_b: dict, label_a: str = "A", label_b: str = "B") -> SemanticDiffResult:
+    """Semantic diff of CADL configs — institutional design changes."""
+    ya = yaml.dump(cadl_a or {}, default_flow_style=False, sort_keys=False)
+    yb = yaml.dump(cadl_b or {}, default_flow_style=False, sort_keys=False)
+    syntactic = DiffResult(
+        category="cadl", label_a=label_a, label_b=label_b,
+        tagged_lines=_unified_diff(ya, yb, label_a, label_b),
+    )
+
+    labels = []
+    field_diffs = _field_diff(cadl_a or {}, cadl_b or {})
+    CADL_FIELD_LABELS = {
+        "sos_type": "SoS governance type",
+        "governance.alpha": "autonomy level (alpha)",
+        "governance.beta": "centralization level (beta)",
+        "governance.lambda": "exploration probability (lambda)",
+        "motivation.governance.model": "motivation model",
+        "motivation.governance.rho": "motivation sensitivity (rho)",
+        "motivation.agent.profile": "agent motivation profile",
+    }
+    for path, va, vb in field_diffs:
+        desc = CADL_FIELD_LABELS.get(path, path)
+        labels.append(SemanticLabel(
+            category="Institution Design", field=path, direction="changed",
+            magnitude="significant" if path in CADL_FIELD_LABELS else "minimal",
+            summary=f"{desc}: {va} -> {vb}",
+        ))
+
+    summary = f"{len(field_diffs)} institutional parameter(s) changed" if field_diffs else "No institutional changes"
+    return SemanticDiffResult(
+        category="cadl", label_a=label_a, label_b=label_b,
+        syntactic=syntactic, labels=labels, summary=summary,
+    )
+
+
+def semantic_diff_ir(ir_a: dict, ir_b: dict, label_a: str = "A", label_b: str = "B") -> SemanticDiffResult:
+    """Semantic diff of IR — governance structure changes per layer."""
+    ja = json.dumps(ir_a or {}, indent=2, sort_keys=True)
+    jb = json.dumps(ir_b or {}, indent=2, sort_keys=True)
+    syntactic = DiffResult(
+        category="ir", label_a=label_a, label_b=label_b,
+        tagged_lines=_unified_diff(ja, jb, label_a, label_b),
+    )
+
+    labels = []
+    LAYER_NAMES = {
+        "layer1_institution": "Institution (WHO decides)",
+        "layer2_protocol": "Protocol (HOW coordination flows)",
+        "layer3_algorithm": "Algorithm (WHAT computation runs)",
+    }
+    for layer_key, layer_desc in LAYER_NAMES.items():
+        la = (ir_a or {}).get(layer_key, {})
+        lb = (ir_b or {}).get(layer_key, {})
+        diffs = _field_diff(la, lb)
+        if diffs:
+            changed_fields = [d[0] for d in diffs]
+            labels.append(SemanticLabel(
+                category=layer_desc, field=layer_key, direction="changed",
+                magnitude="significant" if len(diffs) > 2 else "moderate",
+                summary=f"{len(diffs)} field(s) changed: {', '.join(changed_fields[:3])}",
+            ))
+
+    summary = f"Governance structure differs in {len(labels)} layer(s)" if labels else "Identical governance structure"
+    return SemanticDiffResult(
+        category="ir", label_a=label_a, label_b=label_b,
+        syntactic=syntactic, labels=labels, summary=summary,
+    )
+
+
+def semantic_diff_config(config_a: dict, config_b: dict, label_a: str = "A", label_b: str = "B") -> SemanticDiffResult:
+    """Semantic diff of Unity configs — execution settings changes."""
+    ja = json.dumps(config_a or {}, indent=2, sort_keys=True)
+    jb = json.dumps(config_b or {}, indent=2, sort_keys=True)
+    syntactic = DiffResult(
+        category="config", label_a=label_a, label_b=label_b,
+        tagged_lines=_unified_diff(ja, jb, label_a, label_b),
+    )
+
+    labels = []
+    KEY_SECTIONS = ["simulatorConfig", "motivationConfig", "communicationSetup"]
+    for section in KEY_SECTIONS:
+        sa = (config_a or {}).get(section, {})
+        sb = (config_b or {}).get(section, {})
+        if isinstance(sa, dict) and isinstance(sb, dict):
+            diffs = _field_diff(sa, sb)
+            if diffs:
+                labels.append(SemanticLabel(
+                    category=f"Config: {section}", field=section, direction="changed",
+                    magnitude="significant" if len(diffs) > 3 else "moderate",
+                    summary=f"{len(diffs)} setting(s) changed in {section}",
+                ))
+
+    summary = f"{len(labels)} config section(s) differ" if labels else "Identical configs"
+    return SemanticDiffResult(
+        category="config", label_a=label_a, label_b=label_b,
+        syntactic=syntactic, labels=labels, summary=summary,
+    )
+
+
+def semantic_diff_result(eval_a: dict, eval_b: dict, label_a: str = "A", label_b: str = "B") -> SemanticDiffResult:
+    """Semantic diff of results — behavioral/performance changes with meaning labels."""
+    ja = json.dumps(eval_a or {}, indent=2, sort_keys=True)
+    jb = json.dumps(eval_b or {}, indent=2, sort_keys=True)
+    syntactic = DiffResult(
+        category="result", label_a=label_a, label_b=label_b,
+        tagged_lines=_unified_diff(ja, jb, label_a, label_b),
+    )
+
+    labels = []
+    METRIC_LABELS = {
+        "throughput": ("Performance", "Throughput (total deliveries)"),
+        "autonomy": ("Governance", "System autonomy"),
+        "fairness": ("Equity", "Delivery fairness"),
+    }
+
+    for key, (cat, desc) in METRIC_LABELS.items():
+        va = (eval_a or {}).get(key, 0)
+        vb = (eval_b or {}).get(key, 0)
+        if va == 0 and vb == 0:
+            continue
+        delta = vb - va
+        ratio = delta / max(abs(va), 1e-6)
+        direction = "increased" if delta > 0.01 else "decreased" if delta < -0.01 else "unchanged"
+        if direction == "unchanged":
+            continue
+        magnitude = _classify_magnitude(ratio)
+        pct = abs(ratio * 100)
+        labels.append(SemanticLabel(
+            category=cat, field=key, direction=direction, magnitude=magnitude,
+            summary=f"{desc} {direction} by {pct:.1f}% ({va:.2f} -> {vb:.2f})",
+        ))
+
+    # Build natural language summary
+    summaries = [lbl.summary for lbl in labels]
+    if summaries:
+        summary = "Behavioral changes: " + "; ".join(summaries)
+    else:
+        summary = "No significant behavioral differences"
+
+    return SemanticDiffResult(
+        category="result", label_a=label_a, label_b=label_b,
+        syntactic=syntactic, labels=labels, summary=summary,
+    )
 
 
 # ── Backward-compat aliases ─────────────────────────────────────────

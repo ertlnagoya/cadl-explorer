@@ -1,4 +1,8 @@
-"""Run manager — creates and manages experiment output directories."""
+"""Run manager — creates and manages experiment output directories.
+
+Each run preserves the full pipeline state for reproducibility:
+  cadl/ ir/ configs/ logs/ metrics/ plots/ report/ manifest.json
+"""
 
 import os
 import json
@@ -44,12 +48,63 @@ class RunDir:
             import shutil
             shutil.copy2(str(fig_or_path), str(dest))
         else:
-            # Assume plotly figure
             fig_or_path.write_image(str(dest))
 
     def save_report(self, text: str, filename: str = "summary.md"):
         with open(self.path / "report" / filename, "w") as f:
             f.write(text)
+
+    def save_pipeline_result(self, pipeline_result):
+        """Save a complete PipelineResult with replay manifest."""
+        pr = pipeline_result
+
+        # Save all artifacts
+        if pr.cadl:
+            with open(self.path / "cadl" / "config.yaml", "w") as f:
+                yaml.dump(pr.cadl, f, default_flow_style=False, sort_keys=False)
+        if pr.ir:
+            with open(self.path / "ir" / "ir.json", "w") as f:
+                json.dump(pr.ir, f, indent=2)
+        if pr.config:
+            with open(self.path / "configs" / "cadl_config.json", "w") as f:
+                json.dump(pr.config, f, indent=2)
+        if pr.evaluation:
+            with open(self.path / "metrics" / "evaluation.json", "w") as f:
+                json.dump(pr.evaluation.to_dict(), f, indent=2)
+
+        # Save raw results
+        if pr.results:
+            raw = [
+                {"sos_type": r.sos_type, "rho": r.rho, "profile": r.motivation_profile,
+                 "seed": r.seed, "throughput": r.throughput, "autonomy": r.avg_autonomy,
+                 "fairness": r.fairness, "deliveries": r.total_deliveries,
+                 "goal_min": r.goal_min, "per_robot": r.per_robot}
+                for r in pr.results
+            ]
+            with open(self.path / "metrics" / "raw_results.json", "w") as f:
+                json.dump(raw, f, indent=2)
+
+        # Save replay manifest
+        manifest = {
+            "created_at": datetime.now().isoformat(),
+            "name": pr.name,
+            "template": pr.template,
+            "profile": pr.profile,
+            "rho": pr.rho,
+            "seeds": pr.seeds,
+            "num_results": len(pr.results),
+            "mode": "synthetic",
+        }
+        with open(self.path / "manifest.json", "w") as f:
+            json.dump(manifest, f, indent=2)
+
+    def load_manifest(self) -> Optional[dict]:
+        """Load the replay manifest if it exists."""
+        manifest_path = self.path / "manifest.json"
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                return json.load(f)
+        return None
 
     def __str__(self):
         return str(self.path)
@@ -72,3 +127,23 @@ def get_latest_run(base_dir: Optional[str] = None) -> Optional[RunDir]:
         return None
     dirs = sorted([d for d in base.iterdir() if d.is_dir() and d.name != ".gitkeep"], reverse=True)
     return RunDir(dirs[0]) if dirs else None
+
+
+def replay_run(run_dir: str) -> "PipelineResult":
+    """Re-execute a run from its manifest.
+
+    Reads manifest.json and re-runs the pipeline with identical parameters.
+    """
+    from backend.services.pipeline import run_pipeline
+
+    rd = RunDir(Path(run_dir))
+    manifest = rd.load_manifest()
+    if not manifest:
+        raise FileNotFoundError(f"No manifest.json in {run_dir}")
+
+    return run_pipeline(
+        template=manifest["template"],
+        profile=manifest["profile"],
+        rho=manifest["rho"],
+        num_seeds=len(manifest.get("seeds", [10])),
+    )
