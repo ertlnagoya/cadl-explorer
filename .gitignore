@@ -8,3 +8,7 @@ venv/
 dist/
 build/
 .streamlit/
+runs/
+!runs/.gitkeep
+.pytest_cache/
+htmlcov/

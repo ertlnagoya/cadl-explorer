@@ -1,0 +1,26 @@
+name: "C-SoS-Reference"
+sos_type: collaborative
+description: >
+  Collaborative SoS reference. Robots propose routes locally,
+  arbitrator verifies. High autonomy baseline.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.7
+  beta: 0.3
+  lambda: 0.3
+
+motivation:
+  agent:
+    profile: linear
+  governance:
+    model: none
+    rho: 0.0
+    kappa: 5.0
+    budget_base: 3
+    wait_scale: 3.0

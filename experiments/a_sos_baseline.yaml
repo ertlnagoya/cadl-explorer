@@ -1,0 +1,26 @@
+name: "A-SoS-Baseline"
+sos_type: directed
+description: >
+  Baseline A-SoS. Central authority makes all routing decisions.
+  Robots are homogeneous and fully compliant. rho=0.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.3
+  beta: 0.7
+  lambda: 0.0
+
+motivation:
+  agent:
+    profile: uniform
+  governance:
+    model: none
+    rho: 0.0
+    kappa: 5.0
+    budget_base: 3
+    wait_scale: 3.0

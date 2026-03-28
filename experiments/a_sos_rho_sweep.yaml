@@ -1,0 +1,35 @@
+name: "A-SoS-RhoSweep"
+sos_type: directed
+description: >
+  Motivation-sensitive A-SoS with rho sweep.
+  Evaluates throughput-autonomy-fairness tradeoff.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+
+governance:
+  alpha: 0.3
+  beta: 0.7
+  lambda: 0.0
+
+motivation:
+  agent:
+    profile: linear
+  governance:
+    model: hybrid
+    rho: 0.5
+    kappa: 5.0
+    budget_base: 3
+    wait_scale: 3.0
+
+experiment:
+  duration_seconds: 300
+  sweep:
+    rho: [0.0, 0.25, 0.5, 0.75, 1.0]
+    motivation_profiles: [uniform, linear, polarized]
+    seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    kappa: [5.0]
+    budget_base: [3]

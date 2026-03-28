@@ -11,17 +11,17 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from backend.cadl_bridge import (
+from backend.services.cadl_service import (
     make_config, make_baseline_config, config_to_yaml_str,
     build_ir, ir_to_json_str, generate_unity_config_dict, unity_config_to_json_str,
     TEMPLATES,
 )
-from backend.diff_engine import (
+from backend.services.diff_service import (
     compute_cadl_diff, compute_ir_diff, compute_config_diff, tagged_lines_to_html,
 )
-from backend.experiment_runner import run_sweep, run_comparison_sweep
-from backend.governance_eval import evaluate, generate_summary
-from backend.plot_builder import (
+from backend.services.experiment_service import run_sweep, run_comparison_sweep
+from backend.services.evaluation_service import evaluate, generate_summary
+from backend.plotting.interactive import (
     scatter_performance_autonomy, line_rho_effects,
     bar_comparison, individual_robot_scatter,
 )
