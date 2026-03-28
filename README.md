@@ -1,30 +1,51 @@
 # CADL Explorer
 
-Research tool for exploring and evaluating governance configurations
-in Collective Autonomous Systems using CADL (Collective Autonomous Description Language).
+Research infrastructure for tracing the causal structure of governance design
+in Collective Autonomous Systems-of-Systems (SoS).
 
-## Purpose
+## Research Purpose
 
-CADL Explorer visualizes the full causal chain of governance design:
-
-```
-CADL diff  →  IR diff  →  Config diff  →  Experiment result diff  →  Governance evaluation
-```
-
-This enables researchers to:
-- Compare governance policies (A-SoS vs C-SoS vs motivation-sensitive)
-- Trace how institutional changes propagate through the 3-layer IR to simulator configs
-- Run parameter sweeps and evaluate throughput / autonomy / fairness tradeoffs
-- Generate publication-quality figures
-
-## Pipeline Overview
+This tool enables researchers to **trace how institutional design choices
+propagate through governance layers to behavioral outcomes**:
 
 ```
-1. CADL Config    — governance template + motivation profile + rho
-2. 3-Layer IR     — Institution / Protocol / Algorithm layers
-3. Unity Config   — cadl_config.json for the simulator
-4. Experiment     — synthetic analytical model or Unity batch execution
-5. Evaluation     — throughput, autonomy, fairness metrics + comparison
+CADL (institution)  →  IR (governance structure)  →  Config (execution)  →  Result (behavior)
+```
+
+Each stage is preserved, diffed, and labeled with semantic interpretation,
+so that a change in governance parameters (e.g., rho, authority model)
+can be followed end-to-end to its effect on throughput, autonomy, and fairness.
+
+## Causal Pipeline
+
+| Stage | What | Artifact |
+|-------|------|----------|
+| 1. CADL | Institutional design parameters | YAML config |
+| 2. IR | 3-layer governance structure (Institution / Protocol / Algorithm) | JSON |
+| 3. Config | Simulator execution settings | Unity cadl_config.json |
+| 4. Result | Experiment outcomes (per-seed, per-robot) | SingleResult |
+| 5. Evaluation | Aggregated metrics (throughput, autonomy, fairness) | EvaluationResult |
+
+All stages are captured in `PipelineResult` with content-hash traceability IDs.
+
+## Diff Semantics
+
+Each stage has a **semantic diff** that interprets changes in governance terms:
+
+| Diff type | Interprets |
+|-----------|------------|
+| CADL diff | Institution design changes (rho, authority model, profile) |
+| IR diff | Authority structure, decision holder, information flow, planner binding |
+| Config diff | Execution settings (motivationConfig, governance params) |
+| Result diff | Performance/autonomy/fairness changes with direction labels |
+
+Example output:
+```
+[Institution: Motivation model] authority now uses hybrid model (was none)
+[Protocol: Dispatch control] motivation now affects dispatch
+[Algorithm: Budget-aware planning] planner now uses commitment budget
+[Performance] Throughput decreased by 8.5% (46.80 → 42.80)
+[Governance] System autonomy increased by 112.4% (0.16 → 0.33)
 ```
 
 ## Directory Structure
@@ -32,57 +53,32 @@ This enables researchers to:
 ```
 cadl-explorer/
 ├── app.py                          # Streamlit web UI
-├── requirements.txt                # Production dependencies
-├── requirements-dev.txt            # Dev/test dependencies
-│
+├── cli.py                          # Batch CLI runner
 ├── backend/
-│   ├── services/                   # Service facades (main entry points)
-│   │   ├── cadl_service.py         # Config creation, IR, Unity config
-│   │   ├── diff_service.py         # 4-type diff API (cadl/ir/config/result)
-│   │   ├── experiment_service.py   # Dispatches to synthetic or Unity runner
-│   │   ├── evaluation_service.py   # Aggregates metric evaluators
-│   │   └── run_manager.py          # Experiment output management
-│   │
-│   ├── evaluation/                 # Metric modules
+│   ├── services/
+│   │   ├── pipeline.py             # GovernancePipeline + ComparisonResult
+│   │   ├── cadl_service.py         # CADL config / IR / Unity config
+│   │   ├── diff_service.py         # 4-type syntactic + semantic diff
+│   │   ├── evaluation_service.py   # Metric aggregation
+│   │   ├── experiment_service.py   # Runner dispatch
+│   │   └── run_manager.py          # Output management + replay
+│   ├── evaluation/
 │   │   ├── system_metrics.py       # Throughput
-│   │   ├── autonomy_metrics.py     # System autonomy, per-robot freedom
-│   │   ├── fairness_metrics.py     # Fairness (CV), Gini coefficient
-│   │   └── structural_metrics.py   # IR-level structural comparison
-│   │
-│   ├── runners/                    # Experiment execution
-│   │   ├── synthetic_runner.py     # Analytical model (no Unity required)
-│   │   └── unity_runner.py         # Unity headless batch execution
-│   │
-│   ├── adapters/                   # External system adapters
-│   │   ├── unity_config_adapter.py # Generate cadl_config.json
-│   │   ├── unity_runner_adapter.py # Execute Unity CLI
-│   │   └── unity_result_adapter.py # Parse metrics_report.txt
-│   │
-│   ├── plotting/                   # Visualization
-│   │   ├── interactive.py          # Plotly charts (Streamlit)
-│   │   └── publication.py          # Matplotlib figures (PNG/PDF)
-│   │
-│   ├── models/                     # Data models
-│   │   ├── experiment_result.py    # SingleResult dataclass
-│   │   └── evaluation_result.py    # EvaluationResult, MetricValue
-│   │
-│   └── *.py                        # Backward-compat shims (cadl_bridge, etc.)
-│
-├── cadl/                           # CADL core (vendored)
-│   ├── schema/                     # Config schema + motivation extensions
-│   ├── ir/                         # 3-layer intermediate representation
-│   ├── generators/unity/           # Unity config generator
-│   └── examples/                   # CADL language examples
-│
+│   │   ├── autonomy_metrics.py     # System autonomy
+│   │   ├── fairness_metrics.py     # Fairness, Gini
+│   │   ├── structural_metrics.py   # Correlation, variance, region extent
+│   │   └── region_analysis.py      # Convex hull, bounding box, region comparison
+│   ├── runners/                    # Synthetic / Unity execution
+│   ├── adapters/                   # Unity config / runner / result adapters
+│   ├── plotting/                   # Interactive (Plotly) + Publication (Matplotlib)
+│   └── models/
+│       ├── pipeline_result.py      # PipelineResult + StageTrace
+│       ├── experiment_result.py    # SingleResult
+│       └── evaluation_result.py    # EvaluationResult + MetricValue
+├── cadl/                           # Vendored CADL core
 ├── experiments/                    # Research experiment definitions
-│   ├── a_sos_baseline.yaml
-│   ├── a_sos_rho_sweep.yaml
-│   ├── c_sos_reference.yaml
-│   └── profiles/                   # Motivation profile definitions
-│
 ├── runs/                           # Experiment outputs (gitignored)
-│
-└── tests/                          # Test suite
+└── tests/                          # 45+ tests
 ```
 
 ## Quick Start
@@ -94,56 +90,47 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Opens at http://localhost:8501. Add `?auto=1` to auto-run the full pipeline.
+## CLI Experiments
 
-## Running Experiments
+```bash
+# Single pipeline
+python cli.py run --template "A-SoS + motivation-sensitive" --profile linear --rho 0.5 --save
 
-### Interactive (Web UI)
+# Rho sweep
+python cli.py sweep --profile linear --rho-values "0.0,0.25,0.5,0.75,1.0" --save
 
-1. Select governance template, motivation profile, and rho
-2. Click **Run Governance Pipeline Demo**
-3. Browse tabs: Service View, CADL/IR Diff, Config Diff, Results
+# Batch from experiment YAML
+python cli.py batch --config experiments/a_sos_rho_sweep.yaml --save
 
-### Programmatic
+# Compare two governance configurations
+python cli.py compare --a "A-SoS" --b "A-SoS + motivation-sensitive" --rho-b 0.5
 
-```python
-from backend.services.cadl_service import make_config, build_ir
-from backend.services.experiment_service import run_comparison_sweep
-from backend.services.evaluation_service import evaluate_full
+# Replay a previous run
+python cli.py replay --run-dir runs/2026-03-28_143000_sweep_...
 
-config = make_config("A-SoS + motivation-sensitive", "linear", rho=0.5)
-ir = build_ir(config)
-
-results = run_comparison_sweep("linear", rho_values=[0.0, 0.25, 0.5, 0.75, 1.0])
-evaluation = evaluate_full(results["a_sos"])
-print(f"Throughput: {evaluation.throughput.mean:.1f} +/- {evaluation.throughput.std:.1f}")
+# List saved runs
+python cli.py list-runs
 ```
 
-### Publication Figures
+## Reproducibility
 
-```python
-from backend.plotting.publication import pub_rho_effects, pub_performance_autonomy
-from backend.runners.synthetic_runner import run_sweep
+Each run saves a `manifest.json` with all parameters needed for exact replay:
 
-results = run_sweep("directed", "linear", [0.0, 0.25, 0.5, 0.75, 1.0], num_seeds=20)
-pub_rho_effects(results, "figures/rho_effects.pdf")
+```
+runs/2026-03-28_143000_sweep/
+├── manifest.json          # {template, profile, rho, seeds, timestamp}
+├── cadl/config.yaml       # CADL snapshot
+├── ir/ir.json             # IR dump
+├── configs/cadl_config.json # Unity config
+├── metrics/
+│   ├── evaluation.json    # Aggregated metrics
+│   └── raw_results.json   # Per-seed results
+├── plots/                 # Generated figures
+└── report/summary.md      # Text summary
 ```
 
-## Output Directory
-
-Experiment outputs are saved under `runs/` using `run_manager`:
-
-```python
-from backend.services.run_manager import create_run
-
-run = create_run("a_sos_rho_sweep")
-run.save_cadl(config)
-run.save_ir(ir)
-run.save_config(unity_config_dict)
-run.save_metrics(evaluation_dict)
-run.save_report(summary_text)
-# Output: runs/2026-03-28_143000_a_sos_rho_sweep/{cadl,ir,configs,metrics,plots,report}/
-```
+`PipelineResult` includes content-hash traceability IDs (cadl_id, ir_id, config_id)
+that link each stage to its upstream dependency.
 
 ## Running Tests
 
@@ -154,23 +141,11 @@ python -m pytest tests/ -v
 
 ## Current Constraints
 
-- **Synthetic experiments only**: Unity batch execution requires Unity installation
-  and `UNITY_PATH` environment variable. The synthetic runner provides calibrated
-  analytical results without Unity.
-- **Fixed graph topology**: 11-node, 17-edge graph matching the Unity scene.
-- **5 robots**: Hardcoded to match the simulator environment.
+- **Synthetic experiments only**: Unity requires `UNITY_PATH` env var
+- **Fixed topology**: 11-node, 17-edge graph (matches Unity scene)
+- **5 robots**: Hardcoded to match simulator
 
 ## CADL Core — Vendored Copy
 
-The `cadl/` directory contains a vendored copy of the CADL core modules
-(schema, IR, generators). This is currently self-contained within this repository.
-
-**Future migration path**: The CADL core is designed to be extracted into an
-independent pip-installable package (`pip install cadl`). When that happens:
-1. Remove the `cadl/` directory
-2. Add `cadl` to `requirements.txt`
-3. No other code changes needed — all imports go through `backend/services/`
-
-The service facade pattern (`backend/services/cadl_service.py`) ensures that
-UI and business logic never import `cadl.*` directly, making this migration
-a one-line change.
+`cadl/` is a vendored copy. Future migration: replace with `pip install cadl`.
+All imports go through `backend/services/cadl_service.py` — one-line change.

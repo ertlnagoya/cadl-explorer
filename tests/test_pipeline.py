@@ -2,8 +2,8 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from backend.services.pipeline import run_pipeline, compare_pipelines, GovernancePipeline
-from backend.models.pipeline_result import PipelineResult
+from backend.services.pipeline import run_pipeline, compare_pipelines, GovernancePipeline, ComparisonResult
+from backend.models.pipeline_result import PipelineResult, StageTrace
 from backend.services.diff_service import (
     semantic_diff_cadl, semantic_diff_ir, semantic_diff_config, semantic_diff_result,
     SemanticDiffResult, SemanticLabel,
@@ -37,13 +37,14 @@ def test_pipeline_serialization():
 def test_compare_pipelines():
     pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
     pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
-    diffs = compare_pipelines(pr_a, pr_b)
-    assert "cadl" in diffs
-    assert "ir" in diffs
-    assert "config" in diffs
-    assert "result" in diffs
-    assert isinstance(diffs["cadl"], SemanticDiffResult)
-    assert diffs["cadl"].labels  # Should have changes
+    cmp = compare_pipelines(pr_a, pr_b)
+    assert isinstance(cmp, ComparisonResult)
+    assert cmp.cadl is not None
+    assert cmp.ir is not None
+    assert cmp.config is not None
+    assert cmp.result is not None
+    assert isinstance(cmp.cadl, SemanticDiffResult)
+    assert cmp.cadl.labels  # Should have changes
 
 
 def test_semantic_diff_result_labels():
@@ -89,3 +90,58 @@ def test_region_extent():
     assert "throughput_range" in re
     assert "autonomy_range" in re
     assert re["throughput_centroid"].mean > 0
+
+
+def test_pipeline_has_traces():
+    pr = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
+    assert len(pr.traces) == 5
+    assert pr.traces[0].stage == "cadl"
+    assert pr.traces[1].parent_id == pr.traces[0].content_id  # ir.parent = cadl
+    assert pr.traces[2].parent_id == pr.traces[1].content_id  # config.parent = ir
+
+
+def test_pipeline_metadata():
+    pr = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=2)
+    assert pr.experiment_id  # non-empty
+    assert pr.timestamp  # non-empty
+    assert pr.pipeline_version  # non-empty
+    assert pr.cadl_id  # content hash
+
+
+def test_compare_returns_comparison_result():
+    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
+    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
+    cmp = compare_pipelines(pr_a, pr_b)
+    assert isinstance(cmp, ComparisonResult)
+    assert cmp.pipeline_a == pr_a.name
+    assert cmp.pipeline_b == pr_b.name
+    assert cmp.all_labels  # should have labels
+    assert cmp.summary  # non-empty
+    d = cmp.to_dict()
+    assert "stages" in d
+    assert "all_labels" in d
+
+
+def test_ir_diff_governance_interpretation():
+    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=2)
+    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=2)
+    sd = semantic_diff_ir(pr_a.ir, pr_b.ir, pr_a.name, pr_b.name)
+    # Should have governance-level labels, not just field counts
+    categories = [lbl.category for lbl in sd.labels]
+    assert any("Institution" in c for c in categories)
+    assert any("Protocol" in c for c in categories)
+    assert any("Algorithm" in c for c in categories)
+
+
+def test_region_analysis():
+    from backend.evaluation.region_analysis import compute_region, compare_regions
+    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=5)
+    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    ra = compute_region(pr_a.results, "A-SoS")
+    rb = compute_region(pr_b.results, "Selected")
+    assert ra.area >= 0
+    assert rb.area >= 0
+    assert len(ra.hull_vertices) >= 3
+    cmp = compare_regions(ra, rb)
+    assert "centroid_shift" in cmp
+    assert "summary" in cmp

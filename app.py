@@ -24,7 +24,7 @@ from backend.services.diff_service import (
 )
 from backend.services.experiment_service import run_sweep, run_comparison_sweep
 from backend.services.evaluation_service import evaluate, evaluate_full, generate_summary
-from backend.services.pipeline import run_pipeline, compare_pipelines
+from backend.services.pipeline import run_pipeline, compare_pipelines, ComparisonResult
 from backend.plotting.interactive import (
     scatter_performance_autonomy, line_rho_effects,
     bar_comparison, individual_robot_scatter,
@@ -163,43 +163,44 @@ tab_chain, tab_service, tab_cadl, tab_config, tab_results = st.tabs([
 with tab_chain:
     st.subheader("CADL -> IR -> Config -> Result : Causal Traceability")
 
-    # Compute semantic diffs for the full chain
-    sd_cadl = semantic_diff_cadl(
-        pipeline_baseline.cadl, pipeline_selected.cadl,
-        pipeline_baseline.name, pipeline_selected.name,
-    )
-    sd_ir = semantic_diff_ir(
-        pipeline_baseline.ir, pipeline_selected.ir,
-        pipeline_baseline.name, pipeline_selected.name,
-    )
-    sd_config = semantic_diff_config(
-        pipeline_baseline.config, pipeline_selected.config,
-        pipeline_baseline.name, pipeline_selected.name,
-    )
-    sd_result = semantic_diff_result(
-        pipeline_baseline.evaluation.to_dict() if pipeline_baseline.evaluation else {},
-        pipeline_selected.evaluation.to_dict() if pipeline_selected.evaluation else {},
-        pipeline_baseline.name, pipeline_selected.name,
-    )
+    # Traceability IDs
+    col_id1, col_id2 = st.columns(2)
+    with col_id1:
+        st.caption(f"Baseline: `{pipeline_baseline.name}`  |  cadl:`{pipeline_baseline.cadl_id}`  ir:`{pipeline_baseline.ir_id}`")
+    with col_id2:
+        st.caption(f"Selected: `{pipeline_selected.name}`  |  cadl:`{pipeline_selected.cadl_id}`  ir:`{pipeline_selected.ir_id}`")
+
+    # Compare using ComparisonResult
+    comparison = compare_pipelines(pipeline_baseline, pipeline_selected)
 
     # Display chain as 4 stages
     stages = [
-        ("1. CADL (Institution Design)", sd_cadl),
-        ("2. IR (Governance Structure)", sd_ir),
-        ("3. Config (Execution Settings)", sd_config),
-        ("4. Result (Behavioral Outcome)", sd_result),
+        ("1. CADL (Institution Design)", comparison.cadl),
+        ("2. IR (Governance Structure)", comparison.ir),
+        ("3. Config (Execution Settings)", comparison.config),
+        ("4. Result (Behavioral Outcome)", comparison.result),
     ]
 
     for title, sd in stages:
         with st.expander(title, expanded=True):
             st.markdown(sd.to_html(), unsafe_allow_html=True)
 
+    # Region analysis
+    from backend.evaluation.region_analysis import compute_region, compare_regions
+    region_base = compute_region(pipeline_baseline.results, "Baseline")
+    region_sel = compute_region(pipeline_selected.results, "Selected")
+    region_cmp = compare_regions(region_base, region_sel)
+    if region_cmp["interpretation"]:
+        with st.expander("5. Region Shift (Performance-Autonomy Plane)", expanded=True):
+            st.markdown(f"**{region_cmp['summary']}**")
+            col_r1, col_r2 = st.columns(2)
+            col_r1.metric("Baseline area", f"{region_base.area:.2f}")
+            col_r2.metric("Selected area", f"{region_sel.area:.2f}", f"{region_cmp['area_ratio']:.1f}x")
+
     # Overall pipeline summary
     st.markdown("---")
     st.markdown("### Pipeline Summary")
-    all_labels = []
-    for _, sd in stages:
-        all_labels.extend(sd.labels)
+    all_labels = comparison.all_labels
 
     if all_labels:
         for lbl in all_labels:

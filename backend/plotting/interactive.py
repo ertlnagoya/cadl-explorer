@@ -11,11 +11,29 @@ def scatter_performance_autonomy(
     c_sos_results: list,
     selected_results: list = None,
     selected_label: str = "",
+    show_regions: bool = True,
 ) -> go.Figure:
-    """Performance-autonomy scatter with feasible regions."""
+    """Performance-autonomy scatter with feasible regions (convex hull overlay)."""
+    from backend.evaluation.region_analysis import compute_region
+
     fig = go.Figure()
 
+    def _add_region(results, color, name):
+        if not results or not show_regions:
+            return
+        region = compute_region(results, name)
+        if len(region.hull_vertices) >= 3:
+            hx = [v[0] for v in region.hull_vertices] + [region.hull_vertices[0][0]]
+            hy = [v[1] for v in region.hull_vertices] + [region.hull_vertices[0][1]]
+            fig.add_trace(go.Scatter(
+                x=hx, y=hy, mode="lines", fill="toself",
+                fillcolor=color.replace(")", ",0.1)").replace("rgb", "rgba"),
+                line=dict(color=color, width=1.5, dash="dash"),
+                name=f"{name} region", showlegend=True,
+            ))
+
     if a_sos_results:
+        _add_region(a_sos_results, "rgb(70,130,180)", "A-SoS")
         x = [r.avg_autonomy for r in a_sos_results]
         y = [r.throughput for r in a_sos_results]
         fig.add_trace(go.Scatter(
@@ -24,6 +42,7 @@ def scatter_performance_autonomy(
         ))
 
     if c_sos_results:
+        _add_region(c_sos_results, "rgb(255,140,0)", "C-SoS")
         x = [r.avg_autonomy for r in c_sos_results]
         y = [r.throughput for r in c_sos_results]
         fig.add_trace(go.Scatter(
@@ -32,6 +51,7 @@ def scatter_performance_autonomy(
         ))
 
     if selected_results:
+        _add_region(selected_results, "rgb(220,20,60)", "Selected")
         x = [r.avg_autonomy for r in selected_results]
         y = [r.throughput for r in selected_results]
         fig.add_trace(go.Scatter(

@@ -5,7 +5,10 @@ CADL → IR → Config → Experiment → Evaluation → PipelineResult
 Each stage's output is preserved in PipelineResult for traceability.
 """
 
-from typing import List, Optional
+import uuid
+from datetime import datetime
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict
 
 from backend.models.pipeline_result import PipelineResult
 from backend.models.evaluation_result import EvaluationResult
@@ -56,18 +59,22 @@ class GovernancePipeline:
         # Stage 5: Evaluation
         evaluation = evaluate_full(results)
 
-        return PipelineResult(
+        pr = PipelineResult(
             name=cadl_config.name,
             template=self.template,
             profile=self.profile,
             rho=self.rho,
             seeds=list(range(self.num_seeds)),
+            experiment_id=uuid.uuid4().hex[:8],
+            timestamp=datetime.now().isoformat(),
             cadl=cadl_config.to_dict(),
             ir=ir.to_dict(),
             config=unity_config,
             results=results,
             evaluation=evaluation,
         )
+        pr.compute_traces()
+        return pr
 
 
 def run_pipeline(
@@ -84,23 +91,72 @@ def run_pipeline(
     ).run()
 
 
-def compare_pipelines(a: PipelineResult, b: PipelineResult) -> dict:
+# ── Pipeline comparison ──────────────────────────────────────────────
+
+
+@dataclass
+class ComparisonResult:
+    """Structured comparison of two PipelineResults across all stages."""
+    pipeline_a: str = ""
+    pipeline_b: str = ""
+    cadl: "SemanticDiffResult" = None
+    ir: "SemanticDiffResult" = None
+    config: "SemanticDiffResult" = None
+    result: "SemanticDiffResult" = None
+
+    @property
+    def all_labels(self) -> list:
+        labels = []
+        for stage in [self.cadl, self.ir, self.config, self.result]:
+            if stage:
+                labels.extend(stage.labels)
+        return labels
+
+    @property
+    def summary(self) -> str:
+        parts = []
+        for name, stage in [("CADL", self.cadl), ("IR", self.ir),
+                            ("Config", self.config), ("Result", self.result)]:
+            if stage and stage.labels:
+                parts.append(f"{name}: {stage.summary}")
+        return " | ".join(parts) if parts else "No differences"
+
+    def to_dict(self) -> dict:
+        return {
+            "pipeline_a": self.pipeline_a,
+            "pipeline_b": self.pipeline_b,
+            "stages": {
+                "cadl": {"summary": self.cadl.summary if self.cadl else "", "n_labels": len(self.cadl.labels) if self.cadl else 0},
+                "ir": {"summary": self.ir.summary if self.ir else "", "n_labels": len(self.ir.labels) if self.ir else 0},
+                "config": {"summary": self.config.summary if self.config else "", "n_labels": len(self.config.labels) if self.config else 0},
+                "result": {"summary": self.result.summary if self.result else "", "n_labels": len(self.result.labels) if self.result else 0},
+            },
+            "all_labels": [
+                {"category": l.category, "field": l.field, "direction": l.direction, "summary": l.summary}
+                for l in self.all_labels
+            ],
+        }
+
+
+def compare_pipelines(a: PipelineResult, b: PipelineResult) -> ComparisonResult:
     """Compare two pipeline results across all stages.
 
-    Returns dict with semantic diffs at each stage.
+    Returns ComparisonResult with semantic diffs at each stage.
     """
     from backend.services.diff_service import (
         semantic_diff_cadl, semantic_diff_ir,
         semantic_diff_config, semantic_diff_result,
     )
 
-    return {
-        "cadl": semantic_diff_cadl(a.cadl, b.cadl, a.name, b.name),
-        "ir": semantic_diff_ir(a.ir, b.ir, a.name, b.name),
-        "config": semantic_diff_config(a.config, b.config, a.name, b.name),
-        "result": semantic_diff_result(
+    return ComparisonResult(
+        pipeline_a=a.name,
+        pipeline_b=b.name,
+        cadl=semantic_diff_cadl(a.cadl, b.cadl, a.name, b.name),
+        ir=semantic_diff_ir(a.ir, b.ir, a.name, b.name),
+        config=semantic_diff_config(a.config, b.config, a.name, b.name),
+        result=semantic_diff_result(
             a.evaluation.to_dict() if a.evaluation else {},
             b.evaluation.to_dict() if b.evaluation else {},
             a.name, b.name,
         ),
-    }
+    )

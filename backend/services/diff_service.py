@@ -229,7 +229,14 @@ def semantic_diff_cadl(cadl_a: dict, cadl_b: dict, label_a: str = "A", label_b: 
 
 
 def semantic_diff_ir(ir_a: dict, ir_b: dict, label_a: str = "A", label_b: str = "B") -> SemanticDiffResult:
-    """Semantic diff of IR — governance structure changes per layer."""
+    """Semantic diff of IR — governance structure changes per layer.
+
+    Interprets field changes in terms of governance concepts:
+    - authority structure (who decides)
+    - decision holder (central vs local)
+    - information flow (protocol steps, dispatch effects)
+    - algorithm binding (planner modifications)
+    """
     ja = json.dumps(ir_a or {}, indent=2, sort_keys=True)
     jb = json.dumps(ir_b or {}, indent=2, sort_keys=True)
     syntactic = DiffResult(
@@ -238,24 +245,69 @@ def semantic_diff_ir(ir_a: dict, ir_b: dict, label_a: str = "A", label_b: str = 
     )
 
     labels = []
-    LAYER_NAMES = {
-        "layer1_institution": "Institution (WHO decides)",
-        "layer2_protocol": "Protocol (HOW coordination flows)",
-        "layer3_algorithm": "Algorithm (WHAT computation runs)",
+    a = ir_a or {}
+    b = ir_b or {}
+
+    # Layer 1: Institution — authority structure
+    L1_INTERPRET = {
+        "sos_type": ("Authority structure", lambda va, vb: f"governance changed from {va} to {vb}"),
+        "decision_authority": ("Decision holder", lambda va, vb: f"decisions shift from {va} to {vb}"),
+        "agent_autonomy": ("Agent autonomy level", lambda va, vb: f"robot autonomy: {va} -> {vb}"),
+        "motivation_interpretation.model": ("Motivation model", lambda va, vb: f"authority now uses {vb} model (was {va})"),
+        "motivation_interpretation.rho": ("Sensitivity (rho)", lambda va, vb: f"motivation sensitivity: {va} -> {vb}"),
+        "commitment_policy.enforcement": ("Budget enforcement", lambda va, vb: f"enforcement: {va} -> {vb}"),
+        "commitment_policy.budget_formula": ("Budget formula", lambda va, vb: f"budget rule changed"),
     }
-    for layer_key, layer_desc in LAYER_NAMES.items():
-        la = (ir_a or {}).get(layer_key, {})
-        lb = (ir_b or {}).get(layer_key, {})
-        diffs = _field_diff(la, lb)
-        if diffs:
-            changed_fields = [d[0] for d in diffs]
+    l1a = a.get("layer1_institution", {})
+    l1b = b.get("layer1_institution", {})
+    for path, va, vb in _field_diff(l1a, l1b):
+        if path in L1_INTERPRET:
+            cat, fmt = L1_INTERPRET[path]
             labels.append(SemanticLabel(
-                category=layer_desc, field=layer_key, direction="changed",
-                magnitude="significant" if len(diffs) > 2 else "moderate",
-                summary=f"{len(diffs)} field(s) changed: {', '.join(changed_fields[:3])}",
+                category=f"Institution: {cat}", field=path, direction="changed",
+                magnitude="significant", summary=fmt(va, vb),
+            ))
+        elif path == "agent_motivation_values":
+            labels.append(SemanticLabel(
+                category="Institution: Agent profiles", field=path, direction="changed",
+                magnitude="moderate", summary="per-robot motivation values changed",
             ))
 
-    summary = f"Governance structure differs in {len(labels)} layer(s)" if labels else "Identical governance structure"
+    # Layer 2: Protocol — information flow
+    L2_INTERPRET = {
+        "routing_protocol": ("Routing protocol", lambda va, vb: f"coordination protocol: {va} -> {vb}"),
+        "motivation_effect.affects_dispatch": ("Dispatch control", lambda va, vb: f"motivation {'now affects' if vb else 'no longer affects'} dispatch"),
+        "motivation_effect.affects_waiting": ("Wait behavior", lambda va, vb: f"over-budget robots {'now wait longer' if vb else 'no longer throttled'}"),
+        "motivation_effect.fallback_action": ("Fallback action", lambda va, vb: f"fallback: {va} -> {vb}"),
+    }
+    l2a = a.get("layer2_protocol", {})
+    l2b = b.get("layer2_protocol", {})
+    for path, va, vb in _field_diff(l2a, l2b):
+        if path in L2_INTERPRET:
+            cat, fmt = L2_INTERPRET[path]
+            labels.append(SemanticLabel(
+                category=f"Protocol: {cat}", field=path, direction="changed",
+                magnitude="significant", summary=fmt(va, vb),
+            ))
+
+    # Layer 3: Algorithm — computation binding
+    L3_INTERPRET = {
+        "planner_modification.objective_modified": ("Planner objective", lambda va, vb: f"planner objective {'now modified' if vb else 'restored to default'}"),
+        "planner_modification.modification_type": ("Modification type", lambda va, vb: f"planner modification: {va} -> {vb}"),
+        "planner_modification.uses_budget": ("Budget-aware planning", lambda va, vb: f"planner {'now uses' if vb else 'no longer uses'} commitment budget"),
+    }
+    l3a = a.get("layer3_algorithm", {})
+    l3b = b.get("layer3_algorithm", {})
+    for path, va, vb in _field_diff(l3a, l3b):
+        if path in L3_INTERPRET:
+            cat, fmt = L3_INTERPRET[path]
+            labels.append(SemanticLabel(
+                category=f"Algorithm: {cat}", field=path, direction="changed",
+                magnitude="moderate", summary=fmt(va, vb),
+            ))
+
+    n_layers = len(set(l.category.split(":")[0] for l in labels))
+    summary = f"Governance structure differs in {n_layers} layer(s), {len(labels)} change(s)" if labels else "Identical governance structure"
     return SemanticDiffResult(
         category="ir", label_a=label_a, label_b=label_b,
         syntactic=syntactic, labels=labels, summary=summary,
