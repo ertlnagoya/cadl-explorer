@@ -5,6 +5,7 @@ Visualizes: CADL diff → IR diff → Config diff → Experiment result diff →
 """
 
 import streamlit as st
+import time
 import json
 import sys
 import os
@@ -115,15 +116,8 @@ run_pipeline = st.sidebar.button(
     "Run Governance Pipeline Demo", type="primary", use_container_width=True,
 )
 
-with st.sidebar.expander("Individual Steps"):
-    btn_cadl = st.button("1. Generate CADL")
-    btn_ir = st.button("2. Lower to IR")
-    btn_config = st.button("3. Generate Config")
-    btn_run = st.button("4. Run Experiment")
-    btn_compare = st.button("5. Compare Results")
 
-
-# ── Build configs ───────────────────────────────────────────────────
+# ── Build configs (always computed from current sidebar params) ─────
 baseline = make_baseline_config()
 selected = make_config(template, profile, rho)
 
@@ -134,43 +128,22 @@ baseline_unity = generate_unity_config_dict(baseline)
 selected_unity = generate_unity_config_dict(selected)
 
 
-# ── Pipeline state ──────────────────────────────────────────────────
-if "pipeline_stage" not in st.session_state:
-    # Auto-run if ?auto=1 in URL, otherwise start at stage 0
-    auto = st.query_params.get("auto", "0")
-    st.session_state.pipeline_stage = 5 if auto == "1" else 0
-
-if btn_cadl:
-    st.session_state.pipeline_stage = max(st.session_state.pipeline_stage, 1)
-if btn_ir:
-    st.session_state.pipeline_stage = max(st.session_state.pipeline_stage, 2)
-if btn_config:
-    st.session_state.pipeline_stage = max(st.session_state.pipeline_stage, 3)
-if btn_run:
-    st.session_state.pipeline_stage = max(st.session_state.pipeline_stage, 4)
-if btn_compare:
-    st.session_state.pipeline_stage = max(st.session_state.pipeline_stage, 5)
-if run_pipeline:
-    st.session_state.pipeline_stage = 5
-
-stage = st.session_state.pipeline_stage
-
-
 # ── Main content ────────────────────────────────────────────────────
 st.title("CADL -> IR -> Config -> Results -> Governance")
 st.caption(f"Comparing **A-SoS baseline** vs **{selected.name}**")
 
-# Pipeline progress
-stage_labels = ["1. CADL diff", "2. IR diff", "3. Config diff", "4. Experiment", "5. Evaluation"]
-cols_prog = st.columns(5)
-for i, (col, label) in enumerate(zip(cols_prog, stage_labels), 1):
-    if i <= stage:
-        col.success(label)
-    else:
-        col.info(label)
+# Pipeline animation (only when button pressed)
+if run_pipeline:
+    stage_labels = ["1. CADL diff", "2. IR diff", "3. Config diff", "4. Experiment", "5. Evaluation"]
+    progress = st.progress(0, text="Running governance pipeline...")
+    for i, label in enumerate(stage_labels, 1):
+        progress.progress(i * 20, text=f"Step {i}/5: {label}")
+        time.sleep(0.3)
+    progress.progress(100, text="Pipeline complete")
+    time.sleep(0.5)
+    progress.empty()
 
-
-# ── Tabs ────────────────────────────────────────────────────────────
+# ── Tabs (all always visible) ──────────────────────────────────────
 tab_service, tab_cadl, tab_config, tab_results = st.tabs([
     "Service View",
     "CADL / IR Diff",
@@ -196,148 +169,136 @@ with tab_service:
 
 # ── Tab 2: CADL / IR Diff ──────────────────────────────────────────
 with tab_cadl:
-    if stage >= 1:
-        cadl_tab, l1_tab, l2_tab, l3_tab = st.tabs([
-            "CADL", "Layer 1: Institution", "Layer 2: Protocol", "Layer 3: Algorithm",
-        ])
+    cadl_tab, l1_tab, l2_tab, l3_tab = st.tabs([
+        "CADL", "Layer 1: Institution", "Layer 2: Protocol", "Layer 3: Algorithm",
+    ])
 
-        with cadl_tab:
-            st.subheader("CADL YAML Diff")
-            diff_lines = compute_cadl_diff(baseline, selected)
-            if diff_lines:
+    with cadl_tab:
+        st.subheader("CADL YAML Diff")
+        diff_lines = compute_cadl_diff(baseline, selected)
+        if diff_lines:
+            st.markdown(
+                f'<div class="diff-container">{tagged_lines_to_html(diff_lines)}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Configs are identical — try changing the governance template or rho.")
+
+    ir_diffs = compute_ir_diff(baseline_ir, selected_ir)
+    for tab_obj, layer_name in zip(
+        [l1_tab, l2_tab, l3_tab],
+        ["Layer 1: Institution", "Layer 2: Protocol", "Layer 3: Algorithm"],
+    ):
+        with tab_obj:
+            st.subheader(f"{layer_name} Diff")
+            layer_diff = ir_diffs.get(layer_name, [])
+            if layer_diff:
                 st.markdown(
-                    f'<div class="diff-container">{tagged_lines_to_html(diff_lines)}</div>',
+                    f'<div class="diff-container">{tagged_lines_to_html(layer_diff)}</div>',
                     unsafe_allow_html=True,
                 )
             else:
-                st.info("Configs are identical.")
-
-        ir_diffs = compute_ir_diff(baseline_ir, selected_ir)
-        for tab_obj, layer_name in zip(
-            [l1_tab, l2_tab, l3_tab],
-            ["Layer 1: Institution", "Layer 2: Protocol", "Layer 3: Algorithm"],
-        ):
-            with tab_obj:
-                st.subheader(f"{layer_name} Diff")
-                layer_diff = ir_diffs.get(layer_name, [])
-                if layer_diff:
-                    st.markdown(
-                        f'<div class="diff-container">{tagged_lines_to_html(layer_diff)}</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.info("No differences in this layer.")
-    else:
-        st.info('Click **Generate CADL** or **Run Governance Pipeline Demo** to start.')
+                st.info("No differences in this layer.")
 
 
 # ── Tab 3: Config Diff ─────────────────────────────────────────────
 with tab_config:
-    if stage >= 3:
-        st.subheader("Unity cadl_config.json Diff")
-        config_diff = compute_config_diff(
-            baseline_unity, selected_unity, baseline.name, selected.name,
+    st.subheader("Unity cadl_config.json Diff")
+    config_diff = compute_config_diff(
+        baseline_unity, selected_unity, baseline.name, selected.name,
+    )
+    if config_diff:
+        st.markdown(
+            f'<div class="diff-container">{tagged_lines_to_html(config_diff)}</div>',
+            unsafe_allow_html=True,
         )
-        if config_diff:
-            st.markdown(
-                f'<div class="diff-container">{tagged_lines_to_html(config_diff)}</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Configs are identical.")
-
-        st.markdown("### Key Config Fields")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Baseline**")
-            st.json({
-                "sosType": baseline_unity.get("simulatorConfig", {}).get("sosType"),
-                "governance": baseline_unity.get("communicationSetup", {}).get("governance"),
-                "motivationConfig": baseline_unity.get("motivationConfig"),
-            })
-        with col2:
-            st.markdown("**Selected**")
-            st.json({
-                "sosType": selected_unity.get("simulatorConfig", {}).get("sosType"),
-                "governance": selected_unity.get("communicationSetup", {}).get("governance"),
-                "motivationConfig": selected_unity.get("motivationConfig"),
-            })
     else:
-        st.info('Click **Generate Config** or **Run Governance Pipeline Demo** to see config diff.')
+        st.info("Configs are identical.")
+
+    st.markdown("### Key Config Fields")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Baseline**")
+        st.json({
+            "sosType": baseline_unity.get("simulatorConfig", {}).get("sosType"),
+            "governance": baseline_unity.get("communicationSetup", {}).get("governance"),
+            "motivationConfig": baseline_unity.get("motivationConfig"),
+        })
+    with col2:
+        st.markdown("**Selected**")
+        st.json({
+            "sosType": selected_unity.get("simulatorConfig", {}).get("sosType"),
+            "governance": selected_unity.get("communicationSetup", {}).get("governance"),
+            "motivationConfig": selected_unity.get("motivationConfig"),
+        })
 
 
 # ── Tab 4: Results & Evaluation ─────────────────────────────────────
 with tab_results:
-    if stage >= 4:
-        rho_values = [0.0, 0.25, 0.5, 0.75, 1.0]
-        if rho not in rho_values:
-            rho_values = sorted(set(rho_values + [rho]))
+    rho_values = [0.0, 0.25, 0.5, 0.75, 1.0]
+    if rho not in rho_values:
+        rho_values = sorted(set(rho_values + [rho]))
 
-        with st.spinner("Running synthetic experiments..."):
-            comparison = run_comparison_sweep(profile, rho_values, num_seeds=10)
-            a_sos_results = comparison["a_sos"]
-            c_sos_results = comparison["c_sos"]
+    with st.spinner("Running synthetic experiments..."):
+        comparison = run_comparison_sweep(profile, rho_values, num_seeds=10)
+        a_sos_results = comparison["a_sos"]
+        c_sos_results = comparison["c_sos"]
 
-            selected_results = (
-                [r for r in a_sos_results if abs(r.rho - rho) < 0.01 and r.motivation_profile == profile]
-                if selected.sos_type == "directed"
-                else c_sos_results
-            )
+        selected_results = (
+            [r for r in a_sos_results if abs(r.rho - rho) < 0.01 and r.motivation_profile == profile]
+            if selected.sos_type == "directed"
+            else c_sos_results
+        )
 
-        res_scatter, res_rho, res_fair, res_summary = st.tabs([
-            "Scatter", "rho Effects", "Per-Robot", "Summary",
-        ])
+    res_scatter, res_rho, res_fair, res_summary = st.tabs([
+        "Scatter", "rho Effects", "Per-Robot", "Summary",
+    ])
 
-        with res_scatter:
-            fig = scatter_performance_autonomy(
-                [r for r in a_sos_results if r.rho == 0.0],
-                c_sos_results,
-                selected_results,
-                selected.name,
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    with res_scatter:
+        fig = scatter_performance_autonomy(
+            [r for r in a_sos_results if r.rho == 0.0],
+            c_sos_results,
+            selected_results,
+            selected.name,
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-        with res_rho:
-            all_sweep = []
-            for prof in ["uniform", "linear", "polarized"]:
-                all_sweep.extend(run_sweep("directed", prof, rho_values, num_seeds=10))
-            fig = line_rho_effects(all_sweep)
-            st.plotly_chart(fig, use_container_width=True)
+    with res_rho:
+        all_sweep = []
+        for prof in ["uniform", "linear", "polarized"]:
+            all_sweep.extend(run_sweep("directed", prof, rho_values, num_seeds=10))
+        fig = line_rho_effects(all_sweep)
+        st.plotly_chart(fig, use_container_width=True)
 
-        with res_fair:
-            fig = individual_robot_scatter(selected_results)
-            st.plotly_chart(fig, use_container_width=True)
+    with res_fair:
+        fig = individual_robot_scatter(selected_results)
+        st.plotly_chart(fig, use_container_width=True)
 
-        with res_summary:
-            if stage >= 5:
-                eval_base = evaluate([r for r in a_sos_results if r.rho == 0.0])
-                eval_sel = evaluate(selected_results)
+    with res_summary:
+        eval_base = evaluate([r for r in a_sos_results if r.rho == 0.0])
+        eval_sel = evaluate(selected_results)
 
-                col1, col2, col3 = st.columns(3)
-                col1.metric(
-                    "Throughput", f"{eval_sel['throughput']:.1f}",
-                    f"{eval_sel['throughput'] - eval_base['throughput']:+.1f}",
-                )
-                col2.metric(
-                    "Autonomy", f"{eval_sel['autonomy']:.2f}",
-                    f"{eval_sel['autonomy'] - eval_base['autonomy']:+.2f}",
-                )
-                col3.metric(
-                    "Fairness", f"{eval_sel['fairness']:.2f}",
-                    f"{eval_sel['fairness'] - eval_base['fairness']:+.2f}",
-                )
+        col1, col2, col3 = st.columns(3)
+        col1.metric(
+            "Throughput", f"{eval_sel['throughput']:.1f}",
+            f"{eval_sel['throughput'] - eval_base['throughput']:+.1f}",
+        )
+        col2.metric(
+            "Autonomy", f"{eval_sel['autonomy']:.2f}",
+            f"{eval_sel['autonomy'] - eval_base['autonomy']:+.2f}",
+        )
+        col3.metric(
+            "Fairness", f"{eval_sel['fairness']:.2f}",
+            f"{eval_sel['fairness'] - eval_base['fairness']:+.2f}",
+        )
 
-                fig = bar_comparison(eval_base, eval_sel, "A-SoS baseline", selected.name)
-                st.plotly_chart(fig, use_container_width=True)
+        fig = bar_comparison(eval_base, eval_sel, "A-SoS baseline", selected.name)
+        st.plotly_chart(fig, use_container_width=True)
 
-                summary_text = generate_summary(
-                    [r for r in a_sos_results if r.rho == 0.0],
-                    selected_results,
-                    "A-SoS baseline",
-                    selected.name,
-                )
-                st.markdown(summary_text)
-            else:
-                st.info('Click **Compare Results** or **Run Governance Pipeline Demo** to see evaluation.')
-    else:
-        st.info('Click **Run Experiment** or **Run Governance Pipeline Demo** to see results.')
+        summary_text = generate_summary(
+            [r for r in a_sos_results if r.rho == 0.0],
+            selected_results,
+            "A-SoS baseline",
+            selected.name,
+        )
+        st.markdown(summary_text)
