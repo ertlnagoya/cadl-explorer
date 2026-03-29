@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 
-RUNS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "runs")
+RUNS_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "runs"))
 
 
 class RunDir:
