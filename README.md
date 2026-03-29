@@ -78,7 +78,7 @@ cadl-explorer/
 ├── cadl/                           # Vendored CADL core
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
-└── tests/                          # 45+ tests
+└── tests/                          # 50 tests
 ```
 
 ## Quick Start
@@ -138,6 +138,49 @@ that link each stage to its upstream dependency.
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
+
+## Core Execution Flow
+
+All execution—UI and CLI—flows through `GovernancePipeline` in
+`backend/services/pipeline.py`:
+
+```
+┌─────────┐    ┌────────┐    ┌──────────┐    ┌────────────┐    ┌────────────┐
+│  CADL   │───▶│   IR   │───▶│  Config  │───▶│ Simulation │───▶│ Evaluation │
+│ (YAML)  │    │ (JSON) │    │ (Unity)  │    │ (Synthetic │    │ (Metrics)  │
+│         │    │        │    │          │    │  or Unity) │    │            │
+└─────────┘    └────────┘    └──────────┘    └────────────┘    └────────────┘
+     │              │             │                │                  │
+     └──────────────┴─────────────┴────────────────┴──────────────────┘
+                         PipelineResult (with traceability IDs)
+```
+
+```python
+from backend.services import GovernancePipeline, run_pipeline, compare_pipelines
+
+# Single run
+result = run_pipeline(template="A-SoS", profile="uniform", rho=0.0)
+
+# Compare two governance designs
+comparison = compare_pipelines(result_a, result_b)
+# -> comparison.cadl_diff, .ir_diff, .config_diff, .result_diff
+```
+
+## Deprecated Modules
+
+The following files in `backend/` are **backward-compatibility shims** that
+forward to the new layered modules. They emit `DeprecationWarning` on import.
+**New code should not use them.**
+
+| Legacy file | Replacement |
+|-------------|-------------|
+| `backend/cadl_bridge.py` | `backend.services.cadl_service` |
+| `backend/diff_engine.py` | `backend.services.diff_service` |
+| `backend/experiment_runner.py` | `backend.services.experiment_service` |
+| `backend/governance_eval.py` | `backend.services.evaluation_service` |
+| `backend/plot_builder.py` | `backend.plotting.interactive` |
+
+These shims will be removed in a future version.
 
 ## Current Constraints
 
