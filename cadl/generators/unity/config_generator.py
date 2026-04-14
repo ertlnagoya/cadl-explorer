@@ -7,6 +7,7 @@ motivation_config section for the A-SoS motivation-sensitive arbitrator.
 
 import json
 import copy
+import os
 from typing import Optional
 
 from cadl.schema.motivation_schema import CADLMotivationConfig
@@ -141,12 +142,37 @@ def generate_unity_config(
             "profile": cfg.agent_motivation.profile,
             # C-SoS P1-P4: per-robot delivery cap (null = no limit)
             "maxDeliveries": cfg.agent_motivation.max_deliveries,
+            # Wandering goal mode: "random" (default) | "select" (deterministic list)
+            "wanderingGoalMode": cfg.agent_motivation.wandering_goal_mode,
+            "wanderingGoalList": cfg.agent_motivation.wandering_goal_list,
         },
     }
 
-    # Add seed if provided
+    # random_seed: explicit seed overrides config value; -1 = skip InitState
     if seed is not None:
         unity_config["simulatorConfig"]["environment"]["random_seed"] = seed
+    elif cfg.random_seed != -1:
+        unity_config["simulatorConfig"]["environment"]["random_seed"] = cfg.random_seed
+
+    # start_nodes (per-robot initial node positions)
+    if cfg.start_nodes:
+        unity_config["simulatorConfig"]["environment"]["start_nodes"] = cfg.start_nodes
+
+    # FCFS task arbitration
+    if cfg.task_arbitration.enabled:
+        ta = cfg.task_arbitration
+        unity_config["taskArbitration"] = {
+            "enabled": ta.enabled,
+            "protocol": ta.protocol,
+            "maxClaimDelaySec": ta.max_claim_delay_sec,
+            "deliveryIntervalSec": ta.delivery_interval_sec,
+            "goalSequence": ta.goal_sequence,
+            "startupDelaySec": ta.startup_delay_sec,
+            "parallel": ta.parallel,
+            "deadlockRecoveryEnabled": ta.deadlock_recovery_enabled,
+            "deadlockDetectionSec": ta.deadlock_detection_sec,
+            "claimResolution": ta.claim_resolution,
+        }
 
     if output_path:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

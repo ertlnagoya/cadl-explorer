@@ -1,0 +1,71 @@
+# ============================================================
+# C-SoS with FCFS Task Arbitration — ARW-P1 Configuration
+# ============================================================
+# Collaborative SoS where a separate TASK_OWNER process manages
+# the delivery goal sequence via FCFS all-robot-wait claim
+# resolution.  Each robot waits proportional to its motivation
+# value (agentMotivation) before submitting a claim, so lower-
+# motivation robots claim later and win less frequently.
+#
+# Pattern P1: per-robot maxDeliveries = [4, 8, 12, 16, 20].
+# Robots retire from the active pool after reaching their cap.
+#
+# wanderingGoalMode = "select": between deliveries, robots
+# navigate to a deterministic goal from wanderingGoalList
+# instead of a random node.
+#
+# Matches the fcfs_arw_select_p1 experiment configuration.
+# ============================================================
+
+name: "C-SoS-FCFS-ARW-P1"
+sos_type: collaborative
+description: >
+  C-SoS with FCFS task arbitration, all-robot-wait claim resolution,
+  P1 delivery pattern (maxDeliveries = [4,8,12,16,20]), and SelectGoal
+  wandering mode. Reproduces the fcfs_arw_select_p1 experiment.
+
+environment:
+  num_nodes: 11
+  num_edges: 17
+  num_robots: 5
+  nats_url: "nats://localhost:4222"
+  random_seed: -1          # -1 = skip InitState (thesis-compatible, time-based seed)
+  start_nodes: [9, 8, 3, 2, 5]
+
+governance:
+  alpha: 0.7
+  beta: 0.3
+  lambda: 0.3
+
+motivation:
+  agent:
+    profile: custom
+    values: [0.0, 0.025, 0.05, 0.075, 0.1]  # claim delay weight per robot (0 = fastest)
+    max_deliveries: [4, 8, 12, 16, 20]        # P1: per-robot delivery cap before retirement
+    wandering_goal_mode: select               # deterministic goal between deliveries
+    wandering_goal_list: [9, 8, 3, 2, 5, 10, 7, 8, 0, 4, 6, 1]
+  governance:
+    model: none      # FCFS does not use the commitment-budget model
+    rho: 0.0
+    kappa: 0.0
+    budget_base: 0
+    wait_scale: 0.0
+
+task_arbitration:
+  enabled: true
+  protocol: fcfs
+  max_claim_delay_sec: 5.0
+  delivery_interval_sec: 1.0
+  goal_sequence: [5, 8, 9, 3, 7, 0, 4, 6, 1, 2, 10]
+  startup_delay_sec: 0.0
+  parallel: true
+  deadlock_recovery_enabled: false
+  deadlock_detection_sec: 15.0
+  claim_resolution: all-robot-wait
+
+experiment:
+  duration_seconds: 120
+  sweep:
+    rho: [0.0]
+    motivation_profiles: [custom]
+    seeds: [0, 1, 2, 3, 4]

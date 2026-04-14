@@ -131,6 +131,34 @@ class AlgorithmBindingLayer:
     )
 
 
+# ── Task Arbitration ─────────────────────────────────────────────────
+
+@dataclass
+class TaskArbitrationLayer:
+    """FCFS task arbitration state in the IR.
+
+    Represents the TASK_OWNER actor and DELIVERY_ASSIGNMENT protocol.
+    When enabled, a separate process manages the delivery goal sequence
+    and assigns tasks via FCFS with configurable claim resolution.
+    """
+    enabled: bool = False
+    protocol: str = "fcfs"
+    claim_resolution: str = "all-robot-wait"
+    max_claim_delay_sec: float = 5.0
+    delivery_interval_sec: float = 1.0
+    deadlock_recovery_enabled: bool = False
+    goal_sequence: List[int] = field(default_factory=list)
+
+    def summary(self) -> str:
+        if not self.enabled:
+            return "Task arbitration disabled (wandering/random goal selection)"
+        return (
+            f"FCFS, claim_resolution={self.claim_resolution}, "
+            f"maxDelay={self.max_claim_delay_sec}s, "
+            f"goals={self.goal_sequence[:5]}{'...' if len(self.goal_sequence) > 5 else ''}"
+        )
+
+
 # ── Full IR ───────────────────────────────────────────────────────────
 
 @dataclass
@@ -140,6 +168,7 @@ class ThreeLayerIR:
     institution: InstitutionLayer = field(default_factory=InstitutionLayer)
     protocol: ProtocolLayer = field(default_factory=ProtocolLayer)
     algorithm: AlgorithmBindingLayer = field(default_factory=AlgorithmBindingLayer)
+    task_arbitration: TaskArbitrationLayer = field(default_factory=TaskArbitrationLayer)
 
     def to_dict(self) -> dict:
         """Serialize to nested dict."""
@@ -185,6 +214,15 @@ class ThreeLayerIR:
                     "uses_budget": self.algorithm.planner_modification.uses_budget,
                     "description": self.algorithm.planner_modification.description,
                 },
+            },
+            "task_arbitration": {
+                "enabled": self.task_arbitration.enabled,
+                "protocol": self.task_arbitration.protocol,
+                "claim_resolution": self.task_arbitration.claim_resolution,
+                "max_claim_delay_sec": self.task_arbitration.max_claim_delay_sec,
+                "delivery_interval_sec": self.task_arbitration.delivery_interval_sec,
+                "deadlock_recovery_enabled": self.task_arbitration.deadlock_recovery_enabled,
+                "goal_sequence": self.task_arbitration.goal_sequence,
             },
         }
 
@@ -270,6 +308,25 @@ def build_ir_from_config(config) -> ThreeLayerIR:
             ),
         )
 
+    # Task arbitration layer
+    ta = config.task_arbitration
+    if ta.enabled:
+        ir.task_arbitration = TaskArbitrationLayer(
+            enabled=True,
+            protocol=ta.protocol,
+            claim_resolution=ta.claim_resolution,
+            max_claim_delay_sec=ta.max_claim_delay_sec,
+            delivery_interval_sec=ta.delivery_interval_sec,
+            deadlock_recovery_enabled=ta.deadlock_recovery_enabled,
+            goal_sequence=list(ta.goal_sequence),
+        )
+        # FCFS task arbitration affects Layer 2: claim-request/delivery-assignment protocol
+        ir.protocol.motivation_effect = MotivationProtocolEffect(
+            affects_dispatch=True,
+            affects_waiting=True,
+            fallback_action="claim_with_motivation_delay",
+        )
+
     return ir
 
 
@@ -331,6 +388,14 @@ def compare_irs(irs: List[ThreeLayerIR]) -> str:
     _cmp(lines, "  planner.modified", [ir.algorithm.planner_modification.objective_modified for ir in irs])
     _cmp(lines, "  planner.mod_type", [ir.algorithm.planner_modification.modification_type for ir in irs])
     _cmp(lines, "  planner.uses_budget", [ir.algorithm.planner_modification.uses_budget for ir in irs])
+
+    # Task arbitration
+    lines.append("── Task Arbitration ──")
+    _cmp(lines, "  enabled", [ir.task_arbitration.enabled for ir in irs])
+    _cmp(lines, "  protocol", [ir.task_arbitration.protocol for ir in irs])
+    _cmp(lines, "  claim_resolution", [ir.task_arbitration.claim_resolution for ir in irs])
+    _cmp(lines, "  max_claim_delay_sec", [ir.task_arbitration.max_claim_delay_sec for ir in irs])
+    _cmp(lines, "  deadlock_recovery", [ir.task_arbitration.deadlock_recovery_enabled for ir in irs])
 
     return "\n".join(lines)
 

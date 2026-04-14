@@ -39,11 +39,38 @@ CSOS_PATTERNS: Dict[str, List[int]] = {
 
 
 @dataclass
+class TaskArbitrationConfig:
+    """FCFS task arbitration configuration (DELIVERY_ASSIGNMENT protocol).
+
+    When enabled, a TASK_OWNER process manages the goal sequence and assigns
+    delivery targets via FCFS claim resolution.  Maps directly to the Unity
+    ``taskArbitration`` JSON block.
+
+    claim_resolution options:
+        "all-robot-wait"  — TASK_OWNER waits until every active robot has
+                            submitted a claim before assigning the goal.
+        "first-come"      — Goal is assigned to the first robot that claims it.
+    """
+    enabled: bool = False
+    protocol: str = "fcfs"
+    max_claim_delay_sec: float = 5.0
+    delivery_interval_sec: float = 1.0
+    goal_sequence: List[int] = field(default_factory=list)
+    startup_delay_sec: float = 0.0
+    parallel: bool = True
+    deadlock_recovery_enabled: bool = False
+    deadlock_detection_sec: float = 15.0
+    claim_resolution: str = "all-robot-wait"
+
+
+@dataclass
 class AgentMotivation:
     """Per-agent motivation specification."""
     profile: str = "uniform"
     values: Optional[List[float]] = None       # Explicit motivation values if profile=custom
     max_deliveries: Optional[List[int]] = None # Per-robot delivery cap (C-SoS P1-P4)
+    wandering_goal_mode: str = "random"        # "random" | "select" (deterministic list)
+    wandering_goal_list: List[int] = field(default_factory=list)  # used when mode="select"
 
     def resolve(self, num_robots: int) -> List[float]:
         """Resolve profile to concrete per-robot motivation values."""
@@ -113,6 +140,8 @@ class CADLMotivationConfig:
     num_edges: int = 17
     num_robots: int = 5
     nats_url: str = "nats://localhost:4222"
+    random_seed: int = -1              # -1 = skip InitState (thesis-compatible)
+    start_nodes: Optional[List[int]] = None  # Per-robot initial node positions
 
     # Governance parameters (existing)
     alpha: float = 0.7
@@ -123,6 +152,11 @@ class CADLMotivationConfig:
     agent_motivation: AgentMotivation = field(default_factory=AgentMotivation)
     governance_motivation: GovernanceMotivation = field(
         default_factory=GovernanceMotivation
+    )
+
+    # FCFS task arbitration (C-SoS with TASK_OWNER)
+    task_arbitration: TaskArbitrationConfig = field(
+        default_factory=TaskArbitrationConfig
     )
 
     # Experiment sweep (optional)
@@ -154,6 +188,8 @@ class CADLMotivationConfig:
         config.num_edges = env.get("num_edges", config.num_edges)
         config.num_robots = env.get("num_robots", config.num_robots)
         config.nats_url = env.get("nats_url", config.nats_url)
+        config.random_seed = env.get("random_seed", config.random_seed)
+        config.start_nodes = env.get("start_nodes", config.start_nodes)
 
         gov = data.get("governance", {})
         config.alpha = gov.get("alpha", config.alpha)
@@ -168,6 +204,8 @@ class CADLMotivationConfig:
                 profile=agent.get("profile", "uniform"),
                 values=agent.get("values"),
                 max_deliveries=agent.get("max_deliveries"),
+                wandering_goal_mode=agent.get("wandering_goal_mode", "random"),
+                wandering_goal_list=agent.get("wandering_goal_list", []),
             )
             gov_mot = mot.get("governance", {})
             config.governance_motivation = GovernanceMotivation(
@@ -176,6 +214,22 @@ class CADLMotivationConfig:
                 kappa=gov_mot.get("kappa", 5.0),
                 budget_base=gov_mot.get("budget_base", 3),
                 wait_scale=gov_mot.get("wait_scale", 3.0),
+            )
+
+        # FCFS task arbitration
+        ta = data.get("task_arbitration", {})
+        if ta:
+            config.task_arbitration = TaskArbitrationConfig(
+                enabled=ta.get("enabled", False),
+                protocol=ta.get("protocol", "fcfs"),
+                max_claim_delay_sec=ta.get("max_claim_delay_sec", 5.0),
+                delivery_interval_sec=ta.get("delivery_interval_sec", 1.0),
+                goal_sequence=ta.get("goal_sequence", []),
+                startup_delay_sec=ta.get("startup_delay_sec", 0.0),
+                parallel=ta.get("parallel", True),
+                deadlock_recovery_enabled=ta.get("deadlock_recovery_enabled", False),
+                deadlock_detection_sec=ta.get("deadlock_detection_sec", 15.0),
+                claim_resolution=ta.get("claim_resolution", "all-robot-wait"),
             )
 
         # Experiment sweep
@@ -195,25 +249,41 @@ class CADLMotivationConfig:
 
     def to_dict(self) -> dict:
         """Serialize to dict for YAML output."""
-        d = {
+        env: Dict[str, Any] = {
+            "num_nodes": self.num_nodes,
+            "num_edges": self.num_edges,
+            "num_robots": self.num_robots,
+            "nats_url": self.nats_url,
+        }
+        if self.random_seed != -1:
+            env["random_seed"] = self.random_seed
+        if self.start_nodes:
+            env["start_nodes"] = self.start_nodes
+
+        agent_mot: Dict[str, Any] = {
+            "profile": self.agent_motivation.profile,
+        }
+        if self.agent_motivation.values:
+            agent_mot["values"] = self.agent_motivation.values
+        if self.agent_motivation.max_deliveries:
+            agent_mot["max_deliveries"] = self.agent_motivation.max_deliveries
+        if self.agent_motivation.wandering_goal_mode != "random":
+            agent_mot["wandering_goal_mode"] = self.agent_motivation.wandering_goal_mode
+        if self.agent_motivation.wandering_goal_list:
+            agent_mot["wandering_goal_list"] = self.agent_motivation.wandering_goal_list
+
+        d: Dict[str, Any] = {
             "name": self.name,
             "sos_type": self.sos_type,
             "description": self.description,
-            "environment": {
-                "num_nodes": self.num_nodes,
-                "num_edges": self.num_edges,
-                "num_robots": self.num_robots,
-                "nats_url": self.nats_url,
-            },
+            "environment": env,
             "governance": {
                 "alpha": self.alpha,
                 "beta": self.beta,
                 "lambda": self.lambda_param,
             },
             "motivation": {
-                "agent": {
-                    "profile": self.agent_motivation.profile,
-                },
+                "agent": agent_mot,
                 "governance": {
                     "model": self.governance_motivation.motivation_model,
                     "rho": self.governance_motivation.rho,
@@ -223,8 +293,22 @@ class CADLMotivationConfig:
                 },
             },
         }
-        if self.agent_motivation.values:
-            d["motivation"]["agent"]["values"] = self.agent_motivation.values
+
+        # Task arbitration section (omit when disabled)
+        if self.task_arbitration.enabled:
+            d["task_arbitration"] = {
+                "enabled": self.task_arbitration.enabled,
+                "protocol": self.task_arbitration.protocol,
+                "max_claim_delay_sec": self.task_arbitration.max_claim_delay_sec,
+                "delivery_interval_sec": self.task_arbitration.delivery_interval_sec,
+                "goal_sequence": self.task_arbitration.goal_sequence,
+                "startup_delay_sec": self.task_arbitration.startup_delay_sec,
+                "parallel": self.task_arbitration.parallel,
+                "deadlock_recovery_enabled": self.task_arbitration.deadlock_recovery_enabled,
+                "deadlock_detection_sec": self.task_arbitration.deadlock_detection_sec,
+                "claim_resolution": self.task_arbitration.claim_resolution,
+            }
+
         if self.experiment:
             d["experiment"] = {
                 "sweep": {
