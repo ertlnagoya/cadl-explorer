@@ -147,7 +147,7 @@ if btn_run_pipeline:
     progress.empty()
 
 # ── Run pipelines ──────────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def cached_run_pipeline(template, profile, rho, num_seeds=5):
     return run_pipeline(template=template, profile=profile, rho=rho, num_seeds=num_seeds)
 
