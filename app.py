@@ -115,7 +115,7 @@ profile = st.sidebar.radio(
 rho = st.sidebar.slider("rho (motivation sensitivity)", 0.0, 1.0, 0.5, 0.05)
 
 st.sidebar.markdown("---")
-run_pipeline = st.sidebar.button(
+btn_run_pipeline = st.sidebar.button(
     "Run Governance Pipeline Demo", type="primary", use_container_width=True,
 )
 
@@ -136,7 +136,7 @@ st.title("CADL -> IR -> Config -> Results -> Governance")
 st.caption(f"Comparing **A-SoS baseline** vs **{selected.name}**")
 
 # Pipeline animation (only when button pressed)
-if run_pipeline:
+if btn_run_pipeline:
     stage_labels = ["1. CADL diff", "2. IR diff", "3. Config diff", "4. Experiment", "5. Evaluation"]
     progress = st.progress(0, text="Running governance pipeline...")
     for i, label in enumerate(stage_labels, 1):
@@ -147,8 +147,17 @@ if run_pipeline:
     progress.empty()
 
 # ── Run pipelines ──────────────────────────────────────────────────
-pipeline_baseline = run_pipeline(template="A-SoS", profile="uniform", rho=0.0, num_seeds=10)
-pipeline_selected = run_pipeline(template=template, profile=profile, rho=rho, num_seeds=10)
+@st.cache_data(show_spinner=False)
+def cached_run_pipeline(template, profile, rho, num_seeds=5):
+    return run_pipeline(template=template, profile=profile, rho=rho, num_seeds=num_seeds)
+
+try:
+    pipeline_baseline = cached_run_pipeline("A-SoS", "uniform", 0.0)
+    pipeline_selected = cached_run_pipeline(template, profile, float(rho))
+except Exception as e:
+    import traceback
+    st.error(f"Pipeline error: {e}\n\n```\n{traceback.format_exc()}\n```")
+    st.stop()
 
 # ── Tabs (all always visible) ──────────────────────────────────────
 tab_chain, tab_service, tab_cadl, tab_config, tab_results = st.tabs([
