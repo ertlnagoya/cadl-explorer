@@ -10,7 +10,7 @@ import copy
 import os
 from typing import Optional
 
-from cadl.schema.motivation_schema import CADLMotivationConfig
+from cadl_sim.schema.motivation_schema import CADLMotivationConfig
 
 
 # ── Default graph (matches Unity scene and Go arbitrator hardcoded graph) ──

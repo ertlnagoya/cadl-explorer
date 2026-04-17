@@ -13,7 +13,7 @@ import sys, os
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-from cadl.schema.motivation_schema import AgentMotivation
+from cadl_sim.schema.motivation_schema import AgentMotivation
 
 
 def run_single(

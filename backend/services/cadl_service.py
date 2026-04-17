@@ -13,13 +13,13 @@ _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cadl.schema.motivation_schema import (
+from cadl_sim.schema.motivation_schema import (
     CADLMotivationConfig,
     AgentMotivation,
     GovernanceMotivation,
 )
-from cadl.ir.three_layer_ir import build_ir_from_config, ThreeLayerIR, ir_to_text
-from cadl.generators.unity.config_generator import generate_unity_config as _gen_unity
+from cadl_sim.ir.three_layer_ir import build_ir_from_config, ThreeLayerIR, ir_to_text
+from cadl_sim.generators.unity.config_generator import generate_unity_config as _gen_unity
 
 
 # ── Governance templates ────────────────────────────────────────────

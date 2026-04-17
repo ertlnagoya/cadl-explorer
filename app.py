@@ -19,7 +19,7 @@ from backend.services.cadl_service import (
     build_ir, ir_to_json_str, generate_unity_config_dict, unity_config_to_json_str,
     TEMPLATES,
 )
-from cadl.schema.motivation_schema import CADLMotivationConfig
+from cadl_sim.schema.motivation_schema import CADLMotivationConfig
 from backend.services.diff_service import (
     compute_cadl_diff, compute_ir_diff, compute_config_diff, tagged_lines_to_html,
     semantic_diff_cadl, semantic_diff_ir, semantic_diff_config, semantic_diff_result,

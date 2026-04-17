@@ -8,7 +8,7 @@ import sys, os
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-from cadl.generators.unity.config_generator import generate_unity_config
+from cadl_sim.generators.unity.config_generator import generate_unity_config
 
 
 def generate_config(config) -> dict:

@@ -75,7 +75,7 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
-├── cadl/                           # Vendored CADL core
+├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
 └── tests/                          # 50 tests
@@ -190,5 +190,13 @@ These shims will be removed in a future version.
 
 ## CADL Core — Vendored Copy
 
-`cadl/` is a vendored copy. Future migration: replace with `pip install cadl`.
-All imports go through `backend/services/cadl_service.py` — one-line change.
+`cadl_sim/` is a vendored subset of the CADL schema, IR, and Unity generator,
+scoped to this explorer's needs. It was renamed from `cadl/` to avoid a
+name collision with the upstream `cadl` Python package
+([github.com/ertlnagoya/cadl](https://github.com/ertlnagoya/cadl)), which
+provides the full language parser (Lark grammar, verification, codegen).
+
+Future migration path: depend on the upstream `cadl` package directly and
+gradually replace `cadl_sim/` modules. Most imports funnel through
+`backend/services/cadl_service.py`, which is the single point where the
+swap would happen.
