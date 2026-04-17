@@ -9,6 +9,8 @@ import time
 import json
 import sys
 import os
+import yaml
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -17,6 +19,7 @@ from backend.services.cadl_service import (
     build_ir, ir_to_json_str, generate_unity_config_dict, unity_config_to_json_str,
     TEMPLATES,
 )
+from cadl.schema.motivation_schema import CADLMotivationConfig
 from backend.services.diff_service import (
     compute_cadl_diff, compute_ir_diff, compute_config_diff, tagged_lines_to_html,
     semantic_diff_cadl, semantic_diff_ir, semantic_diff_config, semantic_diff_result,
@@ -98,21 +101,77 @@ st.sidebar.title("Governance Pipeline Demo")
 service = st.sidebar.selectbox(
     "Service",
     ["Robotaxi (5-agent fleet)", "Delivery Robot (5-agent fleet)"],
+    help=(
+        "Target application domain. Both services share the same 5-agent "
+        "fleet topology; the choice affects labelling and the service-view "
+        "diagram only."
+    ),
 )
 
 template = st.sidebar.radio(
     "Governance Template",
     list(TEMPLATES.keys()),
     index=2,
+    help=(
+        "Preset combination of the governance parameters α, β, λ:\n\n"
+        "• **A-SoS** (directed, α=0.3, β=0.7, λ=0.0): strong central authority.\n"
+        "• **C-SoS** (collaborative, α=0.7, β=0.3, λ=0.3): autonomy-oriented.\n"
+        "• **A-SoS + motivation-sensitive** (directed, α=0.3, β=0.7, "
+        "λ=0.0, hybrid model): central authority that adjusts budgets based "
+        "on agent motivation.\n\n"
+        "α = authority weight, β = incentive weight, λ = information-sharing "
+        "weight."
+    ),
 )
 
 profile = st.sidebar.radio(
     "Motivation Profile",
     ["uniform", "linear", "polarized"],
     index=1,
+    help=(
+        "Distribution of agent motivation levels across the fleet.\n\n"
+        "• **uniform** — all agents equally motivated.\n"
+        "• **linear** — motivation increases linearly across agents.\n"
+        "• **polarized** — bimodal split between low- and high-motivation "
+        "agents."
+    ),
 )
 
-rho = st.sidebar.slider("rho (motivation sensitivity)", 0.0, 1.0, 0.5, 0.05)
+rho = st.sidebar.slider(
+    "ρ (motivation sensitivity)",
+    0.0, 1.0, 0.5, 0.05,
+    help=(
+        "How strongly governance decisions respond to agent motivation. "
+        "ρ=0 ignores motivation entirely (equivalent to a fixed template); "
+        "ρ=1 fully couples budget/wait decisions to each agent's motivation "
+        "score. Effective only when the template uses a motivation model."
+    ),
+)
+
+# ── Custom CADL input (optional) ────────────────────────────────────
+with st.sidebar.expander("Advanced: Custom CADL YAML"):
+    st.caption(
+        "Paste a CADL motivation-config YAML to override the template above. "
+        "Leave empty to use the sidebar selections."
+    )
+    custom_cadl_text = st.text_area(
+        "CADL YAML",
+        value="",
+        height=200,
+        label_visibility="collapsed",
+        placeholder=(
+            "name: my-custom-config\n"
+            "sos_type: directed\n"
+            "alpha: 0.3\n"
+            "beta: 0.7\n"
+            "lambda_param: 0.0\n"
+            "agent_motivation:\n"
+            "  profile: linear\n"
+            "governance_motivation:\n"
+            "  motivation_model: hybrid\n"
+            "  rho: 0.5\n"
+        ),
+    )
 
 st.sidebar.markdown("---")
 btn_run_pipeline = st.sidebar.button(
@@ -122,7 +181,31 @@ btn_run_pipeline = st.sidebar.button(
 
 # ── Build configs (always computed from current sidebar params) ─────
 baseline = make_baseline_config()
-selected = make_config(template, profile, rho)
+
+_custom_config = None
+if custom_cadl_text.strip():
+    try:
+        _custom_data = yaml.safe_load(custom_cadl_text)
+        _custom_config = CADLMotivationConfig.from_dict(_custom_data)
+        st.sidebar.success(f"Using custom CADL: {_custom_config.name}")
+    except Exception as _e:
+        st.sidebar.error(f"Invalid CADL YAML: {_e}")
+
+selected = _custom_config if _custom_config is not None else make_config(template, profile, rho)
+
+# When a custom CADL is active, drive the experiment runner using its
+# profile / rho (and pick the nearest built-in template by sos_type).
+if _custom_config is not None:
+    _pipeline_template = next(
+        (name for name, t in TEMPLATES.items() if t["sos_type"] == _custom_config.sos_type),
+        template,
+    )
+    _pipeline_profile = _custom_config.agent_motivation.profile
+    _pipeline_rho = float(_custom_config.governance_motivation.rho)
+else:
+    _pipeline_template = template
+    _pipeline_profile = profile
+    _pipeline_rho = float(rho)
 
 baseline_ir = build_ir(baseline)
 selected_ir = build_ir(selected)
@@ -153,19 +236,38 @@ def cached_run_pipeline(template, profile, rho, num_seeds=5):
 
 try:
     pipeline_baseline = cached_run_pipeline("A-SoS", "uniform", 0.0)
-    pipeline_selected = cached_run_pipeline(template, profile, float(rho))
+    pipeline_selected = cached_run_pipeline(_pipeline_template, _pipeline_profile, _pipeline_rho)
 except Exception as e:
     import traceback
     st.error(f"Pipeline error: {e}\n\n```\n{traceback.format_exc()}\n```")
     st.stop()
 
+# ── Run history (session-scoped) ────────────────────────────────────
+if "run_history" not in st.session_state:
+    st.session_state.run_history = []
+
+if btn_run_pipeline:
+    st.session_state.run_history.append({
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "name": pipeline_selected.name,
+        "template": _pipeline_template,
+        "profile": _pipeline_profile,
+        "rho": _pipeline_rho,
+        "throughput": pipeline_selected.evaluation.throughput.mean,
+        "autonomy": pipeline_selected.evaluation.autonomy.mean,
+        "fairness": pipeline_selected.evaluation.fairness.mean,
+    })
+    # cap at 20 entries
+    st.session_state.run_history = st.session_state.run_history[-20:]
+
 # ── Tabs (all always visible) ──────────────────────────────────────
-tab_chain, tab_service, tab_cadl, tab_config, tab_results = st.tabs([
+tab_chain, tab_service, tab_cadl, tab_config, tab_results, tab_history = st.tabs([
     "Causal Chain",
     "Service View",
     "CADL / IR Diff",
     "Simulator Config Diff",
     "Results & Evaluation",
+    "Run History",
 ])
 
 # ── Tab 0: Causal Chain ────────────────────────────────────────────
@@ -370,3 +472,69 @@ with tab_results:
             selected.name,
         )
         st.markdown(summary_text)
+
+
+# ── Tab 5: Run History ──────────────────────────────────────────────
+with tab_history:
+    st.subheader("Run History (this session)")
+    st.caption(
+        "Each press of **Run Governance Pipeline Demo** is recorded below. "
+        "Use this to compare how throughput / autonomy / fairness evolve as "
+        "you change governance parameters."
+    )
+
+    history = st.session_state.get("run_history", [])
+    if not history:
+        st.info(
+            "No runs yet. Press **Run Governance Pipeline Demo** in the "
+            "sidebar to record entries here."
+        )
+    else:
+        import pandas as pd
+        df = pd.DataFrame(history)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        if len(history) >= 2:
+            st.markdown("#### Metric trajectory")
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            x = list(range(1, len(history) + 1))
+            for metric in ["throughput", "autonomy", "fairness"]:
+                fig.add_trace(go.Scatter(
+                    x=x,
+                    y=[h[metric] for h in history],
+                    mode="lines+markers",
+                    name=metric,
+                ))
+            fig.update_layout(
+                xaxis_title="Run #",
+                yaxis_title="Value",
+                height=350,
+                margin=dict(l=10, r=10, t=30, b=10),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("#### Pairwise comparison")
+            col_a, col_b = st.columns(2)
+            labels = [f"#{i+1}: {h['name']}" for i, h in enumerate(history)]
+            with col_a:
+                idx_a = st.selectbox("Run A", range(len(history)),
+                                     format_func=lambda i: labels[i],
+                                     index=max(0, len(history) - 2))
+            with col_b:
+                idx_b = st.selectbox("Run B", range(len(history)),
+                                     format_func=lambda i: labels[i],
+                                     index=len(history) - 1)
+            if idx_a != idx_b:
+                ha, hb = history[idx_a], history[idx_b]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Throughput", f"{hb['throughput']:.2f}",
+                          f"{hb['throughput'] - ha['throughput']:+.2f}")
+                c2.metric("Autonomy", f"{hb['autonomy']:.2f}",
+                          f"{hb['autonomy'] - ha['autonomy']:+.2f}")
+                c3.metric("Fairness", f"{hb['fairness']:.2f}",
+                          f"{hb['fairness'] - ha['fairness']:+.2f}")
+
+        if st.button("Clear history"):
+            st.session_state.run_history = []
+            st.rerun()

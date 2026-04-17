@@ -162,6 +162,10 @@ class CADLMotivationConfig:
     # Experiment sweep (optional)
     experiment: Optional[ExperimentSweep] = None
 
+    # Verification / codegen blocks (optional passthrough for v0.1 spec)
+    verification: Optional[dict] = None
+    codegen: Optional[dict] = None
+
     @classmethod
     def from_yaml(cls, path: str) -> "CADLMotivationConfig":
         """Load from YAML file."""
@@ -232,6 +236,17 @@ class CADLMotivationConfig:
                 claim_resolution=ta.get("claim_resolution", "all-robot-wait"),
             )
 
+        # Verification / codegen blocks (validated and retained as dicts)
+        verif = data.get("verification")
+        if verif is not None:
+            cls._validate_verification_block(verif)
+            config.verification = verif
+
+        cg = data.get("codegen")
+        if cg is not None:
+            cls._validate_codegen_block(cg)
+            config.codegen = cg
+
         # Experiment sweep
         exp = data.get("experiment", {})
         if exp and "sweep" in exp:
@@ -246,6 +261,56 @@ class CADLMotivationConfig:
             )
 
         return config
+
+    # ── Validation helpers for verification / codegen blocks ───────
+    _VERIFY_PROPERTY_KINDS = {"safety", "liveness", "fairness", "invariant"}
+    _VERIFY_METHODS = {"smt", "model_check", "simulation", "proof"}
+
+    @classmethod
+    def _validate_verification_block(cls, block: Any) -> None:
+        if not isinstance(block, dict):
+            raise ValueError("`verification` block must be a mapping")
+        for name, body in block.items():
+            if not isinstance(body, dict):
+                raise ValueError(
+                    f"verification.{name} must be a mapping"
+                )
+            if "property" not in body:
+                raise ValueError(
+                    f"verification.{name} is missing required field 'property'"
+                )
+            prop = body["property"]
+            if prop not in cls._VERIFY_PROPERTY_KINDS:
+                raise ValueError(
+                    f"verification.{name}.property must be one of "
+                    f"{sorted(cls._VERIFY_PROPERTY_KINDS)}, got {prop!r}"
+                )
+            if "expr" not in body:
+                raise ValueError(
+                    f"verification.{name} is missing required field 'expr'"
+                )
+            method = body.get("method")
+            if method is not None and method not in cls._VERIFY_METHODS:
+                raise ValueError(
+                    f"verification.{name}.method must be one of "
+                    f"{sorted(cls._VERIFY_METHODS)}, got {method!r}"
+                )
+
+    @classmethod
+    def _validate_codegen_block(cls, block: Any) -> None:
+        if not isinstance(block, dict):
+            raise ValueError("`codegen` block must be a mapping")
+        for target, body in block.items():
+            if not isinstance(body, dict):
+                raise ValueError(
+                    f"codegen.{target} must be a mapping"
+                )
+            for key in body:
+                if key not in {"output", "template", "options"}:
+                    raise ValueError(
+                        f"codegen.{target} has unknown field {key!r} "
+                        "(expected: output, template, options)"
+                    )
 
     def to_dict(self) -> dict:
         """Serialize to dict for YAML output."""
@@ -320,6 +385,10 @@ class CADLMotivationConfig:
                 },
                 "duration_seconds": self.experiment.duration_seconds,
             }
+        if self.verification is not None:
+            d["verification"] = self.verification
+        if self.codegen is not None:
+            d["codegen"] = self.codegen
         return d
 
     def to_yaml(self, path: str):
