@@ -89,6 +89,37 @@ def load_experiment_config(yaml_path: str) -> CADLMotivationConfig:
     return CADLMotivationConfig.from_yaml(yaml_path)
 
 
+# ── Parser swap point ───────────────────────────────────────────────
+#
+# Everything below is the single seam that will swap from the bundled
+# ``cadl_sim`` schema to the upstream ``cadl`` package once it is
+# published (see cadl_repo / CHANGELOG).  UI code must route through
+# these two functions instead of calling CADLMotivationConfig directly,
+# so that the migration becomes a one-file change.
+
+_USE_UPSTREAM_PARSER = False  # flip to True after `pip install cadl`
+
+
+def parse_cadl_yaml(text: str) -> CADLMotivationConfig:
+    """Parse a CADL YAML source string into a CADLMotivationConfig.
+
+    Currently delegates to the bundled ``cadl_sim`` schema. When the
+    upstream ``cadl`` package is available, flip ``_USE_UPSTREAM_PARSER``
+    above and route through ``cadl.parser.parse_string`` instead.
+    """
+    data = yaml.safe_load(text) if isinstance(text, str) else text
+    if not isinstance(data, dict):
+        raise ValueError(
+            "CADL YAML must parse to a mapping at the top level"
+        )
+    return CADLMotivationConfig.from_dict(data)
+
+
+def parse_cadl_file(path: str) -> CADLMotivationConfig:
+    """Parse a CADL YAML source file into a CADLMotivationConfig."""
+    return CADLMotivationConfig.from_yaml(path)
+
+
 def config_to_yaml_str(config: CADLMotivationConfig) -> str:
     return yaml.dump(config.to_dict(), default_flow_style=False, sort_keys=False)
 

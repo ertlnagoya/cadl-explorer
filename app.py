@@ -10,13 +10,21 @@ import json
 import sys
 import os
 import yaml
+import hashlib
 from datetime import datetime
+
+
+def _config_hash(config) -> str:
+    """Short stable hash of a CADLMotivationConfig for reproducibility."""
+    raw = json.dumps(config.to_dict(), sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from backend.services.cadl_service import (
     make_config, make_baseline_config, config_to_yaml_str,
     build_ir, ir_to_json_str, generate_unity_config_dict, unity_config_to_json_str,
+    parse_cadl_yaml,
     TEMPLATES,
 )
 from cadl_sim.schema.motivation_schema import CADLMotivationConfig
@@ -185,11 +193,31 @@ baseline = make_baseline_config()
 _custom_config = None
 if custom_cadl_text.strip():
     try:
-        _custom_data = yaml.safe_load(custom_cadl_text)
-        _custom_config = CADLMotivationConfig.from_dict(_custom_data)
-        st.sidebar.success(f"Using custom CADL: {_custom_config.name}")
+        # Route through the parser seam so the upstream `cadl` package can
+        # later replace this path without touching the UI.
+        _custom_config = parse_cadl_yaml(custom_cadl_text)
+    except yaml.YAMLError as _e:
+        # Surface line/column from PyYAML if available.
+        _mark = getattr(_e, "problem_mark", None)
+        if _mark is not None:
+            st.sidebar.error(
+                f"YAML syntax error at line {_mark.line + 1}, "
+                f"column {_mark.column + 1}: {getattr(_e, 'problem', str(_e))}"
+            )
+        else:
+            st.sidebar.error(f"YAML syntax error: {_e}")
+    except ValueError as _e:
+        # Schema validation errors already include field path.
+        st.sidebar.error(f"Invalid CADL config: {_e}")
     except Exception as _e:
-        st.sidebar.error(f"Invalid CADL YAML: {_e}")
+        st.sidebar.error(
+            f"Could not build CADL config ({type(_e).__name__}): {_e}"
+        )
+    else:
+        st.sidebar.success(
+            f"Using custom CADL: {_custom_config.name} "
+            f"(hash: {_config_hash(_custom_config)})"
+        )
 
 selected = _custom_config if _custom_config is not None else make_config(template, profile, rho)
 
@@ -239,7 +267,14 @@ try:
     pipeline_selected = cached_run_pipeline(_pipeline_template, _pipeline_profile, _pipeline_rho)
 except Exception as e:
     import traceback
-    st.error(f"Pipeline error: {e}\n\n```\n{traceback.format_exc()}\n```")
+    st.error(
+        f"**Pipeline failed** ({type(e).__name__}): {e}\n\n"
+        "This is usually caused by an invalid combination of template, "
+        "motivation profile, and ρ. Try a different template or reset ρ "
+        "to 0.5, or press **Clear history** to drop stale cached runs."
+    )
+    with st.expander("Stack trace (for bug reports)"):
+        st.code(traceback.format_exc(), language="text")
     st.stop()
 
 # ── Run history (session-scoped) ────────────────────────────────────
@@ -253,6 +288,9 @@ if btn_run_pipeline:
         "template": _pipeline_template,
         "profile": _pipeline_profile,
         "rho": _pipeline_rho,
+        "config_hash": _config_hash(selected),
+        "num_seeds": len(pipeline_selected.seeds),
+        "seeds": list(pipeline_selected.seeds),
         "throughput": pipeline_selected.evaluation.throughput.mean,
         "autonomy": pipeline_selected.evaluation.autonomy.mean,
         "fairness": pipeline_selected.evaluation.fairness.mean,
@@ -276,10 +314,28 @@ with tab_chain:
 
     # Traceability IDs
     col_id1, col_id2 = st.columns(2)
+    _baseline_hash = _config_hash(baseline)
+    _selected_hash = _config_hash(selected)
     with col_id1:
-        st.caption(f"Baseline: `{pipeline_baseline.name}`  |  cadl:`{pipeline_baseline.cadl_id}`  ir:`{pipeline_baseline.ir_id}`")
+        st.caption(
+            f"Baseline: `{pipeline_baseline.name}`  |  "
+            f"cadl:`{pipeline_baseline.cadl_id}`  "
+            f"ir:`{pipeline_baseline.ir_id}`  "
+            f"hash:`{_baseline_hash}`  "
+            f"seeds:`{list(pipeline_baseline.seeds)}`"
+        )
     with col_id2:
-        st.caption(f"Selected: `{pipeline_selected.name}`  |  cadl:`{pipeline_selected.cadl_id}`  ir:`{pipeline_selected.ir_id}`")
+        st.caption(
+            f"Selected: `{pipeline_selected.name}`  |  "
+            f"cadl:`{pipeline_selected.cadl_id}`  "
+            f"ir:`{pipeline_selected.ir_id}`  "
+            f"hash:`{_selected_hash}`  "
+            f"seeds:`{list(pipeline_selected.seeds)}`"
+        )
+    st.caption(
+        ":information_source: *`hash` is a SHA-256 fingerprint of the full "
+        "CADL config — identical hash + identical seeds → identical results.*"
+    )
 
     # Compare using ComparisonResult
     comparison = compare_pipelines(pipeline_baseline, pipeline_selected)
@@ -535,6 +591,25 @@ with tab_history:
                 c3.metric("Fairness", f"{hb['fairness']:.2f}",
                           f"{hb['fairness'] - ha['fairness']:+.2f}")
 
-        if st.button("Clear history"):
-            st.session_state.run_history = []
-            st.rerun()
+        st.markdown("#### Export")
+        col_csv, col_json, col_clear = st.columns(3)
+        with col_csv:
+            st.download_button(
+                "Download CSV",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name="cadl_explorer_run_history.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with col_json:
+            st.download_button(
+                "Download JSON",
+                data=json.dumps(history, indent=2).encode("utf-8"),
+                file_name="cadl_explorer_run_history.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with col_clear:
+            if st.button("Clear history", use_container_width=True):
+                st.session_state.run_history = []
+                st.rerun()
