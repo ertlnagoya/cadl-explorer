@@ -127,12 +127,44 @@ class ExperimentSweep:
         )
 
 
+# CADL Appendix A §A.1 enumerates sos_type as Capitalized identifiers
+# (Directed | Acknowledged | Collaborative | Virtual). Internally this
+# demo stores the lowercase form for legacy compatibility; on YAML emit
+# we map back to the canonical Capitalized form so generated files remain
+# spec-conformant.
+_SOS_TYPE_LC = {"directed", "acknowledged", "collaborative", "virtual"}
+_SOS_TYPE_CANONICAL = {lc: lc.capitalize() for lc in _SOS_TYPE_LC}
+
+
+def _normalize_sos_type(value: str) -> str:
+    """Normalise ``value`` to the internal lowercase form.
+
+    Accepts both CADL-canonical Capitalized identifiers and historical
+    lowercase variants. Raises ``ValueError`` on unknown values.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"sos_type must be a string, got {type(value).__name__}")
+    lc = value.lower()
+    if lc not in _SOS_TYPE_LC:
+        raise ValueError(
+            f"Unknown sos_type {value!r}; expected one of "
+            f"{sorted(v.capitalize() for v in _SOS_TYPE_LC)} "
+            "(CADL Appendix A §A.1)"
+        )
+    return lc
+
+
+def _sos_type_canonical(lc: str) -> str:
+    """Map internal lowercase ``sos_type`` to CADL-canonical Capitalized."""
+    return _SOS_TYPE_CANONICAL.get(lc, lc.capitalize())
+
+
 @dataclass
 class CADLMotivationConfig:
     """Full CADL config with motivation extensions."""
     # Base simulator settings
     name: str = "A-SoS-Baseline"
-    sos_type: str = "directed"  # "directed" = A-SoS, "collaborative" = C-SoS
+    sos_type: str = "directed"  # internal lowercase; emitted Capitalized
     description: str = ""
 
     # Environment
@@ -183,7 +215,7 @@ class CADLMotivationConfig:
         if "name" in data:
             config.name = data["name"]
         if "sos_type" in data:
-            config.sos_type = data["sos_type"]
+            config.sos_type = _normalize_sos_type(data["sos_type"])
         if "description" in data:
             config.description = data["description"]
 
@@ -339,7 +371,7 @@ class CADLMotivationConfig:
 
         d: Dict[str, Any] = {
             "name": self.name,
-            "sos_type": self.sos_type,
+            "sos_type": _sos_type_canonical(self.sos_type),
             "description": self.description,
             "environment": env,
             "governance": {

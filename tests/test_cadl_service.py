@@ -45,8 +45,32 @@ def test_generate_unity_config():
 def test_config_to_yaml_str():
     cfg = make_baseline_config()
     yaml_str = config_to_yaml_str(cfg)
-    assert "sos_type: directed" in yaml_str
+    # YAML is emitted with CADL-canonical Capitalized sos_type per
+    # Appendix A §A.1, independent of the lowercase internal form.
+    assert "sos_type: Directed" in yaml_str
     assert "alpha:" in yaml_str
+
+
+def test_sos_type_canonical_roundtrip():
+    """Accept both lowercase and Capitalized sos_type; emit Capitalized.
+
+    Aligns the demo with CADL Appendix A §A.1 (see cadl-spec audit).
+    """
+    import pytest
+    from cadl_sim.schema.motivation_schema import (
+        CADLMotivationConfig, _normalize_sos_type,
+    )
+    for lc, cap in [
+        ("directed", "Directed"),
+        ("DIRECTED", "Directed"),
+        ("Directed", "Directed"),
+        ("collaborative", "Collaborative"),
+    ]:
+        cfg = CADLMotivationConfig.from_dict({"sos_type": lc})
+        assert cfg.sos_type == lc.lower()  # internal lowercase
+        assert cfg.to_dict()["sos_type"] == cap  # canonical emit
+    with pytest.raises(ValueError):
+        CADLMotivationConfig.from_dict({"sos_type": "bogus"})
 
 
 def test_load_experiment_config():

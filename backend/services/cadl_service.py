@@ -24,6 +24,9 @@ from cadl_sim.generators.unity.config_generator import generate_unity_config as 
 
 # ── Governance templates ────────────────────────────────────────────
 
+# sos_type stored internally as lowercase for legacy compatibility;
+# CADLMotivationConfig.to_dict() emits the CADL-canonical Capitalized
+# form (Appendix A §A.1) in generated YAML.
 TEMPLATES = {
     "A-SoS": {
         "sos_type": "directed",
