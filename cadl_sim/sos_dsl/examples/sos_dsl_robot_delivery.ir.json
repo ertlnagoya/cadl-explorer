@@ -1,0 +1,245 @@
+{
+  "name": "RobotDeliverySoS_DSLDemo",
+  "sos_type": "Acknowledged",
+  "description": "Robot-delivery SoS used to demonstrate the SoS-DSL extension.",
+  "environment": {
+    "grid_size": 30,
+    "num_robots": 5,
+    "num_customers": 10,
+    "time_step_ms": 100
+  },
+  "institution": {
+    "actors": [
+      {
+        "id": "DISPATCHER",
+        "role": "central_coordinator",
+        "autonomy": "low",
+        "count": null,
+        "capabilities": [
+          "assign_tasks",
+          "reassign_tasks",
+          "monitor_fleet"
+        ],
+        "inputs": [
+          "position_report",
+          "task_completion",
+          "failure_report"
+        ],
+        "outputs": [
+          "route_assignment",
+          "task_assignment",
+          "replan_command"
+        ]
+      },
+      {
+        "id": "ROBOT",
+        "role": "delivery_agent",
+        "autonomy": "high",
+        "count": null,
+        "capabilities": [
+          "follow_path",
+          "pick_up",
+          "deliver"
+        ],
+        "inputs": [
+          "route_assignment",
+          "replan_command"
+        ],
+        "outputs": [
+          "position_report",
+          "task_completion",
+          "failure_report"
+        ]
+      },
+      {
+        "id": "CUSTOMER",
+        "role": "service_requester",
+        "autonomy": "medium",
+        "count": null,
+        "capabilities": [
+          "submit_order",
+          "confirm_receipt"
+        ],
+        "inputs": [
+          "delivery_notification"
+        ],
+        "outputs": [
+          "delivery_request"
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "DELIVERY_SLA",
+        "parties": [
+          "DISPATCHER",
+          "ROBOT[*]",
+          "CUSTOMER[*]"
+        ],
+        "assume": [
+          "ROBOT[i].battery > 20"
+        ],
+        "guarantee": [
+          "delivery_time <= 300s"
+        ],
+        "governance": {
+          "alpha": 0.9,
+          "beta": 0.8,
+          "decision_holder": "DISPATCHER",
+          "sharing_mode": null,
+          "incentive_type": "task_completion",
+          "lambda": 0.5
+        },
+        "violation_detect": "path_deviation > 2 OR position_report_delay > 5s",
+        "violation_action": "notify(DISPATCHER) AND log_violation",
+        "lifecycle": {
+          "states": [
+            "Proposed",
+            "Assigned",
+            "Accepted",
+            "Delivering",
+            "Completed",
+            "Violated",
+            "Terminated"
+          ],
+          "initial": "Proposed",
+          "terminal": [
+            "Completed",
+            "Violated",
+            "Terminated"
+          ],
+          "transitions": [
+            {
+              "id": "assign",
+              "from_states": [
+                "Proposed"
+              ],
+              "to_state": "Assigned",
+              "on": "DISPATCHER -> ROBOT[i] : route_assignment",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            },
+            {
+              "id": "accept",
+              "from_states": [
+                "Assigned"
+              ],
+              "to_state": "Accepted",
+              "on": "ROBOT[i] -> DISPATCHER : ack(accepted)",
+              "when": null,
+              "deadline_ms": 5000,
+              "on_violation_transition": "Violated",
+              "on_violation_severity": "Major",
+              "emit": []
+            },
+            {
+              "id": "start_delivery",
+              "from_states": [
+                "Accepted"
+              ],
+              "to_state": "Delivering",
+              "on": "ROBOT[i].status == InTransit",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            },
+            {
+              "id": "complete",
+              "from_states": [
+                "Delivering"
+              ],
+              "to_state": "Completed",
+              "on": "ROBOT[i].status == Delivered",
+              "when": "now <= request.deadline",
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            },
+            {
+              "id": "late_failure",
+              "from_states": [
+                "Assigned",
+                "Accepted",
+                "Delivering"
+              ],
+              "to_state": "Violated",
+              "on": "now > request.deadline",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            }
+          ]
+        },
+        "monitors": [
+          {
+            "id": "battery_guard",
+            "observe": [
+              "ROBOT[i].battery"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 500,
+            "rule": "ROBOT[i].battery < 20 AND state == Assigned",
+            "on_match_violation": null,
+            "on_match_transition": "Violated",
+            "on_match_severity": "Major"
+          },
+          {
+            "id": "collision_watch",
+            "observe": [
+              "ROBOT[i].position",
+              "OBSTACLES.positions"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 100,
+            "rule": "min_dist(ROBOT[i].position, OBSTACLES.positions) < 0.05",
+            "on_match_violation": "collision",
+            "on_match_transition": null,
+            "on_match_severity": "Critical"
+          },
+          {
+            "id": "deadline_watch",
+            "observe": [
+              "time"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 1000,
+            "rule": "now > request.deadline",
+            "on_match_violation": null,
+            "on_match_transition": "Violated",
+            "on_match_severity": "Critical"
+          }
+        ]
+      }
+    ]
+  },
+  "protocol": {
+    "protocols": [],
+    "events": []
+  },
+  "algorithm": {
+    "algorithms": []
+  },
+  "metrics": [
+    {
+      "id": "makespan",
+      "formula": "max(completion_times)",
+      "target": "<= 600s"
+    },
+    {
+      "id": "violation_rate",
+      "formula": "violation_count / contract_instances",
+      "target": "<= 0.05"
+    }
+  ],
+  "transitions": [],
+  "task_arbitration": null,
+  "motivation": null
+}
