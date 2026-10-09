@@ -125,7 +125,8 @@ else:
 
     with col_graph:
         st.subheader(f"Lifecycle — {view.contract_id}")
-        dot = lifecycle_to_dot(view)
+        _theme = getattr(st.context, "theme", None)
+        dot = lifecycle_to_dot(view, dark=getattr(_theme, "type", None) == "dark")
         st.graphviz_chart(dot, width="stretch")
         with st.expander("Show DOT source"):
             st.code(dot, language="dot")

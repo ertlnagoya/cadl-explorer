@@ -21,8 +21,9 @@ from backend.services.pipeline import (
 )
 from backend.evaluation.region_analysis import compute_region, compare_regions
 from backend.plotting.interactive import (
-    scatter_ab, line_rho_effects, individual_robot_scatter,
+    scatter_ab, line_rho_effects, per_robot_ab,
 )
+from backend.plotting.scenario import scenario_svg
 
 NUM_SEEDS = 10
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
@@ -160,6 +161,11 @@ def _parse_custom(text):
         return None, f"Invalid CADL config: {e}"
     except Exception as e:
         return None, f"Could not build CADL config ({type(e).__name__}): {e}"
+
+
+def _is_dark() -> bool:
+    theme = getattr(st.context, "theme", None)
+    return getattr(theme, "type", None) == "dark"
 
 
 def _raw_diff(sd) -> str:
@@ -321,7 +327,8 @@ with col_plot:
     )
     st.caption(
         "Each point is one seed; the dashed outline is the region a design "
-        f"reaches. From A to B: {region_cmp['summary']}."
+        "reaches and the arrow joins the centres of A and B. "
+        f"From A to B: {region_cmp['summary']}."
     )
 
 # ── 2. Why: causal chain ────────────────────────────────────────────
@@ -370,7 +377,7 @@ for i, (short, title, blurb, sd, _) in enumerate(STAGES, 1):
 st.header("3. Explore", divider="gray")
 
 b_sos_type = pb.cadl.get("sos_type", "").lower()
-tab_rho, tab_robot = st.tabs(["Effect of ρ", "Per-robot view"])
+tab_rho, tab_robot, tab_scenario = st.tabs(["Effect of ρ", "Per-robot view", "Scenario"])
 
 with tab_rho:
     if b_sos_type != "directed":
@@ -383,26 +390,42 @@ with tab_rho:
         for prof in PROFILES:
             sweep.extend(cached_sweep("directed", prof, tuple(SWEEP_RHO)))
         st.plotly_chart(
-            line_rho_effects(sweep, current_rho=pb.rho), width="stretch",
+            line_rho_effects(sweep, current_rho=pb.rho, highlight_profile=pb.profile),
+            width="stretch",
         )
         st.caption(
-            f"Directed design swept over ρ for each motivation profile "
-            f"(mean ± std over {NUM_SEEDS} seeds). The dotted line marks "
-            f"B's effective ρ = {pb.rho:.2f}."
+            f"Directed design swept over ρ (mean ± std over {NUM_SEEDS} seeds). "
+            f"The highlighted line is B's motivation profile ({pb.profile}); "
+            f"the dotted line marks B's effective ρ = {pb.rho:.2f}. "
+            "Grey lines are the other profiles."
         )
 
 with tab_robot:
-    col_ra, col_rb = st.columns(2)
-    for col, name, pr in [(col_ra, "A", pa), (col_rb, "B", pb)]:
+    st.plotly_chart(per_robot_ab(pa.results, pb.results, "A", "B"), width="stretch")
+    st.caption(
+        f"Mean ± std per robot over {NUM_SEEDS} seeds. Freedom is 1 − the "
+        "constrained share of a robot's behaviour. Hover a bar for the "
+        "robot's motivation value."
+    )
+
+with tab_scenario:
+    col_sa, col_sb = st.columns(2)
+    for col, name, pr in [(col_sa, "A", pa), (col_sb, "B", pb)]:
+        layer1 = pr.ir.get("layer1_institution", {})
         with col:
             st.markdown(f"**{name}** `{pr.name}`")
-            st.plotly_chart(
-                individual_robot_scatter(pr.results), width="stretch",
-                key=f"robot_{name}",
+            st.markdown(
+                scenario_svg(
+                    layer1.get("agent_motivation_values"),
+                    layer1.get("decision_authority"),
+                    dark=_is_dark(),
+                ),
+                unsafe_allow_html=True,
             )
     st.caption(
-        "One point per robot per run (first 5 seeds), coloured by motivation. "
-        "Freedom is 1 − the constrained share of a robot's behaviour."
+        "Fixed 11-node road graph with 5 robots. Robots are shaded by "
+        "motivation (darker is higher). Dashed lines show a central "
+        "authority directing the robots; a verifier-only arbitrator has none."
     )
 
 # ── 4. Reproduce ────────────────────────────────────────────────────

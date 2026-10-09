@@ -2,50 +2,11 @@
 
 import streamlit as st
 
+from backend.plotting.scenario import scenario_svg
 from backend.services.cadl_service import TEMPLATES
 
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
 REPO_URL = "https://github.com/ertlnagoya/cadl-explorer"
-
-
-def _scenario_svg() -> str:
-    positions = {
-        0: (100, 200), 1: (200, 100), 2: (350, 80),
-        3: (500, 100), 4: (600, 200), 5: (550, 320),
-        6: (400, 380), 7: (200, 350), 8: (250, 230),
-        9: (450, 300), 10: (500, 140),
-    }
-    edges = [
-        (0,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,0),
-        (7,8),(0,8),(1,8),(8,9),(6,9),(5,9),(4,10),(3,10),(2,10),
-    ]
-
-    svg = [
-        '<svg viewBox="0 0 700 460" style="max-width:700px;width:100%;'
-        'background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;">',
-    ]
-    for s, d in edges:
-        x1, y1 = positions[s]
-        x2, y2 = positions[d]
-        svg.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#bbb" stroke-width="2"/>')
-    for nid, (x, y) in positions.items():
-        svg.append(
-            f'<circle cx="{x}" cy="{y}" r="16" fill="#e3f2fd" stroke="#1976d2" stroke-width="2"/>'
-            f'<text x="{x}" y="{y+5}" text-anchor="middle" font-size="12" fill="#333">{nid}</text>'
-        )
-    for i, nid in enumerate([0, 2, 4, 6, 8]):
-        x, y = positions[nid]
-        rx, ry = x + 25, y - 20
-        svg.append(
-            f'<rect x="{rx-10}" y="{ry-10}" width="20" height="20" rx="4" fill="#4caf50" stroke="#2e7d32" stroke-width="1.5"/>'
-            f'<text x="{rx}" y="{ry+4}" text-anchor="middle" font-size="9" fill="white" font-weight="bold">R{i}</text>'
-        )
-    svg.append(
-        '<rect x="290" y="415" width="120" height="30" rx="6" fill="#ff9800" stroke="#e65100" stroke-width="1.5"/>'
-        '<text x="350" y="435" text-anchor="middle" font-size="11" fill="white">Arbitrator</text>'
-    )
-    svg.append("</svg>")
-    return "\n".join(svg)
 
 
 st.title("About & Glossary")
@@ -125,6 +86,12 @@ st.header("Scenario", divider="gray")
 st.markdown(
     "All designs run on the same fixed scenario: an 11-node, 17-edge road "
     "graph with 5 robots (R0–R4) and one arbitrator. Under A-SoS the "
-    "arbitrator acts as the central authority; under C-SoS it only verifies."
+    "arbitrator acts as the central authority; under C-SoS it only verifies. "
+    "The Explorer's **Scenario** tab shows the same graph for designs A and B, "
+    "with robots shaded by motivation."
 )
-st.markdown(_scenario_svg(), unsafe_allow_html=True)
+_theme = getattr(st.context, "theme", None)
+st.markdown(
+    scenario_svg(dark=getattr(_theme, "type", None) == "dark"),
+    unsafe_allow_html=True,
+)
