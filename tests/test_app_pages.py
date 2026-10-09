@@ -99,7 +99,7 @@ def test_designer_reports_a_broken_design_without_crashing():
 
 @pytest.mark.parametrize("view", [
     "Architecture", "Lifecycle", "Protocols", "Regimes",
-    "Algorithms & metrics", "Checks", "Versions", "Export",
+    "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ])
 def test_designer_views_render(view):
     from backend.services import design_service as ds
@@ -228,3 +228,48 @@ def test_explorer_accepts_custom_cadl_for_both_designs():
     at.button(key="demo_Directed vs collaborative").click().run()
     assert at.session_state.custom_cadl == "" and at.session_state.custom_cadl_a == ""
     assert not at.radio(key="a_template").disabled
+
+
+def test_designer_read_back_view():
+    at = _view(_designer(), "Read-back")
+    assert not at.exception and not at.error
+    assert any("DELIVERY_SLA is an agreement between" in m.value for m in at.markdown)
+    # `[*]` is escaped so Markdown does not turn it into emphasis.
+    assert any("ROBOT[\\*] and CUSTOMER[\\*]" in m.value for m in at.markdown)
+    assert any("real obligations" in m.value for m in at.markdown)
+
+
+def test_designer_shows_lifecycle_stories():
+    at = _view(_designer(), "Lifecycle")
+    assert any("Ends in completed" in m.value for m in at.markdown)
+
+
+def test_designer_workspace_shows_and_confirms_assistant_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv("CADL_WORKSPACE", str(tmp_path))
+    from backend.services import design_workspace as workspace
+
+    workspace.create("depot", "template")
+    proposal = workspace.add_proposal("depot", [
+        {"op": "upsert", "section": "actors", "id": "AUDITOR", "fields": {"role": "auditor"}}],
+        rationale="audits are required")
+    at = _click(_designer(), "Open")
+    assert at.session_state.design_ws_name == "depot"
+    assert "AUDITOR" not in at.session_state.design_src
+
+    # The assistant applies its proposal while the page is open.
+    workspace.apply_proposal("depot", proposal["proposal_id"])
+    at = at.run()
+    assert any("differs from the editor" in w.value for w in at.warning)
+    at = _click(at, "Reload from workspace")
+    assert "AUDITOR" in at.session_state.design_src
+    assert any("Added actor AUDITOR" in m.value and "audits are required" in m.value
+               for m in at.markdown)
+    at = _click(at, "Reviewed")
+    assert not at.exception
+    assert workspace.unreviewed("depot") == []
+
+
+def test_designer_hides_the_workspace_unless_configured(monkeypatch):
+    monkeypatch.delenv("CADL_WORKSPACE", raising=False)
+    at = _designer()
+    assert not any(h.value == "Workspace" for h in at.header)
