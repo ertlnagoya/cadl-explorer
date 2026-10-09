@@ -127,8 +127,9 @@ template = st.sidebar.radio(
         "• **A-SoS + motivation-sensitive** (directed, α=0.3, β=0.7, "
         "λ=0.0, hybrid model): central authority that adjusts budgets based "
         "on agent motivation.\n\n"
-        "α = authority weight, β = incentive weight, λ = information-sharing "
-        "weight."
+        "α = autonomy level, β = centralization level, λ = exploration "
+        "probability. These are simulator parameters; they differ from the "
+        "per-contract α/β/λ of the CADL language specification."
     ),
 )
 
@@ -170,14 +171,16 @@ with st.sidebar.expander("Advanced: Custom CADL YAML"):
         placeholder=(
             "name: my-custom-config\n"
             "sos_type: directed\n"
-            "alpha: 0.3\n"
-            "beta: 0.7\n"
-            "lambda_param: 0.0\n"
-            "agent_motivation:\n"
-            "  profile: linear\n"
-            "governance_motivation:\n"
-            "  motivation_model: hybrid\n"
-            "  rho: 0.5\n"
+            "governance:\n"
+            "  alpha: 0.3\n"
+            "  beta: 0.7\n"
+            "  lambda: 0.0\n"
+            "motivation:\n"
+            "  agent:\n"
+            "    profile: linear\n"
+            "  governance:\n"
+            "    model: hybrid\n"
+            "    rho: 0.5\n"
         ),
     )
 
