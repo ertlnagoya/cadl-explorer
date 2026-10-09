@@ -68,7 +68,67 @@ def scatter_performance_autonomy(
     return fig
 
 
-def line_rho_effects(sweep_results: list) -> go.Figure:
+COLOR_A = "rgb(70,130,180)"
+COLOR_B = "rgb(255,140,0)"
+COLOR_REF = "rgb(150,150,150)"
+
+
+def scatter_ab(
+    results_a: list,
+    results_b: list,
+    label_a: str = "A",
+    label_b: str = "B",
+    references: Optional[Dict[str, list]] = None,
+) -> go.Figure:
+    """Performance-autonomy plane for two designs, with optional grey reference regions."""
+    from backend.evaluation.region_analysis import compute_region
+
+    fig = go.Figure()
+
+    def _rgba(color, alpha):
+        return color.replace(")", f",{alpha})").replace("rgb", "rgba")
+
+    def _add(results, color, name, symbol, size, hull_only=False):
+        if not results:
+            return
+        region = compute_region(results, name)
+        if len(region.hull_vertices) >= 3:
+            hx = [v[0] for v in region.hull_vertices] + [region.hull_vertices[0][0]]
+            hy = [v[1] for v in region.hull_vertices] + [region.hull_vertices[0][1]]
+            fig.add_trace(go.Scatter(
+                x=hx, y=hy, mode="lines", fill="toself",
+                fillcolor=_rgba(color, 0.12),
+                line=dict(color=color, width=1.5, dash="dash"),
+                name=name if hull_only else f"{name} region",
+                showlegend=hull_only, hoverinfo="skip",
+            ))
+        if hull_only:
+            return
+        fig.add_trace(go.Scatter(
+            x=[r.avg_autonomy for r in results],
+            y=[r.throughput for r in results],
+            mode="markers", name=name,
+            marker=dict(color=color, size=size, symbol=symbol, opacity=0.8),
+            hovertemplate="seed %{customdata}<br>autonomy %{x:.2f}<br>throughput %{y:.0f}<extra>" + name + "</extra>",
+            customdata=[r.seed for r in results],
+        ))
+
+    for ref_name, ref_results in (references or {}).items():
+        _add(ref_results, COLOR_REF, ref_name, "circle", 6, hull_only=True)
+    _add(results_a, COLOR_A, label_a, "circle", 9)
+    _add(results_b, COLOR_B, label_b, "diamond", 10)
+
+    fig.update_layout(
+        xaxis_title="System autonomy (0-1)",
+        yaxis_title="Throughput (total deliveries)",
+        xaxis=dict(range=[-0.05, 1.05]), height=420,
+        margin=dict(l=60, r=20, t=20, b=50),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    return fig
+
+
+def line_rho_effects(sweep_results: list, current_rho: Optional[float] = None) -> go.Figure:
     """rho vs throughput / autonomy / fairness."""
     fig = make_subplots(rows=1, cols=3, subplot_titles=["Throughput", "Autonomy", "Fairness"])
 
@@ -97,6 +157,8 @@ def line_rho_effects(sweep_results: list) -> go.Figure:
     fig.update_xaxes(title_text="rho", row=1, col=1)
     fig.update_xaxes(title_text="rho", row=1, col=2)
     fig.update_xaxes(title_text="rho", row=1, col=3)
+    if current_rho is not None:
+        fig.add_vline(x=current_rho, line_dash="dot", line_color="gray")
     fig.update_layout(height=350, margin=dict(l=50, r=20, t=50, b=50))
     return fig
 
@@ -127,6 +189,7 @@ def bar_comparison(eval_a: dict, eval_b: dict, label_a: str, label_b: str) -> go
 def individual_robot_scatter(results: list) -> go.Figure:
     """Per-robot freedom vs deliveries, colored by motivation."""
     fig = go.Figure()
+    first = True
     for r in results[:5]:
         for robot in r.per_robot:
             fig.add_trace(go.Scatter(
@@ -134,10 +197,12 @@ def individual_robot_scatter(results: list) -> go.Figure:
                 marker=dict(
                     size=10, color=robot["motivation"], colorscale="RdYlGn",
                     cmin=0, cmax=1, opacity=0.7, line=dict(width=0.5, color="gray"),
+                    showscale=first, colorbar=dict(title="motivation"),
                 ),
                 showlegend=False,
                 hovertext=f"Robot {robot['robot_id']}: m={robot['motivation']:.2f}",
             ))
+            first = False
 
     fig.update_layout(
         title="Individual Robot: Freedom vs Deliveries",

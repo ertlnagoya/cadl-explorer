@@ -15,7 +15,7 @@ Usage
            > sos_dsl_delivery.ir.json
 
 2. Open this page from the cadl-explorer sidebar and either upload
-   the JSON or pick a path from the dropdown of bundled examples.
+   the JSON or pick one of the bundled examples.
 """
 
 from __future__ import annotations
@@ -42,13 +42,17 @@ from cadl_sim.sos_dsl import (  # noqa: E402
 )
 
 
-st.set_page_config(page_title="SoS-DSL Lifecycle", layout="wide")
-
-st.title("SoS-DSL — Contract Lifecycle View")
+st.title("Contract Lifecycle")
+st.markdown(
+    "Where the Explorer follows one design change through the pipeline, "
+    "this page looks inside a single institution: each contract's "
+    "`lifecycle:` section (SoS-DSL extension, Appendix E) is drawn as a "
+    "state machine, with its `monitors:` listed below."
+)
 st.caption(
-    "Renders the per-instance contract lifecycle introduced by the "
-    "SoS-DSL extension (Appendix E). Each contract's lifecycle: "
-    "section is shown as a state machine; monitors: are listed below."
+    "Input is a simulator IR produced by the `cadl` compiler: "
+    "`cadl sim-ir <file>.cadl --format json`. "
+    "[CADL specification and hands-on](https://www.ertl.jp/cadl-spec/)"
 )
 
 # --- Sample data discovery -------------------------------------------------
@@ -68,8 +72,10 @@ with st.sidebar:
     bundled_pick = None
     if BUNDLED:
         bundled_pick = st.selectbox(
-            "…or pick a bundled example",
-            ["(none)"] + [p.name for p in BUNDLED],
+            "Bundled example",
+            [p.name for p in BUNDLED],
+            disabled=upload is not None,
+            help="Used when no file is uploaded.",
         )
 
 # --- Load IR ---------------------------------------------------------------
@@ -80,7 +86,7 @@ try:
     if upload is not None:
         ir_doc = json.loads(upload.read().decode("utf-8"))
         source_label = f"upload: {upload.name}"
-    elif bundled_pick and bundled_pick != "(none)":
+    elif bundled_pick:
         path = EXAMPLES_DIR / bundled_pick
         ir_doc = json.loads(path.read_text(encoding="utf-8"))
         source_label = f"bundled: {bundled_pick}"
@@ -90,8 +96,8 @@ except json.JSONDecodeError as e:
 
 if ir_doc is None:
     st.info(
-        "Pick a bundled example or upload a Sim-IR JSON. The IR "
-        "document must contain `institution.contracts[*].lifecycle`."
+        "Upload a Sim-IR JSON in the sidebar. The IR document must "
+        "contain `institution.contracts[*].lifecycle`."
     )
     st.stop()
 
@@ -120,7 +126,7 @@ else:
     with col_graph:
         st.subheader(f"Lifecycle — {view.contract_id}")
         dot = lifecycle_to_dot(view)
-        st.graphviz_chart(dot, use_container_width=True)
+        st.graphviz_chart(dot, width="stretch")
         with st.expander("Show DOT source"):
             st.code(dot, language="dot")
 
@@ -141,4 +147,4 @@ mons = monitors_summary(contract)
 if not mons:
     st.caption("No `monitors:` declared on this contract.")
 else:
-    st.dataframe(mons, use_container_width=True, hide_index=True)
+    st.dataframe(mons, width="stretch", hide_index=True)

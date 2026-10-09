@@ -145,3 +145,26 @@ def test_region_analysis():
     cmp = compare_regions(ra, rb)
     assert "centroid_shift" in cmp
     assert "summary" in cmp
+
+
+def test_rho_ignored_without_motivation_model():
+    # Templates without a motivation model declare rho=0 in CADL; the
+    # experiment must run the same thing the CADL config says.
+    plain = run_pipeline(template="A-SoS", profile="linear", rho=0.0, num_seeds=3)
+    with_rho = run_pipeline(template="A-SoS", profile="linear", rho=0.8, num_seeds=3)
+    assert with_rho.rho == 0.0
+    assert with_rho.cadl_id == plain.cadl_id
+    assert with_rho.evaluation.to_dict() == plain.evaluation.to_dict()
+
+
+def test_run_pipeline_for_config_matches_template():
+    from backend.services.cadl_service import make_config
+    from backend.services.pipeline import run_pipeline_for_config
+
+    template = "A-SoS + motivation-sensitive"
+    by_template = run_pipeline(template=template, profile="polarized", rho=0.5, num_seeds=3)
+    by_config = run_pipeline_for_config(make_config(template, "polarized", 0.5), num_seeds=3)
+    assert by_config.profile == "polarized"
+    assert by_config.rho == 0.5
+    assert by_config.cadl_id == by_template.cadl_id
+    assert by_config.evaluation.to_dict() == by_template.evaluation.to_dict()

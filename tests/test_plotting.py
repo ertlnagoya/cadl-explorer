@@ -39,3 +39,15 @@ def test_individual_robot_returns_figure():
     data = _get_data()
     fig = individual_robot_scatter(data["a_sos"][:3])
     assert isinstance(fig, go.Figure)
+
+
+def test_scatter_ab_traces():
+    from backend.plotting.interactive import scatter_ab
+    from backend.runners.synthetic_runner import run_sweep
+
+    a = run_sweep("directed", "uniform", [0.0], num_seeds=5)
+    b = run_sweep("directed", "linear", [0.5], num_seeds=5)
+    ref = run_sweep("collaborative", "uniform", [0.0], num_seeds=5)
+    fig = scatter_ab(a, b, "A", "B", {"C-SoS reference": ref})
+    names = [t.name for t in fig.data]
+    assert "A" in names and "B" in names and "C-SoS reference" in names

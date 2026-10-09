@@ -28,7 +28,11 @@ class GovernancePipeline:
         num_seeds: int = 10,
         duration: float = 300.0,
         mode: str = "synthetic",
+        config=None,
     ):
+        # An explicit CADLMotivationConfig takes precedence over the
+        # template / profile / rho triple (used for custom CADL input).
+        self.config = config
         self.template = template
         self.profile = profile
         self.rho = rho
@@ -39,7 +43,15 @@ class GovernancePipeline:
     def run(self) -> PipelineResult:
         """Execute the full pipeline and return PipelineResult."""
         # Stage 1: CADL
-        cadl_config = make_config(self.template, self.profile, self.rho)
+        if self.config is not None:
+            cadl_config = self.config
+            self.profile = cadl_config.agent_motivation.profile
+        else:
+            cadl_config = make_config(self.template, self.profile, self.rho)
+        # The experiment must run what the CADL config declares: rho only
+        # takes effect when a motivation model is present.
+        gov = cadl_config.governance_motivation
+        self.rho = float(gov.rho) if gov.motivation_model != "none" else 0.0
 
         # Stage 2: IR
         ir = build_ir(cadl_config)
@@ -88,6 +100,14 @@ def run_pipeline(
     return GovernancePipeline(
         template=template, profile=profile, rho=rho,
         num_seeds=num_seeds, **kwargs,
+    ).run()
+
+
+def run_pipeline_for_config(config, num_seeds: int = 10, **kwargs) -> PipelineResult:
+    """Run the pipeline for an explicit CADLMotivationConfig."""
+    return GovernancePipeline(
+        template=kwargs.pop("template", "custom"),
+        num_seeds=num_seeds, config=config, **kwargs,
     ).run()
 
 
