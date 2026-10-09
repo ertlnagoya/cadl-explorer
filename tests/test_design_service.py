@@ -486,3 +486,40 @@ def test_unclosed_bracket_gives_a_readable_error_and_marker():
     assert message.startswith("Line ") and "<unicode string>" not in message
     assert "unclosed" in message
     assert analysis.annotations and analysis.annotations[0]["type"] == "error"
+
+
+def test_the_on_key_survives_forms_and_rewrites():
+    """YAML 1.1 reads `on:` as the boolean True; forms must still see and keep it."""
+    doc = ds.load_doc(ds.NEW_DESIGN)
+    lifecycle = doc["sos"]["contracts"][0]["lifecycle"]
+    assert lifecycle["transitions"][0]["on"] == "COORDINATOR -> WORKER[i] : task_assignment"
+    rows = ds.transitions_to_rows(lifecycle)
+    assert rows[0]["on"] == "COORDINATOR -> WORKER[i] : task_assignment"
+
+    rows[0]["on"] = "COORDINATOR -> WORKER[i] : go"
+    ds.rows_to_transitions(lifecycle, rows)
+    text = ds.dump_doc(doc)
+    assert "true:" not in text and "'on':" not in text
+    assert "on: 'COORDINATOR -> WORKER[i] : go'" in text
+    assert ds.analyze(text).ir["institution"]["contracts"][0]["lifecycle"]["transitions"][0]["on"] \
+        == "COORDINATOR -> WORKER[i] : go"
+
+
+def test_a_design_without_a_type_is_reported_not_crashed():
+    analysis = ds.analyze("sos:\n  name: X\n")
+    assert analysis.parsed and analysis.sos_type == ""
+    assert any(f.title == "The SoS has no type" for f in analysis.findings)
+    assert ds.build_report("sos:\n  name: X\n", analysis).startswith("<!doctype html>")
+
+
+def test_lifecycle_events_naming_undefined_actors_are_reported():
+    doc = ds.load_doc(ds.NEW_DESIGN)
+    transitions = doc["sos"]["contracts"][0]["lifecycle"]["transitions"]
+    transitions[0]["on"] = "BOSS -> WORKER[i] : go"
+    transitions[1]["on"] = "DRONE[i].status == Done"
+    messages = [f.message for f in ds.analyze(ds.dump_doc(doc)).findings
+                if "names an undefined actor" in f.title]
+    assert len(messages) == 2 and "`BOSS`" in messages[0] and "`DRONE`" in messages[1]
+    for name in ds.list_examples():
+        assert not [f for f in ds.analyze(ds.load_example(name)).findings
+                    if "names an undefined actor" in f.title]

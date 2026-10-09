@@ -1,0 +1,4 @@
+# For the MCP server (mcp_server.py), which lets an AI assistant design
+# with the same tools as the Designer page. Not needed by the web app.
+-r requirements.txt
+mcp>=1.2

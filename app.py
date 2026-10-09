@@ -25,7 +25,8 @@ PERSISTENT_KEYS = [
     "custom_cadl", "custom_cadl_a",
     "design_mode", "design_view", "design_section", "design_example",
     "design_file_name", "design_contract", "design_protocol",
-    "design_life_contract", "design_view_protocol",
+    "design_life_contract", "design_view_protocol", "design_ws_pick",
+    "design_readback_actor",
 ]
 for _key in PERSISTENT_KEYS:
     if _key in st.session_state:

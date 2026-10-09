@@ -14,7 +14,9 @@ import streamlit as st
 
 from backend.plotting.architecture import architecture_to_dot, regimes_to_dot
 from backend.plotting.sequence import participants, sequence_svg
+from backend.services import design_readback as readback
 from backend.services import design_service as ds
+from backend.services import design_workspace as workspace
 from backend.services.cadl_service import MAX_SOURCE_CHARS
 from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_summary
 from views._designer_forms import SECTIONS, render_forms
@@ -32,7 +34,7 @@ LEVEL_ICON = {
 }
 VIEWS = [
     "Architecture", "Lifecycle", "Protocols", "Regimes",
-    "Algorithms & metrics", "Checks", "Versions", "Export",
+    "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ]
 MAX_HISTORY = 50
 MAX_VERSIONS = 20
@@ -126,6 +128,21 @@ def _problem_buttons(finding, key: str):
             )
 
 
+def _open_workspace():
+    name = ss.design_ws_pick
+    _set_source(workspace.read(name))
+    ss.design_ws_name = name
+    ss.design_file_name = name
+
+
+def _save_workspace():
+    workspace.write(ss.design_ws_name, ss.design_src, note="saved from the Designer")
+
+
+def _mark_reviewed(index=None):
+    workspace.mark_reviewed(ss.design_ws_name, None if index is None else [index])
+
+
 def _save_version():
     versions = ss.setdefault("design_versions", [])
     name = (ss.get("design_version_name") or "").strip() or f"Version {len(versions) + 1}"
@@ -155,6 +172,11 @@ def _trace_step(target: str):
 def _trace_back():
     if len(ss.design_trace["path"]) > 1:
         ss.design_trace["path"].pop()
+
+
+def _md(text: str) -> str:
+    """Keep `ROBOT[*]` literal: Markdown would read the asterisks as emphasis."""
+    return str(text).replace("[*]", "[\\*]")
 
 
 def _is_dark() -> bool:
@@ -190,6 +212,34 @@ file_stem = (analysis.name or "design").replace(" ", "_")
 # ── Sidebar: files and starting points ──────────────────────────────
 
 with st.sidebar:
+    # Shown when the app is started with CADL_WORKSPACE: the folder an AI
+    # assistant edits through the MCP server (mcp_server.py).
+    if workspace.enabled():
+        st.header("Workspace")
+        ws_designs = workspace.list_designs()
+        if not ws_designs:
+            st.caption(f"No designs yet in `{workspace.root()}`.")
+        else:
+            if ss.get("design_ws_pick") not in ws_designs:
+                ss.design_ws_pick = ss.get("design_ws_name") if ss.get("design_ws_name") in ws_designs \
+                    else ws_designs[0]
+            st.selectbox("Design shared with the assistant", ws_designs, key="design_ws_pick")
+            st.button("Open", on_click=_open_workspace, width="stretch",
+                      help="Load this design from the workspace into the editor.")
+        ws_name = ss.get("design_ws_name")
+        if ws_name and workspace.exists(ws_name):
+            on_disk = workspace.read(ws_name)
+            if on_disk != source:
+                st.warning(
+                    f"`{ws_name}` in the workspace differs from the editor. The assistant "
+                    "may have changed it, or you have unsaved edits.")
+                st.button("Reload from workspace", on_click=_open_workspace, width="stretch",
+                          help="Replace the editor content with the workspace file. Undo takes it back.")
+                st.button("Save to workspace", on_click=_save_workspace, width="stretch",
+                          type="primary", help="Write the editor content to the workspace file.")
+            else:
+                st.caption(f"Editing `{ws_name}`; in sync with the workspace.")
+
     st.header("File")
     upload = st.file_uploader(
         "Open an existing CADL file", type=["cadl", "yaml", "yml"],
@@ -367,6 +417,25 @@ with col_view:
             badges.append(f":gray-badge[:material/remove: {stage}]")
     st.markdown(" ".join(badges))
 
+    ws_name = ss.get("design_ws_name") if workspace.enabled() else None
+    pending_review = workspace.unreviewed(ws_name) if ws_name and workspace.exists(ws_name) else []
+    if pending_review:
+        with st.expander(
+                f"Changed by the assistant, not yet reviewed — {len(pending_review)}", expanded=True):
+            st.caption(
+                "The checks say these changes are consistent, not that they are what you "
+                "meant. Look at each one, then confirm it.")
+            for i, change in enumerate(pending_review):
+                st.markdown(_md(
+                    f":material/smart_toy: **{change['summary']}**"
+                    + (f"  \n*Why:* {change['rationale']}" if change.get("rationale") else "")))
+                with st.container(horizontal=True):
+                    st.button("Reviewed", key=f"review_{i}", on_click=_mark_reviewed, args=(i,))
+                    if change.get("section") in SECTIONS:
+                        st.button("Open form", key=f"review_form_{i}", on_click=_jump,
+                                  args=(change["section"], change.get("item", "")))
+            st.button("Mark all reviewed", on_click=_mark_reviewed, key="review_all")
+
     problems = [f for f in analysis.findings if f.level in ("error", "warning")]
     n_errors = sum(f.level == "error" for f in problems)
     if not problems:
@@ -491,6 +560,19 @@ with col_view:
                                        args=(pick, lc_view.initial), width="stretch",
                                        key="trace_restart")
 
+            if lc_view is not None:
+                with st.expander("Every way an instance can run, as stories"):
+                    try:
+                        stories = readback.lifecycle_stories(source, pick)
+                    except ValueError as e:
+                        stories = []
+                        st.caption(f"Cannot tell the stories: {e}")
+                    st.caption(
+                        "Each story follows one instance from start to end, visiting a "
+                        "state at most once. Read them and ask: should this be possible?")
+                    for story in stories:
+                        st.markdown(_md(f"**{story['outcome'].capitalize()}** — {story['story']}"))
+
             monitors = monitors_summary(ir_contract)
             st.markdown(f"**Monitors** ({len(monitors)})")
             if monitors:
@@ -597,6 +679,47 @@ with col_view:
                 [{"parameter": k, "value": str(v)} for k, v in environment.items()],
                 width="stretch", hide_index=True,
             )
+
+    elif view == "Read-back":
+        st.caption(
+            "The design restated in plain sentences by fixed rules — it says what the "
+            "design says. Use it to confirm that this is what you meant; the checks "
+            "cannot tell you that."
+        )
+        described = readback.describe_design(source)
+        st.markdown("**Contracts**")
+        if not described:
+            st.caption("No contracts yet.")
+        for cid, lines in described.items():
+            with st.expander(cid, expanded=len(described) <= 2):
+                for line in lines:
+                    st.markdown(_md(f"- {line}"))
+
+        actor_ids = [str(a.get("id")) for a in ir["institution"].get("actors") or []]
+        if actor_ids:
+            st.markdown("**One actor's point of view**")
+            if ss.get("design_readback_actor") not in actor_ids:
+                ss.pop("design_readback_actor", None)
+            who = st.radio("Actor", actor_ids, horizontal=True, key="design_readback_actor",
+                           label_visibility="collapsed")
+            seen = readback.actor_view(source, who)
+            st.markdown(_md(seen["summary"]))
+            for heading, key, empty in (
+                    ("Bound by", "contracts", "Not bound by any contract."),
+                    ("Takes part in", "protocols", "Takes part in no protocol."),
+                    ("Open issues", "notes", None)):
+                if seen[key]:
+                    st.markdown(f"*{heading}*")
+                    for line in seen[key]:
+                        st.markdown(_md(f"- {line}"))
+                elif empty:
+                    st.caption(empty)
+
+        explained = readback.explain_verification(source)
+        if explained:
+            st.markdown("**What verification concluded**")
+            for row in explained:
+                st.markdown(_md(f"{LEVEL_ICON[row['result']]} **{row['check']}** — {row['meaning']}"))
 
     elif view == "Checks":
         st.caption(

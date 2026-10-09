@@ -260,9 +260,13 @@ def analyze(source: str) -> DesignAnalysis:
         return result
 
     result.name = sos.name
-    result.sos_type = sos.type.value
+    result.sos_type = sos.type.value if sos.type else ""
     result.has_regimes = bool(sos.transitions)
     result.findings.append(Finding("pass", "Parse", "Syntax is valid"))
+    if not sos.type:
+        result.findings.append(Finding(
+            "warning", "Type check", "The SoS has no type",
+            f"Set `type` to one of {', '.join(SOS_TYPES)}.", "System"))
     doc = yaml.safe_load(source)
     sos_doc = doc.get("sos") if isinstance(doc.get("sos"), dict) else {}
 
@@ -493,6 +497,26 @@ def check_interfaces(sos: dict, ir: dict) -> List[Finding]:
                     f"`{severity}` is not one of {', '.join(SEVERITIES)}.", "Contracts", cid))
 
     actors = {str(a.get("id")): a for a in (ir.get("institution") or {}).get("actors") or []}
+
+    # Lifecycle events and monitor rules name actors too, but the upstream
+    # type checker only looks at parties, assume / guarantee and protocols.
+    for c in (ir.get("institution") or {}).get("contracts") or []:
+        cid = str(c.get("id", ""))
+        texts = [(f"transition '{t.get('id')}'", f"{t.get('on') or ''} {t.get('when') or ''}")
+                 for t in (c.get("lifecycle") or {}).get("transitions") or []]
+        texts += [(f"monitor '{m.get('id')}'", f"{m.get('rule') or ''} {join_list(m.get('observe'))}")
+                  for m in c.get("monitors") or []]
+        for where, text in texts:
+            named = set(re.findall(r"\b([A-Za-z_]\w*)\[", text))
+            arrow = re.match(r"\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?\s*->\s*([A-Za-z_]\w*)", text)
+            if arrow:
+                named.update(arrow.groups())
+            for name in sorted(named - set(actors)):
+                findings.append(Finding(
+                    "warning", "Interfaces", f"Contract '{cid}' {where} names an undefined actor",
+                    f"`{name}` is not an actor of this design ({', '.join(actors) or 'none defined'}).",
+                    "Contracts", cid))
+
     for p in (ir.get("protocol") or {}).get("protocols") or []:
         pid = str(p.get("id", ""))
         seen = set()
@@ -568,6 +592,34 @@ def check_consistency(sos: dict, ir: dict) -> List[Finding]:
             findings.append(Finding(
                 "info", "Consistency", f"Contract '{cid}' names no decision holder",
                 "Nobody is identified as deciding under this contract.", "Contracts", cid))
+
+        # The same limit is often written three times: in a guarantee, in
+        # the violation detector and as a lifecycle deadline.
+        bounds = _guaranteed_bounds(c)
+        detect = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*((?:<=|>=|==|<|>).*)", str(c.get("violation_detect") or ""))
+        detect_bound = _bound(detect.group(2)) if detect else None
+        for quantity, op, value, text in bounds:
+            if detect and detect_bound and detect.group(1) == quantity and detect_bound[1] != value:
+                findings.append(Finding(
+                    "warning", "Consistency",
+                    f"Contract '{cid}' detects violations at a different limit than it guarantees",
+                    f"The guarantee is `{text}`, but a violation is detected when "
+                    f"`{c.get('violation_detect')}`.", "Contracts", cid))
+        durations = [value for _, op, value, text in bounds
+                     if op in ("<=", "<") and duration_ms(text.split(op, 1)[1]) is not None]
+        if durations:
+            limit = min(durations)
+            for t in (c.get("lifecycle") or {}).get("transitions") or []:
+                deadline = t.get("deadline_ms")
+                # A shorter deadline is normal (one step of several); a longer
+                # one lets a step run past what the contract promises.
+                if deadline is not None and int(deadline) > int(limit):
+                    findings.append(Finding(
+                        "warning", "Consistency",
+                        f"Contract '{cid}' transition '{t.get('id')}' may take longer than the "
+                        "contract guarantees",
+                        f"Its deadline is {_format_ms(int(deadline))}, but the contract guarantees "
+                        f"{_format_ms(int(limit))}.", "Contracts", cid))
 
         # A guarantee "x <= 300s" against the time bounds of protocols run
         # entirely by this contract's parties.
@@ -842,7 +894,22 @@ def load_doc(source: str) -> dict:
         raise ValueError(f"YAML syntax error: {e}") from e
     if not isinstance(doc, dict) or not isinstance(doc.get("sos"), dict):
         raise ValueError("The design needs a top-level `sos:` mapping.")
-    return doc
+    return _restore_on_keys(doc)
+
+
+def _restore_on_keys(node: Any) -> Any:
+    """Undo YAML 1.1 reading the key `on` as the boolean True.
+
+    CADL uses `on:` for lifecycle events, and PyYAML loads that key as
+    True. Left alone, forms would not see the event and the design would
+    be written back with a `true:` key.
+    """
+    if isinstance(node, list):
+        return [_restore_on_keys(item) for item in node]
+    if isinstance(node, dict):
+        return {("on" if key is True else key): _restore_on_keys(value)
+                for key, value in node.items()}
+    return node
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -852,10 +919,13 @@ class _NoAliasDumper(yaml.SafeDumper):
 
 
 def dump_doc(doc: dict) -> str:
-    return yaml.dump(
+    text = yaml.dump(
         doc, Dumper=_NoAliasDumper, sort_keys=False, allow_unicode=True,
         default_flow_style=False, width=100,
     )
+    # PyYAML quotes the key `on` because YAML 1.1 would read it as a boolean;
+    # CADL writes it bare, and its parser accepts either.
+    return re.sub(r"(?m)^(\s*(?:- )?)'on':", r"\1on:", text)
 
 
 def has_comments(source: str) -> bool:
@@ -1297,8 +1367,8 @@ def to_explorer_yaml(source: str) -> str:
     config: Dict[str, Any] = {
         "name": sos.name,
         # The synthetic model knows directed and collaborative behaviour only.
-        "sos_type": "directed" if sos.type.value == "Directed" else "collaborative",
-        "description": f"From CADL design {sos.name} (type {sos.type.value})",
+        "sos_type": "directed" if sos.type and sos.type.value == "Directed" else "collaborative",
+        "description": f"From CADL design {sos.name} (type {sos.type.value if sos.type else 'unset'})",
     }
     if governance:
         config["governance"] = governance
