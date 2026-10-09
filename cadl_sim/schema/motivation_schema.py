@@ -27,7 +27,7 @@ class MotivationProfile(Enum):
     CUSTOM = "custom"          # Explicit per-robot values
 
 
-# ── C-SoS P1–P4 delivery-target patterns (paper Table V, 5 robots) ───────────
+# ── C-SoS P1–P4 delivery-target patterns (5 robots) ───────────
 # Each pattern defines per-robot maximum delivery count.
 # Robots stop requesting new routes after reaching their target.
 CSOS_PATTERNS: Dict[str, List[int]] = {
@@ -172,7 +172,7 @@ class CADLMotivationConfig:
     num_edges: int = 17
     num_robots: int = 5
     nats_url: str = "nats://localhost:4222"
-    random_seed: int = -1              # -1 = skip InitState (thesis-compatible)
+    random_seed: int = -1              # -1 = skip InitState (time-based seed)
     start_nodes: Optional[List[int]] = None  # Per-robot initial node positions
 
     # Governance parameters (existing)

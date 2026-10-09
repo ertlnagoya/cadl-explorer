@@ -1,7 +1,8 @@
 """Synthetic experiment runner using an analytical model.
 
-No Unity installation required. Generates plausible results
-calibrated against real simulation observations.
+No Unity installation required. The coefficients are chosen by hand to
+give plausible trends; the output is not a measurement and has not been
+validated against a simulator or a real system.
 """
 
 import random

@@ -29,7 +29,7 @@ environment:
   num_edges: 17
   num_robots: 5
   nats_url: "nats://localhost:4222"
-  random_seed: -1          # -1 = skip InitState (thesis-compatible, time-based seed)
+  random_seed: -1          # -1 = skip InitState (time-based seed)
   start_nodes: [9, 8, 3, 2, 5]
 
 governance:
