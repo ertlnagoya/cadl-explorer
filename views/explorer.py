@@ -187,7 +187,11 @@ with st.sidebar:
     with st.expander("Advanced: custom CADL YAML for B"):
         st.caption(
             "Paste a CADL motivation-config YAML to use as design B. "
-            "Leave empty to use the selectors below."
+            "Leave empty to use the selectors below. "
+            "The synthetic metrics depend only on `sos_type`, the agent "
+            "`profile` and `rho`; other fields such as `alpha`, `beta` and "
+            "`lambda` are carried into the generated IR and config but do "
+            "not change the results."
         )
         custom_text = st.text_area(
             "CADL YAML", height=200, max_chars=MAX_SOURCE_CHARS,
