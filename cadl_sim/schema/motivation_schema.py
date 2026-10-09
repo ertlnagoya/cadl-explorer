@@ -1,5 +1,5 @@
 """
-CADL Schema Extension for A-SoS Motivation-Sensitive Governance.
+CADL Schema Extension for D-SoS Motivation-Sensitive Governance.
 
 Defines the YAML schema for describing motivation profiles, governance
 interpretation, and experiment sweep parameters.
@@ -163,7 +163,7 @@ def _sos_type_canonical(lc: str) -> str:
 class CADLMotivationConfig:
     """Full CADL config with motivation extensions."""
     # Base simulator settings
-    name: str = "A-SoS-Baseline"
+    name: str = "D-SoS-Baseline"
     sos_type: str = "directed"  # internal lowercase; emitted Capitalized
     description: str = ""
 

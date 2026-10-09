@@ -10,7 +10,7 @@ from backend.runners.synthetic_runner import run_comparison_sweep
 
 def test_diff_cadl():
     a = make_baseline_config()
-    b = make_config("A-SoS + motivation-sensitive", "linear", 0.5)
+    b = make_config("D-SoS + motivation-sensitive", "linear", 0.5)
     result = diff_cadl(a, b)
     assert isinstance(result, DiffResult)
     assert result.category == "cadl"
@@ -49,8 +49,8 @@ def test_diff_config():
 
 def test_diff_result():
     comparison = run_comparison_sweep("linear", [0.0, 0.5], num_seeds=3)
-    ev_a = evaluate([r for r in comparison["a_sos"] if r.rho == 0.0])
-    ev_b = evaluate([r for r in comparison["a_sos"] if r.rho == 0.5])
+    ev_a = evaluate([r for r in comparison["d_sos"] if r.rho == 0.0])
+    ev_b = evaluate([r for r in comparison["d_sos"] if r.rho == 0.5])
     result = diff_result(ev_a, ev_b, "baseline", "rho=0.5")
     assert result.category == "result"
     assert isinstance(result.to_html(), str)
@@ -58,7 +58,7 @@ def test_diff_result():
 
 def test_diff_result_to_html():
     a = make_baseline_config()
-    b = make_config("A-SoS + motivation-sensitive", "linear", 0.5)
+    b = make_config("D-SoS + motivation-sensitive", "linear", 0.5)
     result = diff_cadl(a, b)
     html = result.to_html()
     assert "<div" in html

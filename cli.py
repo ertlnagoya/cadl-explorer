@@ -4,19 +4,19 @@ Batch CLI for cadl-explorer — run experiments from the command line.
 
 Usage:
   # Run a single pipeline
-  python cli.py run --template "A-SoS + motivation-sensitive" --profile linear --rho 0.5
+  python cli.py run --template "D-SoS + motivation-sensitive" --profile linear --rho 0.5
 
   # Run a rho sweep
-  python cli.py sweep --template "A-SoS + motivation-sensitive" --profile linear
+  python cli.py sweep --template "D-SoS + motivation-sensitive" --profile linear
 
   # Run from experiment YAML
-  python cli.py batch --config experiments/a_sos_rho_sweep.yaml
+  python cli.py batch --config experiments/d_sos_rho_sweep.yaml
 
   # Compare two pipeline results
-  python cli.py compare --a "A-SoS" --b "A-SoS + motivation-sensitive" --rho 0.5
+  python cli.py compare --a "D-SoS" --b "D-SoS + motivation-sensitive" --rho 0.5
 
   # Replay a previous run
-  python cli.py replay --run-dir runs/2026-03-28_143000_a_sos_rho_sweep
+  python cli.py replay --run-dir runs/2026-03-28_143000_d_sos_rho_sweep
 
   # List all runs
   python cli.py list-runs
@@ -86,7 +86,7 @@ def cmd_batch(args):
         for rho in sw.rho:
             for profile in sw.motivation_profiles:
                 pr = run_pipeline(
-                    template="A-SoS + motivation-sensitive" if config.sos_type == "directed" else "C-SoS",
+                    template="D-SoS + motivation-sensitive" if config.sos_type == "directed" else "C-SoS",
                     profile=profile, rho=rho,
                     num_seeds=min(len(sw.seeds), args.max_seeds),
                 )
@@ -98,7 +98,7 @@ def cmd_batch(args):
                     run.save_pipeline_result(pr)
     else:
         pr = run_pipeline(
-            template="A-SoS" if config.sos_type == "directed" else "C-SoS",
+            template="D-SoS" if config.sos_type == "directed" else "C-SoS",
             profile=config.agent_motivation.profile,
             rho=config.governance_motivation.rho,
             num_seeds=args.max_seeds,
@@ -177,7 +177,7 @@ def main():
 
     # run
     p_run = sub.add_parser("run", help="Run a single pipeline")
-    p_run.add_argument("--template", default="A-SoS + motivation-sensitive")
+    p_run.add_argument("--template", default="D-SoS + motivation-sensitive")
     p_run.add_argument("--profile", default="linear")
     p_run.add_argument("--rho", type=float, default=0.5)
     p_run.add_argument("--seeds", type=int, default=10)
@@ -185,7 +185,7 @@ def main():
 
     # sweep
     p_sweep = sub.add_parser("sweep", help="Run a rho sweep")
-    p_sweep.add_argument("--template", default="A-SoS + motivation-sensitive")
+    p_sweep.add_argument("--template", default="D-SoS + motivation-sensitive")
     p_sweep.add_argument("--profile", default="linear")
     p_sweep.add_argument("--rho-values", default="0.0,0.25,0.5,0.75,1.0")
     p_sweep.add_argument("--seeds", type=int, default=10)
@@ -199,8 +199,8 @@ def main():
 
     # compare
     p_cmp = sub.add_parser("compare", help="Compare two pipelines")
-    p_cmp.add_argument("--a", default="A-SoS")
-    p_cmp.add_argument("--b", default="A-SoS + motivation-sensitive")
+    p_cmp.add_argument("--a", default="D-SoS")
+    p_cmp.add_argument("--b", default="D-SoS + motivation-sensitive")
     p_cmp.add_argument("--profile", default="linear")
     p_cmp.add_argument("--rho-a", type=float, default=0.0)
     p_cmp.add_argument("--rho-b", type=float, default=0.5)

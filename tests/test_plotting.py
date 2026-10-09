@@ -17,7 +17,7 @@ def _get_data():
 
 def test_scatter_returns_figure():
     data = _get_data()
-    fig = scatter_performance_autonomy(data["a_sos"], data["c_sos"])
+    fig = scatter_performance_autonomy(data["d_sos"], data["c_sos"])
     assert isinstance(fig, go.Figure)
 
 
@@ -29,15 +29,15 @@ def test_line_rho_returns_figure():
 
 def test_bar_comparison_returns_figure():
     data = _get_data()
-    ev_a = evaluate(data["a_sos"])
+    ev_a = evaluate(data["d_sos"])
     ev_b = evaluate(data["c_sos"])
-    fig = bar_comparison(ev_a, ev_b, "A-SoS", "C-SoS")
+    fig = bar_comparison(ev_a, ev_b, "D-SoS", "C-SoS")
     assert isinstance(fig, go.Figure)
 
 
 def test_individual_robot_returns_figure():
     data = _get_data()
-    fig = individual_robot_scatter(data["a_sos"][:3])
+    fig = individual_robot_scatter(data["d_sos"][:3])
     assert isinstance(fig, go.Figure)
 
 

@@ -23,7 +23,7 @@ def test_make_config_all_templates():
 
 
 def test_build_ir():
-    cfg = make_config("A-SoS + motivation-sensitive", "linear", 0.5)
+    cfg = make_config("D-SoS + motivation-sensitive", "linear", 0.5)
     ir = build_ir(cfg)
     assert ir.institution.sos_type == "directed"
     assert ir.institution.motivation_interpretation.rho == 0.5
@@ -74,11 +74,11 @@ def test_sos_type_canonical_roundtrip():
 
 
 def test_load_experiment_config():
-    path = os.path.join(os.path.dirname(__file__), "..", "experiments", "a_sos_baseline.yaml")
+    path = os.path.join(os.path.dirname(__file__), "..", "experiments", "d_sos_baseline.yaml")
     if os.path.exists(path):
         cfg = load_experiment_config(path)
         assert cfg.sos_type == "directed"
-        assert cfg.name == "A-SoS-Baseline"
+        assert cfg.name == "D-SoS-Baseline"
 
 
 # ── Input limits on pasted CADL YAML ────────────────────────────────
@@ -119,3 +119,21 @@ def test_parse_rejects_out_of_range_input(text, fragment):
     with pytest.raises(ValueError) as exc:
         parse_cadl_yaml(text)
     assert fragment in str(exc.value)
+
+
+def test_template_names_before_the_rename_are_still_accepted():
+    from backend.services.cadl_service import make_config, resolve_template, TEMPLATES
+    from backend.services.pipeline import run_pipeline
+
+    assert "A-SoS" not in TEMPLATES and "D-SoS" in TEMPLATES
+    assert resolve_template("A-SoS") == "D-SoS"
+    assert make_config("A-SoS + motivation-sensitive", "linear", 0.5).name == \
+        make_config("D-SoS + motivation-sensitive", "linear", 0.5).name
+    old, new = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=2), run_pipeline("D-SoS", "uniform", 0.0, num_seeds=2)
+    assert old.template == "D-SoS" and old.cadl_id == new.cadl_id
+    try:
+        resolve_template("Z-SoS")
+    except ValueError as e:
+        assert "D-SoS" in str(e)
+    else:
+        raise AssertionError("unknown template accepted")

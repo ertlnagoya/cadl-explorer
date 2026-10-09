@@ -11,7 +11,7 @@ from backend.adapters.unity_result_adapter import parse_metrics_report
 
 
 def test_generate_config():
-    cfg = make_config("A-SoS", "uniform", 0.0)
+    cfg = make_config("D-SoS", "uniform", 0.0)
     result = generate_config(cfg)
     assert isinstance(result, dict)
     assert "simulatorConfig" in result

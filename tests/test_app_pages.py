@@ -273,3 +273,13 @@ def test_designer_hides_the_workspace_unless_configured(monkeypatch):
     monkeypatch.delenv("CADL_WORKSPACE", raising=False)
     at = _designer()
     assert not any(h.value == "Workspace" for h in at.header)
+
+
+def test_explorer_restores_links_shared_before_the_template_rename():
+    at = AppTest.from_file(os.path.join(ROOT, "views", "explorer.py"), default_timeout=60)
+    at.query_params["b"] = "am"      # the old key for "A-SoS + motivation-sensitive"
+    at.query_params["a"] = "a"
+    at = at.run()
+    assert not at.exception
+    assert at.session_state.b_template == "D-SoS + motivation-sensitive"
+    assert at.session_state.a_template == "D-SoS"

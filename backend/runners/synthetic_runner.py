@@ -125,10 +125,10 @@ def run_comparison_sweep(
     rho_values: Optional[List[float]] = None,
     num_seeds: int = 10,
 ) -> Dict[str, List[SingleResult]]:
-    """Run both A-SoS and C-SoS sweeps for comparison."""
+    """Run both D-SoS and C-SoS sweeps for comparison."""
     if rho_values is None:
         rho_values = [0.0, 0.25, 0.5, 0.75, 1.0]
     return {
-        "a_sos": run_sweep("directed", profile, rho_values, num_seeds),
+        "d_sos": run_sweep("directed", profile, rho_values, num_seeds),
         "c_sos": run_sweep("collaborative", profile, [0.0], num_seeds),
     }

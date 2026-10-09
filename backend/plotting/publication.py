@@ -20,7 +20,7 @@ def _ensure_matplotlib():
 
 
 def pub_performance_autonomy(
-    a_sos_results: list,
+    d_sos_results: list,
     c_sos_results: list,
     output_path: str = "performance_autonomy.pdf",
     selected_results: list = None,
@@ -30,10 +30,10 @@ def pub_performance_autonomy(
     _ensure_matplotlib()
     fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    if a_sos_results:
-        x = [r.avg_autonomy for r in a_sos_results]
-        y = [r.throughput for r in a_sos_results]
-        ax.scatter(x, y, c="tab:blue", alpha=0.4, s=30, label="A-SoS baseline", zorder=2)
+    if d_sos_results:
+        x = [r.avg_autonomy for r in d_sos_results]
+        y = [r.throughput for r in d_sos_results]
+        ax.scatter(x, y, c="tab:blue", alpha=0.4, s=30, label="D-SoS baseline", zorder=2)
 
     if c_sos_results:
         x = [r.avg_autonomy for r in c_sos_results]
@@ -97,7 +97,7 @@ def pub_rho_effects(
 def pub_fairness_comparison(
     results_a: list,
     results_b: list,
-    label_a: str = "A-SoS",
+    label_a: str = "D-SoS",
     label_b: str = "C-SoS",
     output_path: str = "fairness_comparison.pdf",
 ) -> str:

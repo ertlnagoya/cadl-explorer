@@ -14,7 +14,7 @@ from backend.evaluation.structural_metrics import (
 
 
 def test_pipeline_run():
-    pr = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
+    pr = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=3)
     assert isinstance(pr, PipelineResult)
     assert pr.cadl is not None
     assert pr.ir is not None
@@ -25,9 +25,9 @@ def test_pipeline_run():
 
 
 def test_pipeline_serialization():
-    pr = run_pipeline("A-SoS", "linear", 0.5, num_seeds=2)
+    pr = run_pipeline("D-SoS", "linear", 0.5, num_seeds=2)
     d = pr.to_dict()
-    assert d["template"] == "A-SoS"
+    assert d["template"] == "D-SoS"
     assert d["cadl"] is not None
     assert len(d["results"]) == 2
     j = pr.to_json()
@@ -35,8 +35,8 @@ def test_pipeline_serialization():
 
 
 def test_compare_pipelines():
-    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
-    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
+    pr_a = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=3)
+    pr_b = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
     cmp = compare_pipelines(pr_a, pr_b)
     assert isinstance(cmp, ComparisonResult)
     assert cmp.cadl is not None
@@ -48,8 +48,8 @@ def test_compare_pipelines():
 
 
 def test_semantic_diff_result_labels():
-    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=5)
-    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    pr_a = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=5)
+    pr_b = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
     sd = semantic_diff_result(
         pr_a.evaluation.to_dict(), pr_b.evaluation.to_dict(),
         pr_a.name, pr_b.name,
@@ -70,14 +70,14 @@ def test_semantic_diff_html():
 
 
 def test_motivation_outcome_correlation():
-    pr = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    pr = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
     corr = compute_motivation_outcome_correlation(pr.results)
     assert corr.n > 0
     assert -1 <= corr.mean <= 1
 
 
 def test_variance_structure():
-    pr = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    pr = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
     vs = compute_variance_structure(pr.results)
     assert "total_variance" in vs
     assert "between_robot_variance" in vs
@@ -85,7 +85,7 @@ def test_variance_structure():
 
 
 def test_region_extent():
-    pr = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    pr = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
     re = compute_region_extent(pr.results)
     assert "throughput_range" in re
     assert "autonomy_range" in re
@@ -93,7 +93,7 @@ def test_region_extent():
 
 
 def test_pipeline_has_traces():
-    pr = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
+    pr = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=3)
     assert len(pr.traces) == 5
     assert pr.traces[0].stage == "cadl"
     assert pr.traces[1].parent_id == pr.traces[0].content_id  # ir.parent = cadl
@@ -101,7 +101,7 @@ def test_pipeline_has_traces():
 
 
 def test_pipeline_metadata():
-    pr = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=2)
+    pr = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=2)
     assert pr.experiment_id  # non-empty
     assert pr.timestamp  # non-empty
     assert pr.pipeline_version  # non-empty
@@ -109,8 +109,8 @@ def test_pipeline_metadata():
 
 
 def test_compare_returns_comparison_result():
-    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=3)
-    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
+    pr_a = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=3)
+    pr_b = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=3)
     cmp = compare_pipelines(pr_a, pr_b)
     assert isinstance(cmp, ComparisonResult)
     assert cmp.pipeline_a == pr_a.name
@@ -123,8 +123,8 @@ def test_compare_returns_comparison_result():
 
 
 def test_ir_diff_governance_interpretation():
-    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=2)
-    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=2)
+    pr_a = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=2)
+    pr_b = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=2)
     sd = semantic_diff_ir(pr_a.ir, pr_b.ir, pr_a.name, pr_b.name)
     # Should have governance-level labels, not just field counts
     categories = [lbl.category for lbl in sd.labels]
@@ -135,9 +135,9 @@ def test_ir_diff_governance_interpretation():
 
 def test_region_analysis():
     from backend.evaluation.region_analysis import compute_region, compare_regions
-    pr_a = run_pipeline("A-SoS", "uniform", 0.0, num_seeds=5)
-    pr_b = run_pipeline("A-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
-    ra = compute_region(pr_a.results, "A-SoS")
+    pr_a = run_pipeline("D-SoS", "uniform", 0.0, num_seeds=5)
+    pr_b = run_pipeline("D-SoS + motivation-sensitive", "linear", 0.5, num_seeds=5)
+    ra = compute_region(pr_a.results, "D-SoS")
     rb = compute_region(pr_b.results, "Selected")
     assert ra.area >= 0
     assert rb.area >= 0
@@ -150,8 +150,8 @@ def test_region_analysis():
 def test_rho_ignored_without_motivation_model():
     # Templates without a motivation model declare rho=0 in CADL; the
     # experiment must run the same thing the CADL config says.
-    plain = run_pipeline(template="A-SoS", profile="linear", rho=0.0, num_seeds=3)
-    with_rho = run_pipeline(template="A-SoS", profile="linear", rho=0.8, num_seeds=3)
+    plain = run_pipeline(template="D-SoS", profile="linear", rho=0.0, num_seeds=3)
+    with_rho = run_pipeline(template="D-SoS", profile="linear", rho=0.8, num_seeds=3)
     assert with_rho.rho == 0.0
     assert with_rho.cadl_id == plain.cadl_id
     assert with_rho.evaluation.to_dict() == plain.evaluation.to_dict()
@@ -161,7 +161,7 @@ def test_run_pipeline_for_config_matches_template():
     from backend.services.cadl_service import make_config
     from backend.services.pipeline import run_pipeline_for_config
 
-    template = "A-SoS + motivation-sensitive"
+    template = "D-SoS + motivation-sensitive"
     by_template = run_pipeline(template=template, profile="polarized", rho=0.5, num_seeds=3)
     by_config = run_pipeline_for_config(make_config(template, "polarized", 0.5), num_seeds=3)
     assert by_config.profile == "polarized"

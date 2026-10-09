@@ -5,7 +5,7 @@ Layer 1 (Institution): WHO decides, WHAT governance rules apply
 Layer 2 (Protocol):    HOW coordination messages flow
 Layer 3 (Algorithm):   WHAT computation executes the decisions
 
-Extended with motivation-related fields for A-SoS experiments.
+Extended with motivation-related fields for D-SoS experiments.
 """
 
 from dataclasses import dataclass, field

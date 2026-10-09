@@ -8,8 +8,10 @@ in Systems of Systems (SoS).
 
 The experiment results shown by the app come from a **synthetic model**
 (`backend/runners/synthetic_runner.py`), not from measurements of a real
-system. In the governance templates, "A-SoS" is the app's label for a
-configuration with a strong central authority; its `sos_type` is `Directed`.
+system. The governance template "D-SoS" (Directed SoS) is a configuration with a
+strong central authority; its `sos_type` is `Directed`. Up to v0.4.1 it was
+called "A-SoS", which the CADL specification uses for Acknowledged SoS; the
+old names are still accepted by the CLI, experiment files and shared links.
 The simulator parameters α / β / λ mean autonomy level, centralization level
 and exploration probability, and differ from the per-contract α / β / λ of the
 CADL language specification.
@@ -114,7 +116,7 @@ streamlit run app.py
 
 Python 3.9 or later is required.
 
-The app has three pages:
+The app has four pages:
 
 - **Explorer** (`views/explorer.py`) compares two governance designs, a
   baseline A and a design under study B. It shows the outcome first
@@ -156,6 +158,11 @@ changes until a proposal is applied.
 ```bash
 pip install -r requirements-mcp.txt
 ```
+
+The MCP library needs Python 3.10 or later (the web app alone runs on 3.9).
+The assistant starts the server as a separate process, so give it the
+interpreter of the environment where you ran the command above, as an
+absolute path.
 
 Register the server with an MCP client. For Claude Desktop, add to
 `claude_desktop_config.json` (use absolute paths):
@@ -212,16 +219,16 @@ intended. That is what the read-back and the review marks are for.
 
 ```bash
 # Single pipeline
-python cli.py run --template "A-SoS + motivation-sensitive" --profile linear --rho 0.5 --save
+python cli.py run --template "D-SoS + motivation-sensitive" --profile linear --rho 0.5 --save
 
 # Rho sweep
 python cli.py sweep --profile linear --rho-values "0.0,0.25,0.5,0.75,1.0" --save
 
 # Batch from experiment YAML
-python cli.py batch --config experiments/a_sos_rho_sweep.yaml --save
+python cli.py batch --config experiments/d_sos_rho_sweep.yaml --save
 
 # Compare two governance configurations
-python cli.py compare --a "A-SoS" --b "A-SoS + motivation-sensitive" --rho-b 0.5
+python cli.py compare --a "D-SoS" --b "D-SoS + motivation-sensitive" --rho-b 0.5
 
 # Replay a previous run
 python cli.py replay --run-dir runs/2026-03-28_143000_sweep_...
@@ -277,7 +284,7 @@ All execution—UI and CLI—flows through `GovernancePipeline` in
 from backend.services import GovernancePipeline, run_pipeline, compare_pipelines
 
 # Single run
-result = run_pipeline(template="A-SoS", profile="uniform", rho=0.0)
+result = run_pipeline(template="D-SoS", profile="uniform", rho=0.0)
 
 # Compare two governance designs
 comparison = compare_pipelines(result_a, result_b)

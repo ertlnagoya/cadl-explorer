@@ -33,9 +33,9 @@ def test_run_sweep():
 
 def test_run_comparison_sweep():
     comparison = run_comparison_sweep("uniform", [0.0, 0.5], num_seeds=2)
-    assert "a_sos" in comparison
+    assert "d_sos" in comparison
     assert "c_sos" in comparison
-    assert len(comparison["a_sos"]) == 4  # 2 rho * 2 seeds
+    assert len(comparison["d_sos"]) == 4  # 2 rho * 2 seeds
     assert len(comparison["c_sos"]) == 2  # 1 rho * 2 seeds
 
 
