@@ -101,6 +101,8 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+Python 3.9 or later is required.
+
 The sidebar page **SoS DSL Lifecycle** (`pages/SoS_DSL_Lifecycle.py`) draws the
 contract lifecycle of the SoS-DSL extension. It reads a simulator IR produced
 by the `cadl` compiler (`cadl sim-ir <file>.cadl --format json`), or the
@@ -209,10 +211,11 @@ These shims will be removed in a future version.
 `cadl_sim/` is a vendored subset of the CADL schema, IR, and Unity generator,
 scoped to this explorer's needs. It was renamed from `cadl/` to avoid a
 name collision with the upstream `cadl` Python package
-([github.com/ertlnagoya/cadl](https://github.com/ertlnagoya/cadl)), which
-provides the full language parser (Lark grammar, verification, codegen).
+([github.com/ertlnagoya/cadl](https://github.com/ertlnagoya/cadl), published
+on PyPI as `cadl-lang`), which provides the full language parser (Lark
+grammar, verification, codegen).
 
-Future migration path: depend on the upstream `cadl` package directly and
+Future migration path: depend on the upstream `cadl-lang` package directly and
 gradually replace `cadl_sim/` modules. Most imports funnel through
 `backend/services/cadl_service.py`, which is the single point where the
 swap would happen.
