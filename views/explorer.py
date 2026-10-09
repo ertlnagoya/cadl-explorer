@@ -24,6 +24,7 @@ from backend.plotting.interactive import (
     scatter_ab, line_rho_effects, per_robot_ab,
 )
 from backend.plotting.scenario import scenario_svg
+from views._guide import WHAT_YOU_CAN_DO, HOW_TO_USE, DEMOS
 
 NUM_SEEDS = 10
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
@@ -270,6 +271,30 @@ st.caption(
     f"[CADL specification and hands-on]({SPEC_URL}) · "
     "terms are explained in **About & Glossary**."
 )
+
+with st.expander("Getting started — what this tool does, how to use it, and a demo", expanded=True):
+    col_what, col_how = st.columns(2, gap="large")
+    with col_what:
+        st.markdown("##### What you can do")
+        st.markdown(WHAT_YOU_CAN_DO)
+    with col_how:
+        st.markdown("##### How to use it")
+        st.markdown(HOW_TO_USE)
+
+    st.markdown("##### Demo — three comparisons to try")
+    st.caption(
+        "Each button loads a ready-made A/B pair into the sidebar and "
+        "updates the page below."
+    )
+    for col, (example, (compares, look_at)) in zip(st.columns(len(DEMOS)), DEMOS.items()):
+        with col.container(border=True):
+            st.markdown(f"**{example}**")
+            st.markdown(compares)
+            st.markdown(f"*What to look at:* {look_at}")
+            st.button(
+                "Load this demo", key=f"demo_{example}", width="stretch",
+                on_click=_apply_example, args=(example,),
+            )
 
 # ── 1. Outcome ──────────────────────────────────────────────────────
 

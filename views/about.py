@@ -4,6 +4,7 @@ import streamlit as st
 
 from backend.plotting.scenario import scenario_svg
 from backend.services.cadl_service import TEMPLATES
+from views._guide import WHAT_YOU_CAN_DO, HOW_TO_USE, DEMOS
 
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
 REPO_URL = "https://github.com/ertlnagoya/cadl-explorer"
@@ -32,6 +33,35 @@ st.warning(
     icon=":material/science:",
 )
 st.markdown(f"[CADL specification and hands-on]({SPEC_URL}) · [Source code]({REPO_URL})")
+
+st.header("What you can do", divider="gray")
+st.markdown(WHAT_YOU_CAN_DO)
+
+st.header("How to use the Explorer", divider="gray")
+st.markdown(HOW_TO_USE)
+
+st.header("Demo", divider="gray")
+st.markdown(
+    "The Explorer has three ready-made comparisons. Press the example's "
+    "button in the Explorer sidebar, or **Load this demo** under "
+    "*Getting started*."
+)
+st.markdown(
+    "| Demo | Compares | What to look at |\n|---|---|---|\n"
+    + "\n".join(
+        f"| **{name}** | {compares} | {look_at} |"
+        for name, (compares, look_at) in DEMOS.items()
+    )
+)
+
+st.header("Contract Lifecycle page", divider="gray")
+st.markdown(
+    "1. Open **Contract Lifecycle** in the navigation. A bundled example is shown straight away.\n"
+    "2. Pick a contract to see its lifecycle as a state machine. Dashed red edges are "
+    "violation transitions; its monitors are listed below the graph.\n"
+    "3. To view your own design, compile it with `cadl sim-ir <file>.cadl --format json` "
+    "and upload the JSON in the sidebar."
+)
 
 st.header("Governance templates", divider="gray")
 st.dataframe(
