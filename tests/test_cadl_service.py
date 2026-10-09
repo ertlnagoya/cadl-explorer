@@ -79,3 +79,43 @@ def test_load_experiment_config():
         cfg = load_experiment_config(path)
         assert cfg.sos_type == "directed"
         assert cfg.name == "A-SoS-Baseline"
+
+
+# ── Input limits on pasted CADL YAML ────────────────────────────────
+
+import pytest
+
+from backend.services.cadl_service import (
+    parse_cadl_yaml, MAX_ROBOTS, MAX_SOURCE_CHARS,
+)
+
+
+def test_parse_accepts_nested_layout():
+    cfg = parse_cadl_yaml(
+        "name: ok\nsos_type: directed\n"
+        "environment:\n  num_robots: 5\n"
+        "governance:\n  alpha: 0.3\n  beta: 0.7\n  lambda: 0.0\n"
+        "motivation:\n  agent:\n    profile: linear\n"
+        "  governance:\n    model: hybrid\n    rho: 0.5\n"
+    )
+    assert cfg.num_robots == 5
+    assert cfg.beta == 0.7
+    assert cfg.governance_motivation.rho == 0.5
+
+
+@pytest.mark.parametrize("text, fragment", [
+    (f"environment:\n  num_robots: {MAX_ROBOTS + 1}\n", "environment.num_robots"),
+    ("environment:\n  num_robots: many\n", "environment.num_robots"),
+    ("environment:\n  num_robots: 0\n", "environment.num_robots"),
+    ("governance:\n  beta: 1.5\n", "governance.beta"),
+    ("motivation:\n  agent:\n    profile: bogus\n", "motivation.agent.profile"),
+    ("motivation:\n  governance:\n    rho: abc\n", "motivation.governance.rho"),
+    ("name: 5\n", "name"),
+    ("environment: 3\n", "environment"),
+    ("a: &x [1, 2]\nb: *x\n", "anchors"),
+    ("name: " + "x" * MAX_SOURCE_CHARS + "\n", "too long"),
+])
+def test_parse_rejects_out_of_range_input(text, fragment):
+    with pytest.raises(ValueError) as exc:
+        parse_cadl_yaml(text)
+    assert fragment in str(exc.value)

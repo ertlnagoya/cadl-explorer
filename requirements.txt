@@ -6,8 +6,8 @@ matplotlib>=3.7.0
 pandas>=2.0.0
 
 # Upstream CADL compiler (Lark grammar, parser, verifier, codegen).
-# Uncomment once the `cadl` package is published to PyPI (see
-# cadl_repo / pyproject.toml). Until then, cadl-explorer uses the
+# Uncomment once the `cadl-lang` package is published to PyPI (see
+# https://github.com/ertlnagoya/cadl). Until then, cadl-explorer uses the
 # bundled `cadl_sim/` subset and this line stays commented so Streamlit
 # Cloud deploys keep succeeding.
-# cadl>=0.1.0
+# cadl-lang>=0.3

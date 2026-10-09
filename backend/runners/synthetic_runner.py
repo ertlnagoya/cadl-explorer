@@ -5,6 +5,7 @@ calibrated against real simulation observations.
 """
 
 import random
+import zlib
 from typing import List, Dict, Optional
 
 from backend.models.experiment_result import SingleResult
@@ -26,7 +27,10 @@ def run_single(
     budget_base: int = 3,
 ) -> SingleResult:
     """Run one synthetic experiment condition."""
-    random.seed(seed + hash(f"{sos_type}_{rho}_{profile}") % 10000)
+    # zlib.crc32 is stable across processes; the built-in hash() of a str
+    # is salted per process and would make runs irreproducible.
+    condition = f"{sos_type}_{rho}_{profile}".encode()
+    random.seed(seed + zlib.crc32(condition) % 10000)
 
     num_robots = 5
     motivation_values = AgentMotivation(profile=profile).resolve(num_robots)
