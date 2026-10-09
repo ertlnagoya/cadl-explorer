@@ -33,3 +33,18 @@ def test_explorer_rho_disabled_without_motivation_model():
     assert not at.slider(key="b_rho").disabled
     at.radio(key="b_template").set_value("C-SoS").run()
     assert at.slider(key="b_rho").disabled
+
+
+def test_explorer_demo_button_loads_example():
+    at = AppTest.from_file(os.path.join(ROOT, "views", "explorer.py"), default_timeout=60).run()
+    at.button(key="demo_Directed vs collaborative").click().run()
+    assert not at.exception
+    assert at.session_state.b_template == "C-SoS"
+
+
+def test_guide_demos_match_examples():
+    from views._guide import DEMOS
+
+    src = open(os.path.join(ROOT, "views", "explorer.py"), encoding="utf-8").read()
+    for name in DEMOS:
+        assert f'"{name}"' in src
