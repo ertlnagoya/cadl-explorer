@@ -28,7 +28,7 @@ from cadl_sim.generators.unity.config_generator import generate_unity_config as 
 # CADLMotivationConfig.to_dict() emits the CADL-canonical Capitalized
 # form (Appendix A §A.1) in generated YAML.
 TEMPLATES = {
-    "A-SoS": {
+    "D-SoS": {
         "sos_type": "directed",
         "alpha": 0.3,
         "beta": 0.7,
@@ -42,7 +42,7 @@ TEMPLATES = {
         "lambda_param": 0.3,
         "motivation_model": "none",
     },
-    "A-SoS + motivation-sensitive": {
+    "D-SoS + motivation-sensitive": {
         "sos_type": "directed",
         "alpha": 0.3,
         "beta": 0.7,
@@ -52,12 +52,31 @@ TEMPLATES = {
 }
 
 
+# Names used up to v0.4.1. "A-SoS" is the abbreviation of Acknowledged
+# SoS in the CADL specification, but these templates are Directed, so
+# they were renamed; the old names are still accepted.
+TEMPLATE_ALIASES = {
+    "A-SoS": "D-SoS",
+    "A-SoS + motivation-sensitive": "D-SoS + motivation-sensitive",
+}
+
+
+def resolve_template(template: str) -> str:
+    """Canonical template name; accepts the names used before v0.5.0."""
+    name = TEMPLATE_ALIASES.get(template, template)
+    if name not in TEMPLATES:
+        raise ValueError(
+            f"Unknown governance template {template!r}; expected one of: {', '.join(TEMPLATES)}")
+    return name
+
+
 def make_config(
     template: str,
     profile: str = "uniform",
     rho: float = 0.0,
 ) -> CADLMotivationConfig:
     """Create a CADLMotivationConfig from UI selections."""
+    template = resolve_template(template)
     t = TEMPLATES[template]
     model = t["motivation_model"]
     if model != "none" and rho == 0.0:
@@ -83,8 +102,8 @@ def make_config(
 
 
 def make_baseline_config() -> CADLMotivationConfig:
-    """A-SoS baseline for diff comparison."""
-    return make_config("A-SoS", "uniform", 0.0)
+    """D-SoS baseline for diff comparison."""
+    return make_config("D-SoS", "uniform", 0.0)
 
 
 def load_experiment_config(yaml_path: str) -> CADLMotivationConfig:

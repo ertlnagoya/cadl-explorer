@@ -1,7 +1,7 @@
-name: "A-SoS-RhoSweep"
+name: "D-SoS-RhoSweep"
 sos_type: directed
 description: >
-  Motivation-sensitive A-SoS with rho sweep.
+  Motivation-sensitive D-SoS with rho sweep.
   Evaluates throughput-autonomy-fairness tradeoff.
 
 environment:

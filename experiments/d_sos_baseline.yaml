@@ -1,7 +1,7 @@
-name: "A-SoS-Baseline"
+name: "D-SoS-Baseline"
 sos_type: directed
 description: >
-  Baseline A-SoS. Central authority makes all routing decisions.
+  Baseline D-SoS. Central authority makes all routing decisions.
   Robots are homogeneous and fully compliant. rho=0.
 
 environment:

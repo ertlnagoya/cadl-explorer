@@ -1,5 +1,5 @@
 # ============================================================
-# A-SoS Motivation-Sensitive Configuration
+# D-SoS Motivation-Sensitive Configuration
 # ============================================================
 # Directed SoS with motivation-sensitive governance.
 # The central authority considers each robot's commitment
@@ -11,10 +11,10 @@
 #   ρ = 1.0 → full sensitivity (strict budget enforcement)
 # ============================================================
 
-name: "A-SoS-MotivationSensitive"
+name: "D-SoS-MotivationSensitive"
 sos_type: directed
 description: >
-  Motivation-sensitive A-SoS. Central authority grants each robot
+  Motivation-sensitive D-SoS. Central authority grants each robot
   a commitment budget B_i = B_base + kappa * m_i. When a robot's
   cumulative goals exceed B_i, the authority throttles it by
   injecting extra wait ticks proportional to rho * overshoot.

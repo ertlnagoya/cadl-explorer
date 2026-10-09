@@ -523,3 +523,8 @@ def test_lifecycle_events_naming_undefined_actors_are_reported():
     for name in ds.list_examples():
         assert not [f for f in ds.analyze(ds.load_example(name)).findings
                     if "names an undefined actor" in f.title]
+
+
+def test_simulator_ir_reports_success():
+    assert _levels(ds.analyze(ds.NEW_DESIGN), "Simulator IR") == ["pass"]
+    assert "Simulator IR" not in {f.stage for f in ds.analyze("sos: [").findings}

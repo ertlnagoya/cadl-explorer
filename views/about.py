@@ -87,12 +87,12 @@ st.dataframe(
     width="stretch", hide_index=True,
 )
 st.markdown(
-    "- **A-SoS** is this app's label for a configuration with a strong "
+    "- **D-SoS** (Directed SoS) is a configuration with a strong "
     "central authority. Its `sos_type` is `Directed`.\n"
     "- **C-SoS** is a collaborative, autonomy-oriented configuration.\n"
-    "- **A-SoS + motivation-sensitive** is A-SoS whose authority adjusts "
+    "- **D-SoS + motivation-sensitive** is D-SoS whose authority adjusts "
     "per-agent budgets and waits according to agent motivation (`hybrid` "
-    "model). It only differs from A-SoS when ρ > 0."
+    "model). It only differs from D-SoS when ρ > 0."
 )
 
 st.header("Parameters", divider="gray")
@@ -126,7 +126,7 @@ st.markdown(
 st.header("Scenario", divider="gray")
 st.markdown(
     "All designs run on the same fixed scenario: an 11-node, 17-edge road "
-    "graph with 5 robots (R0–R4) and one arbitrator. Under A-SoS the "
+    "graph with 5 robots (R0–R4) and one arbitrator. Under D-SoS the "
     "arbitrator acts as the central authority; under C-SoS it only verifies. "
     "The Explorer's **Scenario** tab shows the same graph for designs A and B, "
     "with robots shaded by motivation."

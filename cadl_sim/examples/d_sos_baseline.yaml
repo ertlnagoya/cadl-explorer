@@ -1,15 +1,15 @@
 # ============================================================
-# A-SoS Baseline Configuration
+# D-SoS Baseline Configuration
 # ============================================================
 # Standard directed SoS: central authority assigns routes,
 # robots fully comply. No motivation consideration (ρ = 0).
-# This is the existing A-SoS behavior.
+# This is the existing D-SoS behavior.
 # ============================================================
 
-name: "A-SoS-Baseline"
+name: "D-SoS-Baseline"
 sos_type: directed
 description: >
-  Baseline A-SoS (Directed SoS). Central authority makes all routing
+  Baseline D-SoS (Directed SoS). Central authority makes all routing
   decisions via DirectionDijkstra. Robots are homogeneous and fully
   compliant. Motivation parameter exists but is ignored (rho=0).
 

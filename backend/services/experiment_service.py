@@ -55,7 +55,7 @@ def run_comparison_sweep(
     num_seeds: int = 10,
     mode: str = "synthetic",
 ) -> Dict[str, List[SingleResult]]:
-    """Run both A-SoS and C-SoS sweeps for comparison."""
+    """Run both D-SoS and C-SoS sweeps for comparison."""
     if mode == "synthetic":
         return synthetic_runner.run_comparison_sweep(profile, rho_values, num_seeds)
     else:

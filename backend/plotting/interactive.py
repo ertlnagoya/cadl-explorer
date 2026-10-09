@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 
 
 def scatter_performance_autonomy(
-    a_sos_results: list,
+    d_sos_results: list,
     c_sos_results: list,
     selected_results: list = None,
     selected_label: str = "",
@@ -32,12 +32,12 @@ def scatter_performance_autonomy(
                 name=f"{name} region", showlegend=True,
             ))
 
-    if a_sos_results:
-        _add_region(a_sos_results, "rgb(70,130,180)", "A-SoS")
-        x = [r.avg_autonomy for r in a_sos_results]
-        y = [r.throughput for r in a_sos_results]
+    if d_sos_results:
+        _add_region(d_sos_results, "rgb(70,130,180)", "D-SoS")
+        x = [r.avg_autonomy for r in d_sos_results]
+        y = [r.throughput for r in d_sos_results]
         fig.add_trace(go.Scatter(
-            x=x, y=y, mode="markers", name="A-SoS baseline",
+            x=x, y=y, mode="markers", name="D-SoS baseline",
             marker=dict(color="steelblue", size=6, opacity=0.5),
         ))
 

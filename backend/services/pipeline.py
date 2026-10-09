@@ -12,7 +12,9 @@ from typing import List, Optional, Dict
 
 from backend.models.pipeline_result import PipelineResult
 from backend.models.evaluation_result import EvaluationResult
-from backend.services.cadl_service import make_config, build_ir, generate_unity_config_dict
+from backend.services.cadl_service import (
+    make_config, build_ir, generate_unity_config_dict, resolve_template,
+)
 from backend.services.evaluation_service import evaluate_full
 from backend.runners.synthetic_runner import run_single, run_sweep
 
@@ -22,7 +24,7 @@ class GovernancePipeline:
 
     def __init__(
         self,
-        template: str = "A-SoS",
+        template: str = "D-SoS",
         profile: str = "uniform",
         rho: float = 0.0,
         num_seeds: int = 10,
@@ -33,6 +35,8 @@ class GovernancePipeline:
         # An explicit CADLMotivationConfig takes precedence over the
         # template / profile / rho triple (used for custom CADL input).
         self.config = config
+        if config is None:
+            template = resolve_template(template)
         self.template = template
         self.profile = profile
         self.rho = rho
@@ -90,7 +94,7 @@ class GovernancePipeline:
 
 
 def run_pipeline(
-    template: str = "A-SoS",
+    template: str = "D-SoS",
     profile: str = "uniform",
     rho: float = 0.0,
     num_seeds: int = 10,

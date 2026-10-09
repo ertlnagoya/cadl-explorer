@@ -325,10 +325,15 @@ def analyze(source: str) -> DesignAnalysis:
             name for f in result.findings if f.stage == "Type check"
             for name in re.findall(r"'([^']+)'", f.title)
         }
+        ir_warnings = 0
         for err in validate_ir(ir):
             names = re.findall(r"'([^']+)'", err)
             if not (names and names[0] in reported):
                 result.findings.append(Finding("warning", "Simulator IR", err))
+                ir_warnings += 1
+        if not ir_warnings:
+            result.findings.append(
+                Finding("pass", "Simulator IR", "The design converts to the simulator IR"))
         result.ir = _ir_to_dict(ir)
         result.findings.extend(check_lifecycles(result.ir))
         interface_findings = check_interfaces(sos_doc, result.ir)

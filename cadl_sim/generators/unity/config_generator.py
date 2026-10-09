@@ -2,7 +2,7 @@
 Unity Config Generator — converts CADL motivation configs to cadl_config.json.
 
 Generates the JSON format expected by SimulatorConfigurator.cs, extended with
-motivation_config section for the A-SoS motivation-sensitive arbitrator.
+motivation_config section for the D-SoS motivation-sensitive arbitrator.
 """
 
 import json
@@ -40,8 +40,9 @@ DEFAULT_GRAPH = {
 
 # ── SoS type mapping ──
 SOS_TYPE_MAP = {
-    "directed": "directed",        # A-SoS
-    "a_sos": "directed",
+    "directed": "directed",        # D-SoS
+    "d_sos": "directed",
+    "a_sos": "directed",           # name used before the templates were renamed
     "collaborative": "collaborative",  # C-SoS
     "c_sos": "collaborative",
     "acknowledged": "acknowledged",    # MCP-SoS

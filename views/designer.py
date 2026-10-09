@@ -185,7 +185,7 @@ def _is_dark() -> bool:
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
-def cached_analyze(source: str, _version: int = 3) -> ds.DesignAnalysis:
+def cached_analyze(source: str, _version: int = 4) -> ds.DesignAnalysis:
     return ds.analyze(source)
 
 

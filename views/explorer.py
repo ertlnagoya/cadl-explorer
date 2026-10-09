@@ -32,11 +32,13 @@ PROFILES = ["uniform", "linear", "polarized"]
 SWEEP_RHO = [0.0, 0.25, 0.5, 0.75, 1.0]
 
 # Short keys keep shared URLs readable.
-TEMPLATE_KEYS = {"a": "A-SoS", "c": "C-SoS", "am": "A-SoS + motivation-sensitive"}
+TEMPLATE_KEYS = {"d": "D-SoS", "c": "C-SoS", "dm": "D-SoS + motivation-sensitive"}
+# Keys used in links shared before the templates were renamed from A-SoS.
+OLD_TEMPLATE_KEYS = {"a": "D-SoS", "am": "D-SoS + motivation-sensitive"}
 TEMPLATE_LABELS = {
-    "A-SoS": "A-SoS — directed, central authority",
+    "D-SoS": "D-SoS — directed, central authority",
     "C-SoS": "C-SoS — collaborative, autonomy-oriented",
-    "A-SoS + motivation-sensitive": "A-SoS + motivation-sensitive — directed, budgets follow motivation",
+    "D-SoS + motivation-sensitive": "D-SoS + motivation-sensitive — directed, budgets follow motivation",
 }
 PROFILE_LABELS = {
     "uniform": "uniform — all agents equally motivated",
@@ -45,18 +47,18 @@ PROFILE_LABELS = {
 }
 
 DEFAULTS = {
-    "a_template": "A-SoS", "a_profile": "uniform", "a_rho": 0.0,
-    "b_template": "A-SoS + motivation-sensitive", "b_profile": "linear", "b_rho": 0.5,
+    "a_template": "D-SoS", "a_profile": "uniform", "a_rho": 0.0,
+    "b_template": "D-SoS + motivation-sensitive", "b_profile": "linear", "b_rho": 0.5,
 }
 EXAMPLES = {
     "Add motivation sensitivity": DEFAULTS,
     "Directed vs collaborative": {
-        "a_template": "A-SoS", "a_profile": "uniform", "a_rho": 0.0,
+        "a_template": "D-SoS", "a_profile": "uniform", "a_rho": 0.0,
         "b_template": "C-SoS", "b_profile": "uniform", "b_rho": 0.0,
     },
     "Weak vs strong sensitivity": {
-        "a_template": "A-SoS + motivation-sensitive", "a_profile": "polarized", "a_rho": 0.25,
-        "b_template": "A-SoS + motivation-sensitive", "b_profile": "polarized", "b_rho": 1.0,
+        "a_template": "D-SoS + motivation-sensitive", "a_profile": "polarized", "a_rho": 0.25,
+        "b_template": "D-SoS + motivation-sensitive", "b_profile": "polarized", "b_rho": 1.0,
     },
 }
 
@@ -70,8 +72,8 @@ def _init_state():
     st.session_state.update(DEFAULTS)
     qp = st.query_params
     for side in ("a", "b"):
-        if qp.get(side) in TEMPLATE_KEYS:
-            st.session_state[f"{side}_template"] = TEMPLATE_KEYS[qp[side]]
+        if qp.get(side) in TEMPLATE_KEYS or qp.get(side) in OLD_TEMPLATE_KEYS:
+            st.session_state[f"{side}_template"] = {**OLD_TEMPLATE_KEYS, **TEMPLATE_KEYS}[qp[side]]
         if qp.get(f"{side}p") in PROFILES:
             st.session_state[f"{side}_profile"] = qp[f"{side}p"]
         try:
@@ -126,10 +128,10 @@ def _design_controls(side: str, disabled: bool = False):
     if not rho_applies:
         st.caption(
             "ρ is not used: this template has no motivation model. "
-            "Pick *A-SoS + motivation-sensitive* to vary ρ."
+            "Pick *D-SoS + motivation-sensitive* to vary ρ."
         )
     elif st.session_state[f"{side}_rho"] == 0.0:
-        st.caption("At ρ = 0 this template behaves exactly like plain A-SoS.")
+        st.caption("At ρ = 0 this template behaves exactly like plain D-SoS.")
 
 
 # ── Cached computation ──────────────────────────────────────────────
@@ -360,7 +362,7 @@ with col_plot:
     references = {}
     used = {pa.cadl.get("sos_type", "").lower(), pb.cadl.get("sos_type", "").lower()}
     if "directed" not in used:
-        references["A-SoS reference"] = cached_pipeline("A-SoS", "uniform", 0.0).results
+        references["D-SoS reference"] = cached_pipeline("D-SoS", "uniform", 0.0).results
     if "collaborative" not in used:
         references["C-SoS reference"] = cached_pipeline("C-SoS", "uniform", 0.0).results
     st.plotly_chart(
@@ -427,7 +429,7 @@ tab_rho, tab_robot, tab_scenario = st.tabs(["Effect of ρ", "Per-robot view", "S
 with tab_rho:
     if b_sos_type != "directed":
         st.info(
-            "The ρ sweep applies to directed (A-SoS) designs. In the "
+            "The ρ sweep applies to directed (D-SoS) designs. In the "
             "synthetic model a collaborative design does not depend on ρ."
         )
     else:
