@@ -25,7 +25,7 @@ from backend.services.cadl_service import (
     make_config, make_baseline_config, config_to_yaml_str,
     build_ir, ir_to_json_str, generate_unity_config_dict, unity_config_to_json_str,
     parse_cadl_yaml,
-    TEMPLATES,
+    TEMPLATES, MAX_SOURCE_CHARS,
 )
 from cadl_sim.schema.motivation_schema import CADLMotivationConfig
 from backend.services.diff_service import (
@@ -167,6 +167,7 @@ with st.sidebar.expander("Advanced: Custom CADL YAML"):
         "CADL YAML",
         value="",
         height=200,
+        max_chars=MAX_SOURCE_CHARS,
         label_visibility="collapsed",
         placeholder=(
             "name: my-custom-config\n"

@@ -1,7 +1,18 @@
 # CADL Explorer
 
 Research infrastructure for tracing the causal structure of governance design
-in Collective Autonomous Systems-of-Systems (SoS).
+in Systems of Systems (SoS).
+
+- Specification and hands-on: <https://www.ertl.jp/cadl-spec/>
+- Hosted app: <https://cadl-explorer.streamlit.app/>
+
+The experiment results shown by the app come from a **synthetic model**
+(`backend/runners/synthetic_runner.py`), not from measurements of a real
+system. In the governance templates, "A-SoS" is the app's label for a
+configuration with a strong central authority; its `sos_type` is `Directed`.
+The simulator parameters α / β / λ mean autonomy level, centralization level
+and exploration probability, and differ from the per-contract α / β / λ of the
+CADL language specification.
 
 ## Research Purpose
 
@@ -78,7 +89,7 @@ cadl-explorer/
 ├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
-└── tests/                          # 50 tests
+└── tests/                          # test suite
 ```
 
 ## Quick Start
@@ -89,6 +100,11 @@ cd cadl-explorer
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+The sidebar page **SoS DSL Lifecycle** (`pages/SoS_DSL_Lifecycle.py`) draws the
+contract lifecycle of the SoS-DSL extension. It reads a simulator IR produced
+by the `cadl` compiler (`cadl sim-ir <file>.cadl --format json`), or the
+bundled sample.
 
 ## CLI Experiments
 
@@ -200,3 +216,7 @@ Future migration path: depend on the upstream `cadl` package directly and
 gradually replace `cadl_sim/` modules. Most imports funnel through
 `backend/services/cadl_service.py`, which is the single point where the
 swap would happen.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

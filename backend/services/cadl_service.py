@@ -96,7 +96,7 @@ def load_experiment_config(yaml_path: str) -> CADLMotivationConfig:
 #
 # Everything below is the single seam that will swap from the bundled
 # ``cadl_sim`` schema to the upstream ``cadl`` package once it is
-# published (see cadl_repo / CHANGELOG).  UI code must route through
+# published (see https://github.com/ertlnagoya/cadl).  UI code must route through
 # these two functions instead of calling CADLMotivationConfig directly,
 # so that the migration becomes a one-file change.
 
@@ -110,12 +110,115 @@ def parse_cadl_yaml(text: str) -> CADLMotivationConfig:
     upstream ``cadl`` package is available, flip ``_USE_UPSTREAM_PARSER``
     above and route through ``cadl.parser.parse_string`` instead.
     """
-    data = yaml.safe_load(text) if isinstance(text, str) else text
+    if isinstance(text, str):
+        _check_source_text(text)
+        data = yaml.safe_load(text)
+    else:
+        data = text
     if not isinstance(data, dict):
         raise ValueError(
             "CADL YAML must parse to a mapping at the top level"
         )
+    _check_fields(data)
     return CADLMotivationConfig.from_dict(data)
+
+
+# ── Input limits ────────────────────────────────────────────────────
+#
+# The text comes from a public text area, so its size and every value
+# that drives an allocation are bounded before a config is built.
+
+MAX_SOURCE_CHARS = 20_000
+MAX_ROBOTS = 100
+MAX_NODES = 1_000
+MAX_EDGES = 10_000
+_PROFILES = ("uniform", "linear", "polarized", "custom")
+_MODELS = ("none", "commitment_budget", "hybrid")
+
+
+def _check_source_text(text: str) -> None:
+    if len(text) > MAX_SOURCE_CHARS:
+        raise ValueError(
+            f"CADL YAML is too long ({len(text)} characters; "
+            f"limit {MAX_SOURCE_CHARS})"
+        )
+    # Anchors and aliases let a short text expand into a huge structure.
+    for token in yaml.scan(text):
+        if isinstance(token, (yaml.AliasToken, yaml.AnchorToken)):
+            raise ValueError("YAML anchors and aliases are not supported")
+
+
+def _section(data: dict, key: str) -> dict:
+    value = data.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a mapping")
+    return value
+
+
+def _check_int(section: dict, path: str, key: str, low: int, high: int) -> None:
+    if key not in section:
+        return
+    value = section[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{path}.{key} must be an integer")
+    if not low <= value <= high:
+        raise ValueError(f"{path}.{key} must be between {low} and {high}")
+
+
+def _check_number(section: dict, path: str, key: str,
+                  low: float = None, high: float = None) -> None:
+    if key not in section:
+        return
+    value = section[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{path}.{key} must be a number")
+    if low is not None and not low <= value <= high:
+        raise ValueError(f"{path}.{key} must be between {low} and {high}")
+
+
+def _check_choice(section: dict, path: str, key: str, choices) -> None:
+    if key in section and section[key] not in choices:
+        raise ValueError(
+            f"{path}.{key} must be one of: {', '.join(choices)}"
+        )
+
+
+def _check_fields(data: dict) -> None:
+    """Reject values the pipeline cannot handle, with the field path."""
+    for key in ("name", "description"):
+        if key in data and not isinstance(data[key], str):
+            raise ValueError(f"{key} must be a string")
+
+    env = _section(data, "environment")
+    _check_int(env, "environment", "num_robots", 1, MAX_ROBOTS)
+    _check_int(env, "environment", "num_nodes", 1, MAX_NODES)
+    _check_int(env, "environment", "num_edges", 0, MAX_EDGES)
+
+    gov = _section(data, "governance")
+    for key in ("alpha", "beta", "lambda"):
+        _check_number(gov, "governance", key, 0.0, 1.0)
+
+    mot = _section(data, "motivation")
+    agent = _section(mot, "agent")
+    _check_choice(agent, "motivation.agent", "profile", _PROFILES)
+    values = agent.get("values")
+    if values is not None:
+        if not isinstance(values, list) or len(values) > MAX_ROBOTS:
+            raise ValueError(
+                f"motivation.agent.values must be a list of at most "
+                f"{MAX_ROBOTS} numbers"
+            )
+        for v in values:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError("motivation.agent.values must contain numbers")
+
+    gov_mot = _section(mot, "governance")
+    _check_choice(gov_mot, "motivation.governance", "model", _MODELS)
+    _check_number(gov_mot, "motivation.governance", "rho", 0.0, 1.0)
+    for key in ("kappa", "budget_base", "wait_scale"):
+        _check_number(gov_mot, "motivation.governance", key)
 
 
 def parse_cadl_file(path: str) -> CADLMotivationConfig:

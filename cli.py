@@ -119,7 +119,10 @@ def cmd_compare(args):
     print(f"Comparing: {pr_a.name} vs {pr_b.name}")
     print(f"{'='*60}")
 
-    for stage, sdiff in diffs.items():
+    for stage in ("cadl", "ir", "config", "result"):
+        sdiff = getattr(diffs, stage)
+        if sdiff is None:
+            continue
         print(f"\n--- {stage.upper()} ---")
         print(f"  {sdiff.summary}")
         for lbl in sdiff.labels:
