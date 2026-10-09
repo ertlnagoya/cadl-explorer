@@ -6,8 +6,11 @@ matplotlib>=3.7.0
 pandas>=2.0.0
 
 # Upstream CADL compiler (Lark grammar, parser, verifier, codegen), published
-# on PyPI as `cadl-lang` (https://github.com/ertlnagoya/cadl). cadl-explorer
-# does not import it yet: it runs on the bundled `cadl_sim/` subset, so the
-# dependency stays commented out and installs stay small. Enable it when
-# `backend/services/cadl_service.py` is switched to the upstream package.
-# cadl-lang>=0.3
+# on PyPI as `cadl-lang` (https://github.com/ertlnagoya/cadl). The Designer
+# page uses it through `backend/services/design_service.py`. The Explorer's
+# pipeline still runs on the bundled `cadl_sim/` subset.
+cadl-lang>=0.3.7
+
+# Code editor with line numbers and YAML highlighting on the Designer page.
+# The page falls back to a plain text area when it is missing.
+streamlit-ace>=0.1.1

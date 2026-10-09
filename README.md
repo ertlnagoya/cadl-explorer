@@ -65,6 +65,7 @@ Example output:
 cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
+│   ├── designer.py                 # Author, check and export a full CADL design
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # SoS-DSL contract lifecycle view
 │   └── about.py                    # Glossary, scenario and model notes
@@ -73,6 +74,7 @@ cadl-explorer/
 │   ├── services/
 │   │   ├── pipeline.py             # GovernancePipeline + ComparisonResult
 │   │   ├── cadl_service.py         # CADL config / IR / Unity config
+│   │   ├── design_service.py       # Full CADL designs via cadl-lang: check, edit, diff, export
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
 │   │   ├── experiment_service.py   # Runner dispatch
@@ -90,6 +92,7 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
+├── designs/                        # Example CADL designs for the Designer
 ├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
@@ -114,6 +117,23 @@ The app has three pages:
   (throughput, autonomy, fairness), then the causal chain stage by stage, a ρ
   sweep, and the IDs and files needed to reproduce the comparison. The
   selection is kept in the URL, so a comparison can be shared as a link.
+- **Designer** (`views/designer.py`) is an editor for full CADL designs: actors,
+  contracts with their lifecycles and monitors, protocols, algorithms, regime
+  transitions, metrics and verification directives. An existing `.cadl` file
+  can be opened and the edited design saved back as `.cadl`. The design can be
+  edited as source text or through forms (`views/_designer_forms.py`); each
+  change is parsed, type-checked and verified with the upstream `cadl-lang`
+  toolchain, and drawn as an architecture diagram, lifecycle state machines,
+  protocol sequence diagrams and a regime map. On top of the upstream checks
+  the page reports malformed expressions, undeclared messages, lifecycle
+  structure problems and conflicts between sections, says what each check
+  covers, and links every problem to the form that fixes it. It also offers
+  undo / redo, named versions, a step-through of a contract lifecycle,
+  contract templates and a printable HTML design report. Drafting a design
+  from a plain-language description is available when the app runs with the
+  `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
+  sent to the Explorer, and exported as CADL, simulator IR, simulator config
+  or generated runtime code. Example designs live in `designs/`.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
@@ -227,8 +247,10 @@ name collision with the upstream `cadl` Python package
 on PyPI as `cadl-lang`), which provides the full language parser (Lark
 grammar, verification, codegen).
 
-Future migration path: depend on the upstream `cadl-lang` package directly and
-gradually replace `cadl_sim/` modules. Most imports funnel through
+The Designer page already depends on `cadl-lang` directly, through
+`backend/services/design_service.py`. The Explorer's pipeline still runs on
+`cadl_sim/`. Future migration path: gradually replace `cadl_sim/` modules
+with the upstream package. Most imports funnel through
 `backend/services/cadl_service.py`, which is the single point where the
 swap would happen.
 
