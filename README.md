@@ -63,7 +63,11 @@ Example output:
 
 ```
 cadl-explorer/
-├── app.py                          # Streamlit web UI
+├── app.py                          # Streamlit entry point (page router)
+├── views/
+│   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
+│   ├── lifecycle.py                # SoS-DSL contract lifecycle view
+│   └── about.py                    # Glossary, scenario and model notes
 ├── cli.py                          # Batch CLI runner
 ├── backend/
 │   ├── services/
@@ -103,10 +107,18 @@ streamlit run app.py
 
 Python 3.9 or later is required.
 
-The sidebar page **SoS DSL Lifecycle** (`pages/SoS_DSL_Lifecycle.py`) draws the
-contract lifecycle of the SoS-DSL extension. It reads a simulator IR produced
-by the `cadl` compiler (`cadl sim-ir <file>.cadl --format json`), or the
-bundled sample.
+The app has three pages:
+
+- **Explorer** (`views/explorer.py`) compares two governance designs, a
+  baseline A and a design under study B. It shows the outcome first
+  (throughput, autonomy, fairness), then the causal chain stage by stage, a ρ
+  sweep, and the IDs and files needed to reproduce the comparison. The
+  selection is kept in the URL, so a comparison can be shared as a link.
+- **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
+  the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
+  compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
+- **About & Glossary** (`views/about.py`) explains the templates, parameters,
+  metrics and the fixed scenario.
 
 ## CLI Experiments
 

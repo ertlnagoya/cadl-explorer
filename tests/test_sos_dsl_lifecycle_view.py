@@ -120,3 +120,17 @@ class TestMonitorsSummary:
         rows = monitors_summary(contract)
         cw = next(r for r in rows if r["id"] == "collision_watch")
         assert cw["severity"] == "Critical"
+
+
+def test_dark_dot_uses_light_ink():
+    view = build_lifecycle_view({
+        "id": "C",
+        "lifecycle": {
+            "states": ["Open", "Violated"], "initial": "Open",
+            "terminal": ["Violated"],
+            "transitions": [{"id": "t", "from_states": ["Open"], "to_state": "Violated"}],
+        },
+    })
+    light, dark = lifecycle_to_dot(view), lifecycle_to_dot(view, dark=True)
+    assert 'fontcolor="#f0f0f0"' in dark and "fontcolor" not in light
+    assert "#fde0e0" in light and "#fde0e0" not in dark

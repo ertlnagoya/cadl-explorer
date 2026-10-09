@@ -100,18 +100,27 @@ _TERMINAL_FILL = {
 }
 
 
-def _state_attrs(state: str, view: LifecycleView) -> str:
+# Dark-background counterparts of the fills above.
+_TERMINAL_FILL_DARK = {
+    "Completed": "#1f4d2b",
+    "Violated": "#5c2323",
+    "Terminated": "#3a3a3a",
+}
+
+
+def _state_attrs(state: str, view: LifecycleView, dark: bool = False) -> str:
     parts: list[str] = [f'label="{state}"']
     if state == view.initial:
         parts.extend(['shape=doublecircle', 'style="bold,filled"',
-                      'fillcolor="#e0ecff"'])
+                      f'fillcolor="{"#1f3a5f" if dark else "#e0ecff"}"'])
     elif state in view.terminal:
-        fill = _TERMINAL_FILL.get(state, "#e8e8e8")
+        fills = _TERMINAL_FILL_DARK if dark else _TERMINAL_FILL
+        fill = fills.get(state, "#3a3a3a" if dark else "#e8e8e8")
         parts.extend(['shape=box', 'style="rounded,dashed,filled"',
                       f'fillcolor="{fill}"'])
     else:
         parts.extend(['shape=box', 'style="rounded,filled"',
-                      'fillcolor="#ffffff"'])
+                      f'fillcolor="{"#262730" if dark else "#ffffff"}"'])
     return ", ".join(parts)
 
 
@@ -146,21 +155,25 @@ def _escape_label(s: str) -> str:
     return s.replace('"', r'\"')
 
 
-def lifecycle_to_dot(view: LifecycleView) -> str:
+def lifecycle_to_dot(view: LifecycleView, dark: bool = False) -> str:
     """Render a LifecycleView to Graphviz DOT.
 
     The output is suitable for Streamlit's ``st.graphviz_chart``.
+    ``dark`` switches to a palette that reads on a dark page background.
     """
     lines: list[str] = []
     lines.append(f'digraph "{_escape_label(view.contract_id)}_lifecycle" {{')
     lines.append('  rankdir=LR;')
-    lines.append('  node [fontname="Helvetica" fontsize=11];')
-    lines.append('  edge [fontname="Helvetica" fontsize=10];')
+    ink = ' color="#c8c8c8" fontcolor="#f0f0f0"' if dark else ''
+    violation = '"#ff6b6b"' if dark else "red"
+    lines.append('  bgcolor="transparent";')
+    lines.append(f'  node [fontname="Helvetica" fontsize=11{ink}];')
+    lines.append(f'  edge [fontname="Helvetica" fontsize=10{ink}];')
     lines.append('')
 
     # Nodes
     for st in view.states:
-        attrs = _state_attrs(st, view)
+        attrs = _state_attrs(st, view, dark)
         lines.append(f'  "{_escape_label(st)}" [{attrs}];')
 
     # Transitions
@@ -185,7 +198,7 @@ def lifecycle_to_dot(view: LifecycleView) -> str:
             for fr in from_states:
                 lines.append(
                     f'  "{_escape_label(fr)}" -> "{_escape_label(on_viol)}" '
-                    f'[style=dashed color=red fontcolor=red '
+                    f'[style=dashed color={violation} fontcolor={violation} '
                     f'label="violation\\n{sev}"];'
                 )
 
