@@ -65,14 +65,20 @@ Example output:
 cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
+│   ├── designer.py                 # Author, check and export a full CADL design
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # SoS-DSL contract lifecycle view
 │   └── about.py                    # Glossary, scenario and model notes
 ├── cli.py                          # Batch CLI runner
+├── mcp_server.py                   # Design tools for AI assistants (Model Context Protocol)
 ├── backend/
 │   ├── services/
 │   │   ├── pipeline.py             # GovernancePipeline + ComparisonResult
 │   │   ├── cadl_service.py         # CADL config / IR / Unity config
+│   │   ├── design_service.py       # Full CADL designs via cadl-lang: check, edit, diff, export
+│   │   ├── design_ops.py           # Structured change operations, proposals, open questions
+│   │   ├── design_readback.py      # A design restated in plain language; lifecycle stories
+│   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
 │   │   ├── experiment_service.py   # Runner dispatch
@@ -90,6 +96,7 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
+├── designs/                        # Example CADL designs for the Designer
 ├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
@@ -114,11 +121,92 @@ The app has three pages:
   (throughput, autonomy, fairness), then the causal chain stage by stage, a ρ
   sweep, and the IDs and files needed to reproduce the comparison. The
   selection is kept in the URL, so a comparison can be shared as a link.
+- **Designer** (`views/designer.py`) is an editor for full CADL designs: actors,
+  contracts with their lifecycles and monitors, protocols, algorithms, regime
+  transitions, metrics and verification directives. An existing `.cadl` file
+  can be opened and the edited design saved back as `.cadl`. The design can be
+  edited as source text or through forms (`views/_designer_forms.py`); each
+  change is parsed, type-checked and verified with the upstream `cadl-lang`
+  toolchain, and drawn as an architecture diagram, lifecycle state machines,
+  protocol sequence diagrams and a regime map. On top of the upstream checks
+  the page reports malformed expressions, undeclared messages, lifecycle
+  structure problems and conflicts between sections, says what each check
+  covers, and links every problem to the form that fixes it. It also offers
+  undo / redo, named versions, a step-through of a contract lifecycle,
+  contract templates and a printable HTML design report. Drafting a design
+  from a plain-language description is available when the app runs with the
+  `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
+  sent to the Explorer, and exported as CADL, simulator IR, simulator config
+  or generated runtime code. Example designs live in `designs/`.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
+
+## Designing with an AI assistant (MCP)
+
+`mcp_server.py` exposes the Designer's tools to an AI assistant over the
+[Model Context Protocol](https://modelcontextprotocol.io), so a design can be
+built in conversation. The assistant asks what is missing, proposes small
+structured changes, has them checked by the CADL toolchain, and reads the
+result back in plain language. It never edits the source directly, and nothing
+changes until a proposal is applied.
+
+```bash
+pip install -r requirements-mcp.txt
+```
+
+Register the server with an MCP client. For Claude Desktop, add to
+`claude_desktop_config.json` (use absolute paths):
+
+```json
+{
+  "mcpServers": {
+    "cadl-design": {
+      "command": "/path/to/python",
+      "args": ["/path/to/cadl-explorer/mcp_server.py"],
+      "env": {"CADL_WORKSPACE": "/path/to/my-designs"}
+    }
+  }
+}
+```
+
+For Claude Code:
+
+```bash
+claude mcp add cadl-design -e CADL_WORKSPACE=/path/to/my-designs -- /path/to/python /path/to/cadl-explorer/mcp_server.py
+```
+
+Then start with the `design_interview` prompt, or `draft_from_document` to
+draft a design from a requirements document or SLA.
+
+| Tool | What it does |
+|------|--------------|
+| `list_designs`, `create_design`, `get_design` | Find, start and outline designs in the workspace |
+| `open_questions` | What the design leaves open, as questions to ask the designer |
+| `propose_changes` | Check a set of structured changes **without applying them**; reports what would change and which problems appear or disappear |
+| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees |
+| `check_design` | Every check, what each covers, and what none of them check |
+| `describe_contracts`, `actor_view`, `explain_verification` | The design read back in plain sentences |
+| `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step |
+| `get_diagram`, `export_design` | Diagrams as DOT / SVG, a design report, the simulator IR |
+
+Designs live as `.cadl` files in `CADL_WORKSPACE` (default `~/cadl-designs`).
+To see and confirm what the assistant did, run the app with the same folder:
+
+```bash
+CADL_WORKSPACE=/path/to/my-designs streamlit run app.py
+```
+
+The Designer then shows the workspace in its sidebar, warns when the file
+changed underneath the editor, and lists every change the assistant applied
+as *not yet reviewed* until someone confirms it. The read-back and the
+lifecycle stories are also available in the Designer (views *Read-back* and
+*Lifecycle*); they are produced by fixed rules, not by a language model.
+
+The checks establish that a design is consistent, not that it is what was
+intended. That is what the read-back and the review marks are for.
 
 ## CLI Experiments
 
@@ -227,8 +315,10 @@ name collision with the upstream `cadl` Python package
 on PyPI as `cadl-lang`), which provides the full language parser (Lark
 grammar, verification, codegen).
 
-Future migration path: depend on the upstream `cadl-lang` package directly and
-gradually replace `cadl_sim/` modules. Most imports funnel through
+The Designer page already depends on `cadl-lang` directly, through
+`backend/services/design_service.py`. The Explorer's pipeline still runs on
+`cadl_sim/`. Future migration path: gradually replace `cadl_sim/` modules
+with the upstream package. Most imports funnel through
 `backend/services/cadl_service.py`, which is the single point where the
 swap would happen.
 

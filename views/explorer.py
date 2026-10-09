@@ -84,6 +84,9 @@ def _init_state():
 
 def _apply_example(name):
     st.session_state.update(EXAMPLES[name])
+    # An example replaces any custom CADL in effect.
+    st.session_state.custom_cadl = ""
+    st.session_state.custom_cadl_a = ""
 
 
 def _sync_url():
@@ -176,27 +179,47 @@ def _raw_diff(sd) -> str:
 # ── Sidebar ─────────────────────────────────────────────────────────
 
 _init_state()
+ss_raw = st.session_state
+
+custom_text = ss_raw.get("custom_cadl", "")
+custom_config, custom_error = _parse_custom(custom_text) if custom_text.strip() else (None, None)
+custom_text_a = ss_raw.get("custom_cadl_a", "")
+custom_config_a, custom_error_a = (
+    _parse_custom(custom_text_a) if custom_text_a.strip() else (None, None))
 
 with st.sidebar:
     st.header("Compare two designs")
 
-    st.caption("Start from an example")
-    for example in EXAMPLES:
-        st.button(example, on_click=_apply_example, args=(example,),
-                  width="stretch")
+    st.subheader("B — design under study")
+    if custom_config is not None:
+        st.success(f"B is the custom CADL **{custom_config.name}** (see *Custom CADL* below).")
+    _design_controls("b", disabled=custom_config is not None)
 
-    with st.expander("Advanced: custom CADL YAML for B"):
+    with st.expander("A — baseline", expanded=custom_config_a is not None):
+        if custom_config_a is not None:
+            st.success(f"A is the custom CADL **{custom_config_a.name}**.")
+        _design_controls("a", disabled=custom_config_a is not None)
+
+    btn_save = st.button(
+        "Save this comparison", type="primary", width="stretch",
+        help="Adds the current A/B metrics to the saved comparisons at the bottom of the page.",
+    )
+
+    st.divider()
+    with st.expander("Examples"):
+        for example in EXAMPLES:
+            st.button(example, on_click=_apply_example, args=(example,), width="stretch")
+
+    with st.expander("Custom CADL", expanded=bool(custom_error or custom_error_a)):
         st.caption(
-            "Paste a CADL motivation-config YAML to use as design B. "
-            "Leave empty to use the selectors below. "
+            "Paste a CADL motivation-config YAML to use instead of the selectors. "
             "The synthetic metrics depend only on `sos_type`, the agent "
             "`profile` and `rho`; other fields such as `alpha`, `beta` and "
             "`lambda` are carried into the generated IR and config but do "
             "not change the results."
         )
-        custom_text = st.text_area(
-            "CADL YAML", height=200, max_chars=MAX_SOURCE_CHARS,
-            label_visibility="collapsed", key="custom_cadl",
+        st.text_area(
+            "Design B", height=160, max_chars=MAX_SOURCE_CHARS, key="custom_cadl",
             placeholder=(
                 "name: my-custom-config\n"
                 "sos_type: directed\n"
@@ -212,29 +235,12 @@ with st.sidebar:
                 "    rho: 0.5\n"
             ),
         )
-
-    custom_config, custom_error = (None, None)
-    if custom_text.strip():
-        custom_config, custom_error = _parse_custom(custom_text)
         if custom_error:
             st.error(custom_error)
-        else:
-            st.success(
-                f"Design B is the custom CADL **{custom_config.name}**. "
-                "The B selectors below are ignored."
-            )
-
-    st.subheader("B — design under study")
-    _design_controls("b", disabled=custom_config is not None)
-
-    with st.expander("A — baseline", expanded=False):
-        _design_controls("a")
-
-    st.divider()
-    btn_save = st.button(
-        "Save this comparison", type="primary", width="stretch",
-        help="Adds the current A/B metrics to the saved comparisons at the bottom of the page.",
-    )
+        st.text_area("Design A (baseline)", height=120, max_chars=MAX_SOURCE_CHARS,
+                     key="custom_cadl_a")
+        if custom_error_a:
+            st.error(custom_error_a)
 
 _sync_url()
 ss = st.session_state
@@ -242,7 +248,10 @@ ss = st.session_state
 # ── Run both pipelines (single source for every section) ────────────
 
 try:
-    pa = cached_pipeline(ss.a_template, ss.a_profile, float(ss.a_rho))
+    if custom_config_a is not None:
+        pa = cached_pipeline_yaml(custom_text_a)
+    else:
+        pa = cached_pipeline(ss.a_template, ss.a_profile, float(ss.a_rho))
     if custom_config is not None:
         pb = cached_pipeline_yaml(custom_text)
     else:
@@ -276,7 +285,9 @@ st.caption(
     "terms are explained in **About & Glossary**."
 )
 
-with st.expander("Getting started — what this tool does, how to use it, and a demo", expanded=True):
+# Open on arrival, folded away once the page is being used.
+with st.expander("Getting started — what this tool does, how to use it, and a demo",
+                 expanded=not ss.get("explorer_used")):
     col_what, col_how = st.columns(2, gap="large")
     with col_what:
         st.markdown("##### What you can do")
@@ -299,6 +310,11 @@ with st.expander("Getting started — what this tool does, how to use it, and a 
                 "Load this demo", key=f"demo_{example}", width="stretch",
                 on_click=_apply_example, args=(example,),
             )
+    st.caption(
+        "The Explorer runs a small synthetic model. To design a full SoS and its "
+        "contract architecture in CADL, open the **Designer** page."
+    )
+ss.explorer_used = True
 
 # ── 1. Outcome ──────────────────────────────────────────────────────
 

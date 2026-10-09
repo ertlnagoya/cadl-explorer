@@ -4,7 +4,7 @@ import streamlit as st
 
 from backend.plotting.scenario import scenario_svg
 from backend.services.cadl_service import TEMPLATES
-from views._guide import WHAT_YOU_CAN_DO, HOW_TO_USE, DEMOS
+from views._guide import WHAT_YOU_CAN_DO, OTHER_PAGES, HOW_TO_USE, HOW_TO_DESIGN, DEMOS
 
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
 REPO_URL = "https://github.com/ertlnagoya/cadl-explorer"
@@ -35,7 +35,7 @@ st.warning(
 st.markdown(f"[CADL specification and hands-on]({SPEC_URL}) · [Source code]({REPO_URL})")
 
 st.header("What you can do", divider="gray")
-st.markdown(WHAT_YOU_CAN_DO)
+st.markdown(WHAT_YOU_CAN_DO + OTHER_PAGES)
 
 st.header("How to use the Explorer", divider="gray")
 st.markdown(HOW_TO_USE)
@@ -54,13 +54,24 @@ st.markdown(
     )
 )
 
+st.header("How to use the Designer", divider="gray")
+st.markdown(HOW_TO_DESIGN)
+st.markdown(
+    "The Designer works on full CADL, the language of the "
+    f"[specification]({SPEC_URL}), through the `cadl-lang` toolchain. The "
+    "Explorer's synthetic model is much smaller: it reads only the SoS type, "
+    "the motivation profile and ρ, so structural edits made in the Designer "
+    "do not change the Explorer's metrics."
+)
+
 st.header("Contract Lifecycle page", divider="gray")
 st.markdown(
     "1. Open **Contract Lifecycle** in the navigation. A bundled example is shown straight away.\n"
     "2. Pick a contract to see its lifecycle as a state machine. Dashed red edges are "
     "violation transitions; its monitors are listed below the graph.\n"
     "3. To view your own design, compile it with `cadl sim-ir <file>.cadl --format json` "
-    "and upload the JSON in the sidebar."
+    "and upload the JSON in the sidebar, or open the `.cadl` file in the **Designer**, "
+    "which draws the same diagram from the source."
 )
 
 st.header("Governance templates", divider="gray")

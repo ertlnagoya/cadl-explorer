@@ -155,12 +155,21 @@ def _escape_label(s: str) -> str:
     return s.replace('"', r'\"')
 
 
-def lifecycle_to_dot(view: LifecycleView, dark: bool = False) -> str:
+def lifecycle_to_dot(
+    view: LifecycleView,
+    dark: bool = False,
+    current: str | None = None,
+    visited: Iterable[str] = (),
+    flagged: Iterable[str] = (),
+) -> str:
     """Render a LifecycleView to Graphviz DOT.
 
     The output is suitable for Streamlit's ``st.graphviz_chart``.
     ``dark`` switches to a palette that reads on a dark page background.
+    ``current`` and ``visited`` mark a trace through the lifecycle;
+    ``flagged`` outlines states that have a finding against them.
     """
+    visited, flagged = set(visited), set(flagged)
     lines: list[str] = []
     lines.append(f'digraph "{_escape_label(view.contract_id)}_lifecycle" {{')
     lines.append('  rankdir=LR;')
@@ -174,6 +183,12 @@ def lifecycle_to_dot(view: LifecycleView, dark: bool = False) -> str:
     # Nodes
     for st in view.states:
         attrs = _state_attrs(st, view, dark)
+        if st == current:
+            attrs += f', color="{"#ffb347" if dark else "#c96a00"}", penwidth=4'
+        elif st in flagged:
+            attrs += f', color="{"#ff6b6b" if dark else "#d1242f"}", penwidth=3'
+        elif st in visited:
+            attrs += f', color="{"#8fc1e3" if dark else "#4682b4"}", penwidth=2.5'
         lines.append(f'  "{_escape_label(st)}" [{attrs}];')
 
     # Transitions
