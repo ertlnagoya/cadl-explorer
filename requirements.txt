@@ -1,3 +1,7 @@
+# Changing this file makes Streamlit Community Cloud reinstall and restart the
+# app. A restart is needed whenever a module that is already imported changes
+# (as in v0.5.0, which renamed the templates in backend/services/cadl_service.py):
+# the running process otherwise keeps the old module beside the new pages.
 streamlit>=1.50.0
 plotly>=5.18.0
 pyyaml>=6.0
