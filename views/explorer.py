@@ -218,7 +218,10 @@ with st.sidebar:
             "The synthetic metrics depend only on `sos_type`, the agent "
             "`profile` and `rho`; other fields such as `alpha`, `beta` and "
             "`lambda` are carried into the generated IR and config but do "
-            "not change the results."
+            "not change the results. Only `directed` is modelled separately: "
+            "any other `sos_type` is computed as collaborative. Profiles are "
+            "`uniform`, `linear` and `polarized`; keys the format does not "
+            "know are ignored."
         )
         st.text_area(
             "Design B", height=160, max_chars=MAX_SOURCE_CHARS, key="custom_cadl",
@@ -429,8 +432,8 @@ tab_rho, tab_robot, tab_scenario = st.tabs(["Effect of ρ", "Per-robot view", "S
 with tab_rho:
     if b_sos_type != "directed":
         st.info(
-            "The ρ sweep applies to directed (D-SoS) designs. In the "
-            "synthetic model a collaborative design does not depend on ρ."
+            "The ρ sweep is drawn for directed (D-SoS) designs only. The "
+            "C-SoS template has no motivation model, so ρ does not affect it."
         )
     else:
         sweep = []

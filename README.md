@@ -52,13 +52,13 @@ Each stage has a **semantic diff** that interprets changes in governance terms:
 | Config diff | Execution settings (motivationConfig, governance params) |
 | Result diff | Performance/autonomy/fairness changes with direction labels |
 
-Example output:
+Example output (D-SoS, uniform, ρ=0 against D-SoS + motivation-sensitive, linear, ρ=0.5):
 ```
 [Institution: Motivation model] authority now uses hybrid model (was none)
 [Protocol: Dispatch control] motivation now affects dispatch
 [Algorithm: Budget-aware planning] planner now uses commitment budget
-[Performance] Throughput decreased by 8.5% (46.80 → 42.80)
-[Governance] System autonomy increased by 112.4% (0.16 → 0.33)
+[Performance] Throughput (total deliveries) decreased by 6.6% (47.20 -> 44.10)
+[Governance] System autonomy increased by 136.1% (0.14 -> 0.33)
 ```
 
 ## Directory Structure
@@ -71,7 +71,7 @@ cadl-explorer/
 │   ├── _designer_forms.py          # Form-based editing for the Designer
 │   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
-│   ├── lifecycle.py                # SoS-DSL contract lifecycle view
+│   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
 │   └── about.py                    # Glossary, scenario and model notes
 ├── cli.py                          # Batch CLI runner
 ├── mcp_server.py                   # Design tools for AI assistants (Model Context Protocol)
@@ -266,6 +266,10 @@ that link each stage to its upstream dependency.
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
+
+Run the tests with Python 3.10 or later. The app itself runs on Python 3.9
+(with Streamlit 1.50), but the page tests use `streamlit.testing`, which
+cannot read some of the Designer's elements in that Streamlit version.
 
 ## Core Execution Flow
 
