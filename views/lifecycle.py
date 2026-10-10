@@ -1,4 +1,4 @@
-"""SoS-DSL Lifecycle View — Streamlit page (Appendix E demonstrator).
+"""Contract Lifecycle — Streamlit page (Appendix E demonstrator).
 
 This page renders the per-instance contract lifecycle that the
 SoS-DSL extension promotes to a first-class CADL construct. It

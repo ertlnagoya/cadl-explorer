@@ -137,3 +137,10 @@ def test_template_names_before_the_rename_are_still_accepted():
         assert "D-SoS" in str(e)
     else:
         raise AssertionError("unknown template accepted")
+
+
+def test_custom_yaml_rejects_the_custom_profile():
+    # Appendix C defines `custom`, but the synthetic runner cannot run it;
+    # it must fail at parse time with the field path, not in the pipeline.
+    with pytest.raises(ValueError, match="motivation.agent.profile"):
+        parse_cadl_yaml("motivation:\n  agent:\n    profile: custom\n    values: [0.1, 0.9]\n")

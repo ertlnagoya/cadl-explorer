@@ -151,7 +151,9 @@ MAX_SOURCE_CHARS = 20_000
 MAX_ROBOTS = 100
 MAX_NODES = 1_000
 MAX_EDGES = 10_000
-_PROFILES = ("uniform", "linear", "polarized", "custom")
+# Appendix C also defines a `custom` profile; the synthetic runner does not
+# implement it, so it is rejected here rather than failing in the pipeline.
+_PROFILES = ("uniform", "linear", "polarized")
 _MODELS = ("none", "commitment_budget", "hybrid")
 
 

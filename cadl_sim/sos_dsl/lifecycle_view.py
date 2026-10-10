@@ -1,8 +1,8 @@
 """Build a Lifecycle View from a CADL Sim-IR JSON document.
 
 This module is intentionally dependency-free (stdlib only) so that it
-can be unit-tested without Streamlit. The Streamlit page in
-``pages/`` imports these functions and feeds the DOT output to
+can be unit-tested without Streamlit. The Streamlit page
+``views/lifecycle.py`` imports these functions and feeds the DOT output to
 ``st.graphviz_chart``.
 
 Input shape (relevant subset of cadl Sim-IR, see Appendix E.7):

@@ -52,13 +52,13 @@ Each stage has a **semantic diff** that interprets changes in governance terms:
 | Config diff | Execution settings (motivationConfig, governance params) |
 | Result diff | Performance/autonomy/fairness changes with direction labels |
 
-Example output:
+Example output (D-SoS, uniform, ρ=0 against D-SoS + motivation-sensitive, linear, ρ=0.5):
 ```
 [Institution: Motivation model] authority now uses hybrid model (was none)
 [Protocol: Dispatch control] motivation now affects dispatch
 [Algorithm: Budget-aware planning] planner now uses commitment budget
-[Performance] Throughput decreased by 8.5% (46.80 → 42.80)
-[Governance] System autonomy increased by 112.4% (0.16 → 0.33)
+[Performance] Throughput (total deliveries) decreased by 6.6% (47.20 -> 44.10)
+[Governance] System autonomy increased by 136.1% (0.14 -> 0.33)
 ```
 
 ## Directory Structure
@@ -68,9 +68,11 @@ cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
 │   ├── designer.py                 # Author, check and export a full CADL design
+│   ├── _designer_forms.py          # Form editors of the Designer
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
-│   ├── lifecycle.py                # SoS-DSL contract lifecycle view
-│   └── about.py                    # Glossary, scenario and model notes
+│   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
+│   ├── about.py                    # Glossary, scenario and model notes
+│   └── _guide.py                   # In-app guides shared by the pages
 ├── cli.py                          # Batch CLI runner
 ├── mcp_server.py                   # Design tools for AI assistants (Model Context Protocol)
 ├── backend/
@@ -264,6 +266,10 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
+Run the tests with Python 3.10 or later. The app itself runs on Python 3.9
+(with Streamlit 1.50), but the page tests use `streamlit.testing`, which
+cannot read some of the Designer's elements in that Streamlit version.
+
 ## Core Execution Flow
 
 All execution—UI and CLI—flows through `GovernancePipeline` in
@@ -288,7 +294,7 @@ result = run_pipeline(template="D-SoS", profile="uniform", rho=0.0)
 
 # Compare two governance designs
 comparison = compare_pipelines(result_a, result_b)
-# -> comparison.cadl_diff, .ir_diff, .config_diff, .result_diff
+# -> comparison.cadl, .ir, .config, .result (one diff per stage)
 ```
 
 ## Deprecated Modules
