@@ -283,3 +283,16 @@ def test_explorer_restores_links_shared_before_the_template_rename():
     assert not at.exception
     assert at.session_state.b_template == "D-SoS + motivation-sensitive"
     assert at.session_state.a_template == "D-SoS"
+
+
+def test_app_shows_its_version_on_every_page():
+    from backend.version import __version__
+    at = AppTest.from_file(os.path.join(ROOT, "app.py"), default_timeout=60).run()
+    assert not at.exception
+    assert any(f"v{__version__}" in c.value for c in at.sidebar.caption)
+
+
+def test_about_page_states_the_version():
+    from backend.version import __version__
+    at = AppTest.from_file(os.path.join(ROOT, "views", "about.py"), default_timeout=60).run()
+    assert any(f"Version **{__version__}**" in m.value for m in at.markdown)

@@ -4,6 +4,7 @@ import streamlit as st
 
 from backend.plotting.scenario import scenario_svg
 from backend.services.cadl_service import TEMPLATES
+from backend.version import RELEASES_URL, __version__
 from views._guide import WHAT_YOU_CAN_DO, OTHER_PAGES, HOW_TO_USE, HOW_TO_DESIGN, DEMOS
 
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
@@ -32,7 +33,10 @@ st.warning(
     "system. Use them to follow the causal chain, not as performance figures.",
     icon=":material/science:",
 )
-st.markdown(f"[CADL specification and hands-on]({SPEC_URL}) · [Source code]({REPO_URL})")
+st.markdown(
+    f"Version **{__version__}** ([release notes]({RELEASES_URL})) · "
+    f"[CADL specification and hands-on]({SPEC_URL}) · [Source code]({REPO_URL})"
+)
 
 st.header("What you can do", divider="gray")
 st.markdown(WHAT_YOU_CAN_DO + OTHER_PAGES)
