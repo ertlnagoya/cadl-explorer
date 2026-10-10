@@ -68,6 +68,8 @@ cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
 │   ├── designer.py                 # Author, check and export a full CADL design
+│   ├── _designer_forms.py          # Form-based editing for the Designer
+│   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # SoS-DSL contract lifecycle view
 │   └── about.py                    # Glossary, scenario and model notes
@@ -243,15 +245,16 @@ Each run saves a `manifest.json` with all parameters needed for exact replay:
 
 ```
 runs/2026-03-28_143000_sweep/
-├── manifest.json          # {template, profile, rho, seeds, timestamp}
+├── manifest.json          # {template, profile, rho, seeds, created_at}
 ├── cadl/config.yaml       # CADL snapshot
 ├── ir/ir.json             # IR dump
 ├── configs/cadl_config.json # Unity config
 ├── metrics/
 │   ├── evaluation.json    # Aggregated metrics
 │   └── raw_results.json   # Per-seed results
-├── plots/                 # Generated figures
-└── report/summary.md      # Text summary
+├── logs/                  # Reserved (empty)
+├── plots/                 # Reserved (empty)
+└── report/                # Reserved (empty)
 ```
 
 `PipelineResult` includes content-hash traceability IDs (cadl_id, ir_id, config_id)
@@ -288,7 +291,7 @@ result = run_pipeline(template="D-SoS", profile="uniform", rho=0.0)
 
 # Compare two governance designs
 comparison = compare_pipelines(result_a, result_b)
-# -> comparison.cadl_diff, .ir_diff, .config_diff, .result_diff
+# -> comparison.cadl, .ir, .config, .result (the diff at each stage)
 ```
 
 ## Deprecated Modules
