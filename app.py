@@ -15,6 +15,8 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from backend.version import RELEASES_URL, __version__  # noqa: E402
+
 st.set_page_config(page_title="CADL Explorer", layout="wide")
 
 # Streamlit drops the state of widgets that a run does not render, so a
@@ -38,4 +40,6 @@ page = st.navigation([
     st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
     st.Page("views/about.py", title="About & Glossary", url_path="about"),
 ])
+# Before page.run(): a page may end the run with st.stop().
+st.sidebar.caption(f"CADL Explorer v{__version__} · [release notes]({RELEASES_URL})")
 page.run()

@@ -13,8 +13,9 @@ from typing import List, Dict, Optional
 
 from backend.models.experiment_result import SingleResult
 from backend.models.evaluation_result import EvaluationResult
+from backend.version import __version__
 
-PIPELINE_VERSION = "0.5.1"
+PIPELINE_VERSION = __version__
 
 
 def _content_hash(obj) -> str:
