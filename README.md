@@ -76,6 +76,7 @@ cadl-explorer/
 ├── cli.py                          # Batch CLI runner
 ├── mcp_server.py                   # Design tools for AI assistants (Model Context Protocol)
 ├── backend/
+│   ├── version.py                  # The version of CADL Explorer: the one place to change at a release
 │   ├── services/
 │   │   ├── pipeline.py             # GovernancePipeline + ComparisonResult
 │   │   ├── cadl_service.py         # CADL config / IR / Unity config
@@ -259,6 +260,10 @@ runs/2026-03-28_143000_sweep/
 
 `PipelineResult` includes content-hash traceability IDs (cadl_id, ir_id, config_id)
 that link each stage to its upstream dependency.
+
+The version of CADL Explorer is defined in `backend/version.py`. It is shown in
+the sidebar and on the About page, and `PipelineResult.to_dict()` carries it as
+`pipeline_version`. The files of a saved run do not record it.
 
 ## Running Tests
 

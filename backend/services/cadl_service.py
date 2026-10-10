@@ -114,12 +114,12 @@ def load_experiment_config(yaml_path: str) -> CADLMotivationConfig:
 # ── Parser swap point ───────────────────────────────────────────────
 #
 # Everything below is the single seam that will swap from the bundled
-# ``cadl_sim`` schema to the upstream ``cadl`` package once it is
-# published (see https://github.com/ertlnagoya/cadl).  UI code must route through
+# ``cadl_sim`` schema to the upstream ``cadl`` package (published on PyPI
+# as ``cadl-lang``; see https://github.com/ertlnagoya/cadl).  UI code must route through
 # these two functions instead of calling CADLMotivationConfig directly,
 # so that the migration becomes a one-file change.
 
-_USE_UPSTREAM_PARSER = False  # flip to True after `pip install cadl`
+_USE_UPSTREAM_PARSER = False  # flip to True after `pip install cadl-lang`
 
 
 def parse_cadl_yaml(text: str) -> CADLMotivationConfig:
