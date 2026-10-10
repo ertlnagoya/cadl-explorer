@@ -111,23 +111,23 @@ def load_experiment_config(yaml_path: str) -> CADLMotivationConfig:
     return CADLMotivationConfig.from_yaml(yaml_path)
 
 
-# ── Parser swap point ───────────────────────────────────────────────
+# ── Parser seam ─────────────────────────────────────────────────────
 #
-# Everything below is the single seam that will swap from the bundled
-# ``cadl_sim`` schema to the upstream ``cadl`` package (published on PyPI
-# as ``cadl-lang``; see https://github.com/ertlnagoya/cadl).  UI code must route through
-# these two functions instead of calling CADLMotivationConfig directly,
-# so that the migration becomes a one-file change.
-
-_USE_UPSTREAM_PARSER = False  # flip to True after `pip install cadl-lang`
+# The Explorer's comparison model reads its own small config format
+# (CADLMotivationConfig, from the bundled ``cadl_sim`` schema), not a
+# full CADL design. Full designs are handled by ``design_service`` with
+# the ``cadl`` package (``cadl-lang`` on PyPI, already a requirement;
+# see https://github.com/ertlnagoya/cadl). UI code must route through
+# the functions here instead of calling CADLMotivationConfig directly,
+# so that moving this format onto the upstream parser
+# (``cadl.parser.parse`` plus a conversion to CADLMotivationConfig)
+# stays a one-file change.
 
 
 def parse_cadl_yaml(text: str) -> CADLMotivationConfig:
     """Parse a CADL YAML source string into a CADLMotivationConfig.
 
-    Currently delegates to the bundled ``cadl_sim`` schema. When the
-    upstream ``cadl`` package is available, flip ``_USE_UPSTREAM_PARSER``
-    above and route through ``cadl.parser.parse_string`` instead.
+    Delegates to the bundled ``cadl_sim`` schema (see the note above).
     """
     if isinstance(text, str):
         _check_source_text(text)
