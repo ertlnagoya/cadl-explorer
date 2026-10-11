@@ -196,10 +196,10 @@ draft a design from a requirements document or SLA.
 | `list_designs`, `create_design`, `get_design` | Find, start and outline designs in the workspace |
 | `open_questions` | What the design leaves open, as questions to ask the designer |
 | `propose_changes` | Check a set of structured changes **without applying them**; reports what would change and which problems appear or disappear |
-| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees |
+| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true` |
 | `check_design` | Every check, what each covers, and what none of them check |
 | `describe_contracts`, `actor_view`, `explain_verification` | The design read back in plain sentences |
-| `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step |
+| `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step. A monitor whose rule contains `state == X` (in a plain conjunction) is taken to fire in X only |
 | `get_diagram`, `export_design` | Diagrams as DOT / SVG, a design report, the simulator IR |
 
 Designs live as `.cadl` files in `CADL_WORKSPACE` (default `~/cadl-designs`).

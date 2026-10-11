@@ -269,14 +269,18 @@ def propose_changes(name: str, changes: List[Dict[str, Any]], rationale: str = "
 
 
 @mcp.tool()
-def apply_proposal(name: str, proposal_id: str) -> Dict[str, Any]:
+def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False) -> Dict[str, Any]:
     """Apply a proposal the person has agreed to.
 
     The changes are recorded as not yet reviewed, so the Designer page
     shows them for confirmation. undo_last_change takes them back.
+
+    A proposal that adds an error is refused. Set allow_errors only when
+    the person, having seen the error, asked to apply it anyway (for
+    example to fix it in a following step).
     """
     try:
-        result = workspace.apply_proposal(name, proposal_id)
+        result = workspace.apply_proposal(name, proposal_id, allow_errors)
     except ValueError as e:
         return _fail(e)
     result["outline"] = _outline(ds.analyze(workspace.read(name)))
