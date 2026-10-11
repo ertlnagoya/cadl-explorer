@@ -1449,6 +1449,24 @@ class Move:
     detail: str = ""
 
 
+_STATE_GATE = re.compile(r"\bstate\s*==\s*['\"]?([A-Za-z_]\w*)['\"]?")
+
+
+def monitor_states(rule: str) -> Optional[set]:
+    """Lifecycle states in which a monitor rule can match, or None for any.
+
+    Only the plain form is read: a rule that is a conjunction containing
+    ``state == X`` can match in X alone. A rule with OR or NOT, or with no
+    such term, is not restricted (the answer errs on the side of showing a
+    move that cannot happen rather than hiding one that can).
+    """
+    text = str(rule or "")
+    if re.search(r"\b(OR|NOT)\b|\|\||!", text):
+        return None
+    states = set(_STATE_GATE.findall(text))
+    return states or None
+
+
 def lifecycle_moves(contract_ir: dict, state: str) -> List[Move]:
     """Everything that can happen to a contract instance in ``state``."""
     lifecycle = contract_ir.get("lifecycle") or {}
@@ -1471,7 +1489,8 @@ def lifecycle_moves(contract_ir: dict, state: str) -> List[Move]:
                 (f"not done within {_format_ms(int(deadline))}" if deadline is not None
                  else "violation") + f" — {t.get('on_violation_severity') or 'Major'}"))
     for m in contract_ir.get("monitors") or []:
-        if m.get("on_match_transition"):
+        gate = monitor_states(m.get("rule"))
+        if m.get("on_match_transition") and (gate is None or state in gate):
             moves.append(Move(
                 "monitor", f"monitor {m.get('id', '?')} fires", str(m["on_match_transition"]),
                 f"{m.get('rule') or ''} — {m.get('on_match_severity') or 'Major'}"))

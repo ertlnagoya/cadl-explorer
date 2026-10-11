@@ -185,6 +185,8 @@ def add_proposal(name: str, changes: List[dict], rationale: str = "") -> dict:
     state["proposals"][proposal_id] = {
         "base": _hash(source), "source": proposal.source, "time": _now(),
         "rationale": rationale, "changes": [asdict(c) for c in proposal.changes],
+        "acceptable": proposal.acceptable,
+        "errors_introduced": [f.title for f in proposal.introduced if f.level == "error"],
     }
     for stale in list(state["proposals"])[:-MAX_PROPOSALS]:
         del state["proposals"][stale]
@@ -203,7 +205,8 @@ def add_proposal(name: str, changes: List[dict], rationale: str = "") -> dict:
         "next": (
             "Show these changes to the designer. Apply with apply_proposal only after they agree."
             if proposal.acceptable else
-            "This proposal adds an error. Revise the changes and propose again rather than applying it."),
+            "This proposal adds an error, so apply_proposal will refuse it. Revise the changes "
+            "and propose again."),
     }
 
 
@@ -211,8 +214,11 @@ def proposals(name: str) -> Dict[str, dict]:
     return _load_state(name)["proposals"]
 
 
-def apply_proposal(name: str, proposal_id: str) -> dict:
-    """Apply a stored proposal and mark what it touched as not yet reviewed."""
+def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False) -> dict:
+    """Apply a stored proposal and mark what it touched as not yet reviewed.
+
+    A proposal that adds an error is refused unless ``allow_errors`` is set.
+    """
     state = _load_state(name)
     entry = state["proposals"].get(proposal_id)
     if entry is None:
@@ -222,6 +228,12 @@ def apply_proposal(name: str, proposal_id: str) -> dict:
     if entry["base"] != _hash(read(name)):
         raise WorkspaceError(
             "The design has changed since this proposal was made. Propose the changes again.")
+    if not entry.get("acceptable", True) and not allow_errors:
+        added = "; ".join(entry.get("errors_introduced") or []) or "an error"
+        raise WorkspaceError(
+            f"This proposal adds an error to the design ({added}), so it was not applied. "
+            "Revise the changes and propose again. Apply it as it is only if the person "
+            "asked for that after seeing the error: call apply_proposal with allow_errors=true.")
     write(name, entry["source"], note=f"proposal {proposal_id}")
     state = _load_state(name)   # write() updated the undo stack and cleared proposals
     for change in entry["changes"]:

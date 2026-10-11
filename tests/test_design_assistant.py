@@ -373,3 +373,56 @@ def test_read_back_tools_can_read_a_pending_proposal(ws):
     assert "Designer page" in server.apply_proposal("depot", pid)["note"]
     assert server.create_design("blank-start")["outline"]["actors"] == []      # empty by default
     assert "note" in server.create_design("with-terms", "template")
+
+
+def test_apply_refuses_a_proposal_that_adds_an_error(ws):
+    workspace.create("depot", "template")
+    before = workspace.read("depot")
+    contract = "SERVICE_AGREEMENT"
+    bad = workspace.add_proposal("depot", [
+        {"op": "upsert", "section": "contracts", "id": contract,
+         "fields": {"parties": ["NOBODY"]}}])
+    assert bad["acceptable"] is False
+    with pytest.raises(workspace.WorkspaceError, match="adds an error"):
+        workspace.apply_proposal("depot", bad["proposal_id"])
+    assert workspace.read("depot") == before          # nothing was written
+    # ...unless the person asked for it after seeing the error
+    applied = workspace.apply_proposal("depot", bad["proposal_id"], allow_errors=True)
+    assert applied["applied"] and workspace.read("depot") != before
+
+
+def test_server_apply_reports_the_refusal(ws):
+    import mcp_server as server
+    server.create_design("depot", "template")
+    contract = "SERVICE_AGREEMENT"
+    bad = server.propose_changes("depot", [
+        {"op": "upsert", "section": "contracts", "id": contract, "fields": {"parties": ["NOBODY"]}}])
+    refused = server.apply_proposal("depot", bad["proposal_id"])
+    assert "error" in refused and "allow_errors" in refused["error"]
+    assert server.apply_proposal("depot", bad["proposal_id"], allow_errors=True)["applied"]
+
+
+@pytest.mark.parametrize("rule, expected", [
+    ("ROBOT[i].battery < 20 AND state == Assigned", {"Assigned"}),
+    ("state == Accepted AND now > request.deadline", {"Accepted"}),
+    ("now > request.deadline", None),
+    ("state == Assigned OR state == Accepted", None),      # not a plain conjunction
+    ("NOT (state == Assigned)", None),
+    ("", None),
+])
+def test_monitor_states_reads_only_the_plain_gate(rule, expected):
+    assert ds.monitor_states(rule) == expected
+
+
+def test_a_gated_monitor_moves_only_from_its_state():
+    contract = {
+        "lifecycle": {"states": ["A", "B", "Done", "Bad"], "initial": "A", "terminal": ["Done", "Bad"],
+                      "transitions": [{"id": "go", "from_states": ["A"], "to_state": "B"},
+                                      {"id": "end", "from_states": ["B"], "to_state": "Done"}]},
+        "monitors": [{"id": "gated", "rule": "x > 1 AND state == B", "on_match_transition": "Bad"},
+                     {"id": "always", "rule": "y > 1", "on_match_transition": "Bad"}],
+    }
+    assert [m.label for m in ds.lifecycle_moves(contract, "A") if m.kind == "monitor"] == \
+        ["monitor always fires"]
+    assert [m.label for m in ds.lifecycle_moves(contract, "B") if m.kind == "monitor"] == \
+        ["monitor gated fires", "monitor always fires"]
