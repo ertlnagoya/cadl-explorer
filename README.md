@@ -246,7 +246,7 @@ Each run saves a `manifest.json` with all parameters needed for exact replay:
 
 ```
 runs/2026-03-28_143000_sweep/
-├── manifest.json          # {template, profile, rho, seeds, created_at}
+├── manifest.json          # {template, profile, rho, seeds, created_at, pipeline_version}
 ├── cadl/config.yaml       # CADL snapshot
 ├── ir/ir.json             # IR dump
 ├── configs/cadl_config.json # Unity config
@@ -263,7 +263,8 @@ that link each stage to its upstream dependency.
 
 The version of CADL Explorer is defined in `backend/version.py`. It is shown in
 the sidebar and on the About page, and `PipelineResult.to_dict()` carries it as
-`pipeline_version`. The files of a saved run do not record it.
+`pipeline_version`. A saved run records it in `manifest.json` under the same
+key.
 
 ## Running Tests
 

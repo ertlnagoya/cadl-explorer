@@ -87,6 +87,7 @@ class RunDir:
         # Save replay manifest
         manifest = {
             "created_at": datetime.now().isoformat(),
+            "pipeline_version": pr.pipeline_version,
             "name": pr.name,
             "template": pr.template,
             "profile": pr.profile,
