@@ -195,11 +195,11 @@
             "id": "collision_watch",
             "observe": [
               "ROBOT[i].position",
-              "OBSTACLES.positions"
+              "DISPATCHER.obstacle_positions"
             ],
             "sampling_kind": "periodic",
             "sampling_period_ms": 100,
-            "rule": "min_dist(ROBOT[i].position, OBSTACLES.positions) < 0.05",
+            "rule": "min_dist(ROBOT[i].position, DISPATCHER.obstacle_positions) < 0.05",
             "on_match_violation": "collision",
             "on_match_transition": null,
             "on_match_severity": "Critical"
