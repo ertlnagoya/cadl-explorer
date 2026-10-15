@@ -145,7 +145,11 @@ def _mark_reviewed(index=None):
 
 def _save_version():
     versions = ss.setdefault("design_versions", [])
-    name = (ss.get("design_version_name") or "").strip() or f"Version {len(versions) + 1}"
+    base = (ss.get("design_version_name") or "").strip() or f"Version {len(versions) + 1}"
+    taken = {v["name"] for v in versions}
+    name, n = base, 2
+    while name in taken:            # the comparison lists versions by name
+        name, n = f"{base} ({n})", n + 1
     versions.append({
         "name": name, "time": datetime.now().strftime("%H:%M:%S"), "source": ss.design_src,
     })
@@ -388,7 +392,14 @@ with col_edit:
             st.warning(f"Forms need a readable design. Fix the source first: {e}")
 
         if doc is not None:
-            if ds.has_comments(source):
+            if ds.has_amend_tags(source):
+                st.warning(
+                    "This design marks amendable values with `# @amend:` comments "
+                    "(Course D). Applying a form rewrites the source without comments, "
+                    "so the council could no longer find them. Edit the **Source** "
+                    "instead, or use **Undo** after applying."
+                )
+            elif ds.has_comments(source):
                 st.caption(
                     ":material/warning: Applying a form rewrites the source and "
                     "drops its `#` comments. **Undo** brings them back."

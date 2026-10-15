@@ -944,6 +944,19 @@ def has_comments(source: str) -> bool:
     return any(line.lstrip().startswith("#") for line in source.splitlines())
 
 
+_AMEND_TAG = re.compile(r"#\s*@amend:")
+
+
+def has_amend_tags(source: str) -> bool:
+    """True when values are marked ``# @amend:<name>`` (Robot Town, Course D).
+
+    A council program finds the values it may change by these comments, so
+    rewriting the source (forms, proposals) without them breaks the next
+    amendment.
+    """
+    return bool(_AMEND_TAG.search(source or ""))
+
+
 def split_list(text: Any) -> List[str]:
     """'a, b' -> ['a', 'b']; also accepts a list or None."""
     if text is None:
@@ -1457,7 +1470,7 @@ class Move:
 
 
 _STATE_GATE = re.compile(r"\bstate\s*==\s*['\"]?([A-Za-z_]\w*)['\"]?")
-_STATE_IN = re.compile(r"\bstate\s+IN\s*\[([^\]]*)\]", re.IGNORECASE)
+_STATE_IN = re.compile(r"\bstate\s+IN\s*\[([^\]]*)\]")   # the rule grammar writes IN in capitals
 
 
 def monitor_states(rule: str) -> Optional[set]:
@@ -1465,19 +1478,22 @@ def monitor_states(rule: str) -> Optional[set]:
 
     Only the plain form is read: a rule that is a conjunction containing
     ``state == X`` can match in X alone, and one containing
-    ``state IN [X, Y]`` in X or Y. A rule with OR or NOT, or with no
-    such term, is not restricted (the answer errs on the side of showing a
+    ``state IN [X, Y]`` in X or Y. A rule with OR or NOT, with no such
+    term, or with gates no state satisfies, is not restricted (the answer errs on the side of showing a
     move that cannot happen rather than hiding one that can).
     """
     text = str(rule or "")
     if re.search(r"\b(OR|NOT)\b|\|\||!", text):
         return None
     gates = [{s} for s in _STATE_GATE.findall(text)]
-    gates += [{s.strip().strip("'\"") for s in group.split(",") if s.strip()}
+    gates += [{s.strip() for s in group.split(",") if s.strip()}
               for group in _STATE_IN.findall(text)]
     if not gates:
         return None
-    return set.intersection(*gates)     # AND: every gate must hold
+    states = set.intersection(*gates)   # AND: every gate must hold
+    # A rule no state satisfies (`state IN []`, `state == A AND state == B`)
+    # is shown as unrestricted rather than silently dropped.
+    return states or None
 
 
 def lifecycle_moves(contract_ir: dict, state: str) -> List[Move]:

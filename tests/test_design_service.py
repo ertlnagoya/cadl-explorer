@@ -4,6 +4,8 @@ import os
 import sys
 import zipfile
 
+import re
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -540,7 +542,9 @@ def test_rules_use_the_rule_grammar():
 
 @pytest.mark.parametrize("rule, expected", [
     ("ROBOT.blocking >= 3 AND state IN [Holding, Overstay]", {"Holding", "Overstay"}),
-    ("state in [A, B] AND state == B", {"B"}),
+    ("state IN [A, B] AND state == B", {"B"}),
+    ("state IN [A] AND state IN [B]", None),          # no state satisfies it
+    ("state IN []", None),
     ("x > 1 OR state IN [A]", None),
 ])
 def test_monitor_states_reads_in_lists(rule, expected):
@@ -550,7 +554,7 @@ def test_monitor_states_reads_in_lists(rule, expected):
 def test_robot_town_example_and_an_amendment():
     v1 = ds.load_example("robot town")
     assert ds.analyze(v1).parsed
-    v2 = v1.replace("deadline: 60s             # @amend:hold_limit",
-                    "deadline: 70s             # @amend:hold_limit")
+    v2 = re.sub(r"deadline: 60s(\s+# @amend:hold_limit)", r"deadline: 70s\1", v1)
+    assert v2 != v1, "the amendable hold_limit line of robot_town.cadl changed"
     diff = {k: v for k, v in ds.diff_designs(ds.analyze(v1).ir, ds.analyze(v2).ir).items() if v}
     assert diff == {"Lifecycle": ["ROAD_USE — transition release: deadline_ms: 60000 → 70000"]}

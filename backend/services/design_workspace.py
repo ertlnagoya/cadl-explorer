@@ -202,6 +202,12 @@ def add_proposal(name: str, changes: List[dict], rationale: str = "") -> dict:
         "errors_after": proposal.errors_after,
         "warnings_after": proposal.warnings_after,
         "acceptable": proposal.acceptable,
+        **({"comments_note": (
+            "The design marks amendable values with `# @amend:` comments. Applying "
+            "this proposal rewrites the file without comments, so those marks are "
+            "lost and a program that relies on them (the Course D council) can no "
+            "longer amend the file. Tell the person before applying.")}
+           if ds.has_amend_tags(source) else {}),
         "next": (
             "Show these changes to the designer. Apply with apply_proposal only after they agree."
             if proposal.acceptable else
