@@ -151,6 +151,8 @@ def _save_version():
     })
     del versions[:-MAX_VERSIONS]
     ss.design_version_name = ""
+    # Compare the version just saved with whatever is opened next.
+    ss.design_cmp_a, ss.design_cmp_b = f"Version: {name}", "Current design"
 
 
 def _restore_version(index: int):

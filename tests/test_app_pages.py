@@ -204,6 +204,17 @@ def test_designer_versions_save_restore_and_compare():
     assert at.session_state.design_src == saved
 
 
+def test_designer_saved_version_becomes_the_baseline():
+    # Course D: open v1, save it, open v2, compare. The comparison must not
+    # stay on whatever A was before the version existed.
+    at = _view(_designer(), "Versions")
+    assert at.selectbox(key="design_cmp_a").value.startswith("Example: ")
+    at.text_input(key="design_version_name").set_value("v1").run()
+    at = _click(at, "Save as a version")
+    assert at.selectbox(key="design_cmp_a").value == "Version: v1"
+    assert at.selectbox(key="design_cmp_b").value == "Current design"
+
+
 def test_designer_lifecycle_trace():
     at = _view(_designer(), "Lifecycle")
     at = _click(at, "Start at the initial state")

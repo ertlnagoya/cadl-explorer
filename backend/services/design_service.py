@@ -405,12 +405,18 @@ def flagged(analysis: DesignAnalysis) -> Dict[str, Dict[str, str]]:
     return out
 
 
-def _try_expr(text: Any) -> Optional[str]:
-    """None when ``text`` parses as a CADL expression, else a short reason."""
-    from cadl.parser import parse_expr
+def _try_expr(text: Any, rule: bool = False) -> Optional[str]:
+    """None when ``text`` parses as a CADL expression, else a short reason.
 
+    ``rule`` selects the rule grammar of Appendix E, E.3 (``when:`` and a
+    monitor's ``rule:``), which adds ``x IN [a, b]``. cadl-lang provides it
+    from 0.3.10; with an older release the expression grammar is used.
+    """
+    from cadl import parser
+
+    parse = getattr(parser, "parse_rule", None) if rule else None
     try:
-        parse_expr(str(text))
+        (parse or parser.parse_expr)(str(text))
         return None
     except Exception as e:
         reason = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
@@ -426,10 +432,11 @@ def check_expressions(sos: dict) -> List[Finding]:
     """
     findings: List[Finding] = []
 
-    def check(text: Any, where: str, section: str, item: str, verified: bool = False):
+    def check(text: Any, where: str, section: str, item: str, verified: bool = False,
+              rule: bool = False):
         if text in (None, ""):
             return
-        reason = _try_expr(text)
+        reason = _try_expr(text, rule)
         if reason is None:
             return
         consequence = (
@@ -452,11 +459,11 @@ def check_expressions(sos: dict) -> List[Finding]:
         for t in lifecycle.get("transitions") or []:
             if isinstance(t, dict):
                 check(t.get("when"), f"Contract '{cid}' transition '{t.get('id')}' when",
-                      "Contracts", cid)
+                      "Contracts", cid, rule=True)
         for m in c.get("monitors") or []:
             if isinstance(m, dict):
                 check(m.get("rule"), f"Contract '{cid}' monitor '{m.get('id')}' rule",
-                      "Contracts", cid)
+                      "Contracts", cid, rule=True)
     for p in sos.get("protocols") or []:
         if not isinstance(p, dict):
             continue
@@ -1450,21 +1457,27 @@ class Move:
 
 
 _STATE_GATE = re.compile(r"\bstate\s*==\s*['\"]?([A-Za-z_]\w*)['\"]?")
+_STATE_IN = re.compile(r"\bstate\s+IN\s*\[([^\]]*)\]", re.IGNORECASE)
 
 
 def monitor_states(rule: str) -> Optional[set]:
     """Lifecycle states in which a monitor rule can match, or None for any.
 
     Only the plain form is read: a rule that is a conjunction containing
-    ``state == X`` can match in X alone. A rule with OR or NOT, or with no
+    ``state == X`` can match in X alone, and one containing
+    ``state IN [X, Y]`` in X or Y. A rule with OR or NOT, or with no
     such term, is not restricted (the answer errs on the side of showing a
     move that cannot happen rather than hiding one that can).
     """
     text = str(rule or "")
     if re.search(r"\b(OR|NOT)\b|\|\||!", text):
         return None
-    states = set(_STATE_GATE.findall(text))
-    return states or None
+    gates = [{s} for s in _STATE_GATE.findall(text)]
+    gates += [{s.strip().strip("'\"") for s in group.split(",") if s.strip()}
+              for group in _STATE_IN.findall(text)]
+    if not gates:
+        return None
+    return set.intersection(*gates)     # AND: every gate must hold
 
 
 def lifecycle_moves(contract_ir: dict, state: str) -> List[Move]:
