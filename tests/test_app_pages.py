@@ -204,6 +204,27 @@ def test_designer_versions_save_restore_and_compare():
     assert at.session_state.design_src == saved
 
 
+def test_designer_saved_version_becomes_the_baseline():
+    # Course D: open v1, save it, open v2, compare. The comparison must not
+    # stay on whatever A was before the version existed.
+    at = _view(_designer(), "Versions")
+    assert at.selectbox(key="design_cmp_a").value.startswith("Example: ")
+    at.text_input(key="design_version_name").set_value("v1").run()
+    at = _click(at, "Save as a version")
+    assert at.selectbox(key="design_cmp_a").value == "Version: v1"
+    assert at.selectbox(key="design_cmp_b").value == "Current design"
+    # open the next version: A stays on v1, B shows the new design
+    v2 = at.session_state.design_src.replace("deadline: 5s", "deadline: 6s", 1)
+    assert v2 != at.session_state.design_src
+    at = _set_design(at, v2)
+    assert at.selectbox(key="design_cmp_a").value == "Version: v1"
+    assert any("structural change" in m.value for m in at.markdown)
+    # a second version with the same name stays reachable
+    at.text_input(key="design_version_name").set_value("v1").run()
+    at = _click(at, "Save as a version")
+    assert "Version: v1 (2)" in at.selectbox(key="design_cmp_a").options
+
+
 def test_designer_lifecycle_trace():
     at = _view(_designer(), "Lifecycle")
     at = _click(at, "Start at the initial state")
@@ -296,3 +317,9 @@ def test_about_page_states_the_version():
     from backend.version import __version__
     at = AppTest.from_file(os.path.join(ROOT, "views", "about.py"), default_timeout=60).run()
     assert any(f"Version **{__version__}**" in m.value for m in at.markdown)
+
+
+def test_designer_forms_warn_about_amend_tags():
+    from backend.services import design_service as ds
+    at = _section(_set_design(_designer(), ds.load_example("robot town")), "Contracts")
+    assert any("@amend" in w.value for w in at.warning)

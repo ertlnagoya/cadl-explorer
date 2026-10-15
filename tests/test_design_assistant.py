@@ -426,3 +426,14 @@ def test_a_gated_monitor_moves_only_from_its_state():
         ["monitor always fires"]
     assert [m.label for m in ds.lifecycle_moves(contract, "B") if m.kind == "monitor"] == \
         ["monitor gated fires", "monitor always fires"]
+
+
+def test_proposal_warns_that_amend_tags_are_lost(ws):
+    workspace.create("town", "robot town")
+    assert ds.has_amend_tags(workspace.read("town"))
+    p = workspace.add_proposal("town", [
+        {"op": "upsert_transition", "contract": "ROAD_USE", "id": "release", "fields": {"deadline": "70s"}}])
+    assert "@amend" in p["comments_note"]
+    workspace.create("plain", "template")
+    q = workspace.add_proposal("plain", [{"op": "upsert", "section": "actors", "id": "A", "fields": {"role": "x"}}])
+    assert "comments_note" not in q
