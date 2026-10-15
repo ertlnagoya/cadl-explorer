@@ -554,6 +554,8 @@ def test_monitor_states_reads_in_lists(rule, expected):
 def test_robot_town_example_and_an_amendment():
     v1 = ds.load_example("robot town")
     assert ds.analyze(v1).parsed
+    assert [f.title for f in ds.analyze(v1).findings
+            if f.stage == "Interfaces" and f.level != "pass"] == []
     v2 = re.sub(r"deadline: 60s(\s+# @amend:hold_limit)", r"deadline: 70s\1", v1)
     assert v2 != v1, "the amendable hold_limit line of robot_town.cadl changed"
     diff = {k: v for k, v in ds.diff_designs(ds.analyze(v1).ir, ds.analyze(v2).ir).items() if v}
