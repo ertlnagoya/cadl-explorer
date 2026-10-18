@@ -83,6 +83,7 @@ cadl-explorer/
 │   │   ├── design_service.py       # Full CADL designs via cadl-lang: check, edit, diff, export
 │   │   ├── design_ops.py           # Structured change operations, proposals, open questions
 │   │   ├── design_readback.py      # A design restated in plain language; lifecycle stories
+│   │   ├── design_graph.py         # Message flow, authority, centrality, N² chart, responsibilities
 │   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
@@ -133,7 +134,11 @@ The app has four pages:
   edited as source text or through forms (`views/_designer_forms.py`); each
   change is parsed, type-checked and verified with the upstream `cadl-lang`
   toolchain, and drawn as an architecture diagram, lifecycle state machines,
-  protocol sequence diagrams and a regime map. On top of the upstream checks
+  protocol sequence diagrams and a regime map. The *Structure* view
+  (`backend/services/design_graph.py`) shows who sends what to whom (from
+  protocol steps, lifecycle events and information sharing), the betweenness
+  and degree of each actor, an N² chart and a table of who decides, takes
+  part in or answers for each contract. On top of the upstream checks
   the page reports malformed expressions, undeclared messages, lifecycle
   structure problems and conflicts between sections, says what each check
   covers, and links every problem to the form that fixes it. It also offers

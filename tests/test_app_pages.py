@@ -323,3 +323,13 @@ def test_designer_forms_warn_about_amend_tags():
     from backend.services import design_service as ds
     at = _section(_set_design(_designer(), ds.load_example("robot town")), "Contracts")
     assert any("@amend" in w.value for w in at.warning)
+
+
+def test_designer_structure_view():
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Structure")
+    assert not at.exception
+    assert [t.label for t in at.tabs] == ["Message flow", "Centrality", "N² chart", "Responsibilities"]
+    assert len(at.dataframe) == 3
+    at.toggle(key="design_structure_authority").set_value(True).run()
+    assert not at.exception

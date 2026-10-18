@@ -14,6 +14,7 @@ import streamlit as st
 
 from backend.plotting.architecture import architecture_to_dot, regimes_to_dot
 from backend.plotting.sequence import participants, sequence_svg
+from backend.services import design_graph as graph
 from backend.services import design_readback as readback
 from backend.services import design_service as ds
 from backend.services import design_workspace as workspace
@@ -33,7 +34,7 @@ LEVEL_ICON = {
     "info": ":material/info:", "pass": ":material/check_circle:",
 }
 VIEWS = [
-    "Architecture", "Lifecycle", "Protocols", "Regimes",
+    "Architecture", "Structure", "Lifecycle", "Protocols", "Regimes",
     "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ]
 MAX_HISTORY = 50
@@ -188,6 +189,98 @@ def _md(text: str) -> str:
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
+
+
+def _structure_view(ir: dict, source: str):
+    """Message flow, centrality, N² chart and responsibilities of the design."""
+    actors = [graph.base(a.get("id")) for a in (ir.get("institution") or {}).get("actors") or []]
+    if not actors:
+        st.info("This design has no actors yet. Add them under **Forms → Actors**.")
+        return
+    duties = readback._responsibilities(source)
+    gaps = graph.structure_gaps(ir, duties)
+    if gaps:
+        with st.expander(f"What the structure shows — {len(gaps)} point{'s' if len(gaps) != 1 else ''}",
+                         expanded=len(gaps) <= 6):
+            for note in gaps:
+                st.markdown(f"- {note}")
+    t_flow, t_central, t_n2, t_resp = st.tabs(
+        ["Message flow", "Centrality", "N² chart", "Responsibilities"])
+
+    with t_flow:
+        show = st.toggle("Show who decides", key="design_structure_authority",
+                         help="Adds an edge from each contract's decision holder to the other parties.")
+        st.graphviz_chart(graph.message_flow_dot(ir, dark=_is_dark(), show_authority=show),
+                          width="stretch")
+        st.caption(
+            "Each arrow is what one actor sends another, from protocol steps, lifecycle "
+            "events (`on: \"A -> B : msg\"`) and information sharing. A dashed orange "
+            "arrow is a message that a declared interface leaves out. Darker actors have a "
+            "higher betweenness (see **Centrality**).")
+
+    with t_central:
+        rows = [{"actor": r["actor"], "betweenness": r["betweenness"], "partners": r["partners"],
+                 "contracts": r["contracts"], "decides": r["decides"],
+                 "out / in": f"{r['sends']} / {r['receives']}"} for r in graph.centrality(ir)]
+        st.dataframe(rows, hide_index=True, width="stretch", column_config={
+            "out / in": st.column_config.TextColumn(
+                "out / in", help="Distinct messages it sends / receives."),
+            "betweenness": st.column_config.ProgressColumn(
+                "betweenness", min_value=0.0, max_value=1.0, format="%.2f",
+                help="Share of shortest message paths between two other actors that pass "
+                     "through this one. A high value marks a relay: if it fails, others "
+                     "cannot reach each other."),
+            "partners": st.column_config.NumberColumn(
+                "partners", help="Actors it exchanges messages with."),
+            "decides": st.column_config.NumberColumn(
+                "decides", help="Contracts it is the decision holder of."),
+        })
+        st.caption(
+            "Counts come from the CADL only: messages are those of the **Message flow**, "
+            "contracts those the actor is a party of. A group such as `ROBOT[1..N]` is one "
+            "row. Centrality says where the structure concentrates; whether that is a risk "
+            "depends on what the actor does.")
+
+    with t_n2:
+        matrix = graph.n2_matrix(ir)
+        table = []
+        for sender in actors:
+            row = {"from ↓ to →": sender}
+            for receiver in actors:
+                cell = matrix.get(sender, {}).get(receiver) or []
+                bad = sum(not e.declared for e in cell)
+                row[receiver] = (f"{len(cell)}" + (f" ⚠{bad}" if bad else "")) if cell else (
+                    "—" if sender == receiver else "")
+            table.append(row)
+        st.dataframe(table, hide_index=True, width="stretch")
+        st.caption(
+            "Row: sender. Column: receiver. A cell counts the distinct messages; ⚠ counts "
+            "those a declared interface leaves out. Many filled cells in one row or column "
+            "show an actor many others depend on; an empty row and column, an actor nobody "
+            "talks to.")
+        pairs = [(s, r, cell) for s, row in matrix.items() for r, cell in row.items() if cell]
+        if pairs:
+            with st.expander(f"Messages by pair ({len(pairs)})"):
+                for s, r, cell in pairs:
+                    items = ", ".join(f"`{e.message}`" + ("" if e.declared else " ⚠")
+                                      + f" ({e.origin})" for e in cell)
+                    st.markdown(f"- **{s} → {r}**: {items}")
+
+    with t_resp:
+        contracts = [str(c.get("id")) for c in (ir.get("institution") or {}).get("contracts") or []]
+        if not contracts:
+            st.info("This design has no contracts yet.")
+        else:
+            resp = graph.responsibility_table(ir, duties)
+            st.dataframe(
+                [{"actor": a, **{c: ", ".join(resp[a].get(c) or []) or "—" for c in contracts}}
+                 for a in actors],
+                hide_index=True, width="stretch")
+            st.caption(
+                "*decides*: the contract's decision holder. *party*: listed in `parties`. "
+                "*duties (n)*: entries under `responsibilities:`. *observed*: a monitor "
+                "observes one of its attributes. A contract column without *decides* has "
+                "nobody to settle a dispute; an actor row of dashes takes part in nothing.")
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -492,6 +585,9 @@ with col_view:
             "contract's decision holder. A red or orange outline marks an item "
             "with an error or a warning."
         )
+
+    elif view == "Structure":
+        _structure_view(ir, source)
 
     elif view == "Lifecycle":
         if not ir_contracts:
