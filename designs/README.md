@@ -10,7 +10,10 @@ identical to `cadl-lang` 0.3.14). Any `*.cadl` file placed here appears in
 the list.
 
 `robot_town.cadl` is a copy of `cadl/robot_town.cadl` in the Robot Town
-repository (<https://github.com/ertlnagoya/cadl-robot-town>, Apache-2.0),
+repository (<https://github.com/ertlnagoya/cadl-robot-town>, Apache-2.0;
+last synchronised after ertlnagoya/cadl-robot-town#3, whose `AMEND` protocol
+exchanges `violation_report` and `rule_update` between COUNCIL and
+TOWN_STEWARD),
 the starting rules of Course D of the hands-on course
 (<https://www.ertl.jp/cadl-spec/docs/handson/robot-town-tutorial>). The
 council of that course writes amended versions to `runs/<name>/v1.cadl`,
