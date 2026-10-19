@@ -84,6 +84,7 @@ cadl-explorer/
 │   │   ├── design_ops.py           # Structured change operations, proposals, open questions
 │   │   ├── design_readback.py      # A design restated in plain language; lifecycle stories
 │   │   ├── design_graph.py         # Message flow, authority, centrality, N² chart, responsibilities
+│   │   ├── design_stamp.py         # STAMP control structure (inferred) and the STPA table
 │   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
@@ -138,7 +139,13 @@ The app has four pages:
   (`backend/services/design_graph.py`) shows who sends what to whom (from
   protocol steps, lifecycle events and information sharing), the betweenness
   and degree of each actor, an N² chart and a table of who decides, takes
-  part in or answers for each contract. On top of the upstream checks
+  part in or answers for each contract. The *Control structure* view
+  (`backend/services/design_stamp.py`) infers a STAMP control structure from
+  authority — a contract's decision holder controls its other parties; its
+  messages to them are control actions, their messages back and the
+  contract's monitors are feedback — reports open loops, and gives the STPA
+  table of unsafe control actions with the deadlines and monitors the CADL
+  already has. On top of the upstream checks
   the page reports malformed expressions, undeclared messages, lifecycle
   structure problems and conflicts between sections, says what each check
   covers, and links every problem to the form that fixes it. It also offers

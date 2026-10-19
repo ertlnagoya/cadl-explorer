@@ -6,7 +6,9 @@ The source text in st.session_state.design_src is the single source of
 truth; forms read it and write it back.
 """
 
+import csv
 import hashlib
+import io
 import json
 from datetime import datetime
 
@@ -15,6 +17,7 @@ import streamlit as st
 from backend.plotting.architecture import architecture_to_dot, regimes_to_dot
 from backend.plotting.sequence import participants, sequence_svg
 from backend.services import design_graph as graph
+from backend.services import design_stamp as stamp
 from backend.services import design_readback as readback
 from backend.services import design_service as ds
 from backend.services import design_workspace as workspace
@@ -34,7 +37,7 @@ LEVEL_ICON = {
     "info": ":material/info:", "pass": ":material/check_circle:",
 }
 VIEWS = [
-    "Architecture", "Structure", "Lifecycle", "Protocols", "Regimes",
+    "Architecture", "Structure", "Control structure", "Lifecycle", "Protocols", "Regimes",
     "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ]
 MAX_HISTORY = 50
@@ -189,6 +192,81 @@ def _md(text: str) -> str:
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
+
+
+def _control_structure_view(ir: dict):
+    """STAMP control structure inferred from authority, and the STPA table to fill in."""
+    if not graph.actor_ids(ir):
+        st.info("This design has no actors yet. Add them under **Forms → Actors**.")
+        return
+    cs = stamp.control_structure(ir)
+    notes = stamp.findings(cs)
+    if notes:
+        with st.expander(f"What the control structure shows — {len(notes)} point"
+                         f"{'s' if len(notes) != 1 else ''}", expanded=len(notes) <= 6):
+            for note in notes:
+                st.markdown(f"- {note}")
+    t_diagram, t_loops, t_uca = st.tabs(["Diagram", "Control loops", "Unsafe control actions (STPA)"])
+
+    with t_diagram:
+        st.graphviz_chart(stamp.control_structure_dot(cs, dark=_is_dark()), width="stretch")
+        st.caption(
+            "A STAMP control structure **inferred** from the CADL, which does not say which "
+            "messages are control and which are feedback. A contract's decision holder is "
+            "drawn above the parties it decides for. Red arrows down are *control actions* "
+            "(its messages to them); dashed blue arrows up are *feedback* (their messages "
+            "back, and monitors of the contract that observe them). A dotted red arrow is "
+            "authority with nothing exchanged; dotted grey arrows are coordination between "
+            "actors that do not control each other. A pink box is controlled without feedback.")
+
+    with t_loops:
+        if not cs.loops:
+            st.info("No contract names a decision holder, so there are no control loops. "
+                    "Set `authority.decision_holder` under **Forms → Contracts**.")
+        else:
+            st.dataframe([{
+                "controller": l.controller, "controlled": l.controlled,
+                "contracts": ", ".join(l.contracts), "control actions": ", ".join(l.control) or "—",
+                "feedback": ", ".join(l.feedback) or "—", "loop": l.status,
+            } for l in cs.loops], hide_index=True, width="stretch")
+            st.caption(
+                "*closed*: control actions and feedback. *open: no feedback*: the controller "
+                "acts without learning the effect — the typical cause of an unsafe control "
+                "action in STAMP. *no control action*: informed but unable to act through the "
+                "CADL. *authority only*: the contract gives the controller a say but nothing "
+                "is exchanged.")
+
+    with t_uca:
+        rows = stamp.uca_rows(ir, cs)
+        if not rows:
+            st.info("There are no control actions to analyse yet.")
+            return
+        st.markdown(
+            "STPA step 3: for every control action, write when each guide word would make it "
+            "unsafe (or *n/a*). **What the CADL already says** below helps with the timing "
+            "and the detection.")
+        table = [{"control action": f"{r['controller']} → {r['controlled']} : {r['control action']}",
+                  **{g: r[g] for g in stamp.GUIDE_WORDS}} for r in rows]
+        edited = st.data_editor(table, hide_index=True, width="stretch", key="design_uca_table",
+                                disabled=["control action"])
+        records = edited if isinstance(edited, list) else edited.to_dict("records")
+        st.markdown("**What the CADL already says**")
+        st.dataframe([{"control action": t["control action"], "contracts": r["contracts"],
+                       "deadlines": r["deadlines in the CADL"] or "—",
+                       "detected by": r["detected by"] or "—", "feedback": r["feedback"]}
+                      for t, r in zip(table, rows)], hide_index=True, width="stretch")
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows({**r, **{g: rec.get(g, "") for g in stamp.GUIDE_WORDS}}
+                         for r, rec in zip(rows, records))
+        st.download_button("Download the table (CSV)", buffer.getvalue(),
+                           file_name="unsafe_control_actions.csv", mime="text/csv")
+        st.caption(
+            "The four guide words are those of STPA (Leveson & Thomas, *STPA Handbook*, 2018). "
+            "Entries are kept for this browser session only; download them to keep them. "
+            "A deadline in the CADL bounds *too late*; a monitor that observes the controlled "
+            "actor is a way the effect is *detected*, not a way it is prevented.")
 
 
 def _structure_view(ir: dict, source: str):
@@ -599,6 +677,9 @@ with col_view:
 
     elif view == "Structure":
         _structure_view(ir, source)
+
+    elif view == "Control structure":
+        _control_structure_view(ir)
 
     elif view == "Lifecycle":
         if not ir_contracts:

@@ -98,7 +98,7 @@ def test_designer_reports_a_broken_design_without_crashing():
 
 
 @pytest.mark.parametrize("view", [
-    "Architecture", "Structure", "Lifecycle", "Protocols", "Regimes",
+    "Architecture", "Structure", "Control structure", "Lifecycle", "Protocols", "Regimes",
     "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ])
 def test_designer_views_render(view):
@@ -355,3 +355,11 @@ def test_designer_structure_view_survives_odd_designs(source):
     assert not at.exception
     resp = at.dataframe[2].value
     assert "actor ↓" in resp.columns and resp["actor ↓"].tolist() in (["B"], ["A"])
+
+
+def test_designer_control_structure_view():
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Control structure")
+    assert not at.exception
+    assert [t.label for t in at.tabs] == ["Diagram", "Control loops", "Unsafe control actions (STPA)"]
+    assert any("Open loop" in m.value for m in at.markdown)
