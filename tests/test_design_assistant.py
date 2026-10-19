@@ -392,6 +392,7 @@ def test_apply_refuses_a_proposal_that_adds_an_error(ws):
 
 
 def test_server_apply_reports_the_refusal(ws):
+    pytest.importorskip("mcp")
     import mcp_server as server
     server.create_design("depot", "template")
     contract = "SERVICE_AGREEMENT"
