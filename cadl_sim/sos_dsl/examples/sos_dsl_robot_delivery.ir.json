@@ -21,14 +21,17 @@
           "monitor_fleet"
         ],
         "inputs": [
+          "delivery_request",
           "position_report",
+          "ack",
           "task_completion",
           "failure_report"
         ],
         "outputs": [
           "route_assignment",
           "task_assignment",
-          "replan_command"
+          "replan_command",
+          "delivery_notification"
         ]
       },
       {
@@ -47,6 +50,7 @@
         ],
         "outputs": [
           "position_report",
+          "ack",
           "task_completion",
           "failure_report"
         ]
@@ -221,8 +225,56 @@
     ]
   },
   "protocol": {
-    "protocols": [],
-    "events": []
+    "protocols": [
+      {
+        "id": "DeliveryOrder",
+        "trigger": "new_delivery_request(CUSTOMER[j])",
+        "steps": [
+          {
+            "type": "message",
+            "sender": "CUSTOMER",
+            "receiver": "DISPATCHER",
+            "content": "delivery_request",
+            "condition": null
+          },
+          {
+            "type": "message",
+            "sender": "DISPATCHER",
+            "receiver": "ROBOT",
+            "content": "route_assignment",
+            "condition": null
+          },
+          {
+            "type": "message",
+            "sender": "ROBOT",
+            "receiver": "DISPATCHER",
+            "content": "ack",
+            "condition": null
+          },
+          {
+            "type": "message",
+            "sender": "ROBOT",
+            "receiver": "DISPATCHER",
+            "content": "task_completion",
+            "condition": null
+          },
+          {
+            "type": "message",
+            "sender": "DISPATCHER",
+            "receiver": "CUSTOMER",
+            "content": "delivery_notification",
+            "condition": null
+          }
+        ],
+        "timing": {},
+        "fallback": {},
+        "precondition": null,
+        "postcondition": null
+      }
+    ],
+    "events": [
+      "new_delivery_request(CUSTOMER[j])"
+    ]
   },
   "algorithm": {
     "algorithms": []

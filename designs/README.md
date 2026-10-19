@@ -4,10 +4,11 @@ CADL designs offered under *Example design* on the Designer page.
 
 They are copies of the examples in the upstream CADL repository
 (<https://github.com/ertlnagoya/cadl/tree/master/examples>, Apache-2.0),
-kept identical to them (last synchronised with `cadl-lang` 0.3.11, whose
-`sos_dsl_robot_delivery.cadl` conforms to rule M-1 of Appendix E; still
-identical to `cadl-lang` 0.3.14). Any `*.cadl` file placed here appears in
-the list.
+kept identical to them. `sos_dsl_robot_delivery.cadl` was last synchronised
+with `cadl` master after ertlnagoya/cadl#26, which declares every message
+of the example in the interfaces and adds the protocol `DeliveryOrder`; the
+other examples are still identical to `cadl-lang` 0.3.14. Any `*.cadl` file
+placed here appears in the list.
 
 `robot_town.cadl` is a copy of `cadl/robot_town.cadl` in the Robot Town
 repository (<https://github.com/ertlnagoya/cadl-robot-town>, Apache-2.0),
