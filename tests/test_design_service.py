@@ -460,6 +460,11 @@ def test_diagrams_mark_flagged_messages_and_regimes():
     from backend.plotting.sequence import sequence_svg
 
     doc = ds.load_doc(FULL)
+    # The example declares every message since cadl#27; take two of them out of
+    # DISPATCHER's interface again so that TASK_DISPATCH has undeclared messages.
+    dispatcher = next(a for a in doc["sos"]["actors"] if a["id"] == "DISPATCHER")
+    dispatcher["interface"]["input"].remove("delivery_request")
+    dispatcher["interface"]["output"].remove("delivery_notification")
     doc["sos"]["transitions"].append(
         {"from": "EMERGENCY", "to": "HALT", "condition": "x >", "protocol": "NOPE"})
     analysis = ds.analyze(ds.dump_doc(doc))

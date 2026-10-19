@@ -177,8 +177,13 @@ def test_designer_problem_button_opens_the_form_that_fixes_it():
 def test_designer_problem_button_shows_the_item_in_its_view():
     from backend.services import design_service as ds
 
-    at = _set_design(_designer(), ds.load_example("a sos robot delivery"))
-    at = _click(at, "Show in Protocols")  # an undeclared message in TASK_DISPATCH
+    # A design with one undeclared message in a protocol (the bundled examples declare
+    # every message since cadl#26 / cadl#27).
+    doc = ds.load_doc(ds.NEW_DESIGN)
+    doc["sos"]["protocols"] = [{"id": "TASK_DISPATCH", "trigger": "new_task", "steps": [
+        "COORDINATOR -> WORKER[i] : task_assignment", "WORKER[i] -> COORDINATOR : surprise"]}]
+    at = _set_design(_designer(), ds.dump_doc(doc))
+    at = _click(at, "Show in Protocols")  # the undeclared `surprise` in TASK_DISPATCH
     assert not at.exception
     assert at.session_state.design_view == "Protocols"
     assert at.radio(key="design_view_protocol").value == "TASK_DISPATCH"
