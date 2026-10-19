@@ -50,6 +50,11 @@ def _actors(ir: dict) -> Dict[str, dict]:
             if isinstance(a, dict) and a.get("id")}
 
 
+def actor_ids(ir: dict) -> List[str]:
+    """Declared actors, one per base name, in declaration order."""
+    return list(_actors(ir))
+
+
 def _contracts(ir: dict) -> List[dict]:
     return [c for c in (ir.get("institution") or {}).get("contracts") or [] if isinstance(c, dict)]
 
@@ -232,9 +237,15 @@ def structure_gaps(ir: dict, duties: Optional[Dict[str, Dict[str, List[str]]]] =
     for actor in table:
         if edges and actor not in talking:
             notes.append(f"{actor} sends and receives no message.")
+    actors = _actors(ir)
     undeclared = sorted({(e.sender, e.receiver, e.message) for e in edges if not e.declared})
     for s, r, m in undeclared:
-        notes.append(f"{s} → {r} : {m} is not declared in both interfaces.")
+        missing = []
+        if (actors.get(s, {}).get("outputs") or []) and m not in actors[s]["outputs"]:
+            missing.append(f"the outputs of {s}")
+        if (actors.get(r, {}).get("inputs") or []) and m not in actors[r]["inputs"]:
+            missing.append(f"the inputs of {r}")
+        notes.append(f"{s} → {r} : {m} is missing from {' and '.join(missing)}.")
     return notes
 
 
@@ -250,7 +261,7 @@ def message_flow_dot(ir: dict, dark: bool = False, show_authority: bool = False)
     ink = "#d0d0d0" if dark else "#555555"
     text = "#f0f0f0" if dark else "#222222"
     warn = "#f2cc60" if dark else "#bf8700"
-    holder = "#ffb347" if dark else "#c96a00"
+    holder = "#c297ff" if dark else "#8250df"     # decisions: violet, apart from the warning orange
     shades = ["#243b55", "#2f4f6f", "#1f6f8b", "#2a8fb0"] if dark else \
              ["#eef5fb", "#cfe3f3", "#9cc8e8", "#5aa5d6"]
     rows = {r["actor"]: r for r in centrality(ir)}
@@ -258,10 +269,16 @@ def message_flow_dot(ir: dict, dark: bool = False, show_authority: bool = False)
 
     # A message graph has no natural direction of flow, so a circular layout
     # (small designs) or a spring layout (larger ones) reads better than ranks.
-    layout = "circo" if len(rows) <= 8 else "neato"
+    # Up to 4 actors the circle degenerates into a line where A→B and B→A overlap;
+    # dot keeps opposite edges apart there.
+    layout = "dot" if len(rows) <= 4 else "circo" if len(rows) <= 8 else "neato"
     lines = [
         f'digraph "{esc(ir.get("name", "sos"))}" {{', f"  layout={layout};",
-        '  overlap=false; splines=curved; sep="+12"; mindist=1.6;', '  bgcolor="transparent";',
+        # Curved splines keep A→B and B→A apart, but neato with curved splines is
+        # very slow beyond ~15 nodes (30 actors took minutes in the browser).
+        ("  rankdir=LR; nodesep=0.6; ranksep=1.2;" if layout == "dot" else
+         f'  overlap=false; splines={"curved" if layout == "circo" else "true"}; sep="+12"; mindist=1.6;'),
+        '  bgcolor="transparent";',
         f'  node [shape=box style="rounded,filled" fontname="Helvetica" fontsize=11 color="{ink}" fontcolor="{text}"];',
         f'  edge [fontname="Helvetica" fontsize=9 color="{ink}" fontcolor="{text}"];',
     ]
@@ -277,7 +294,8 @@ def message_flow_dot(ir: dict, dark: bool = False, show_authority: bool = False)
     decides: Dict[Tuple[str, str], List[str]] = {}
     if show_authority:
         for h, p, cid in authority_edges(ir):
-            decides.setdefault((h, p), []).append(cid)
+            if h in rows and p in rows:          # an undeclared holder is an error upstream
+                decides.setdefault((h, p), []).append(cid)
     # One edge per ordered pair: its messages, and (if shown) the contracts the
     # sender decides for the receiver. Curved splines keep A→B and B→A apart.
     for pair in list(grouped) + [k for k in decides if k not in grouped]:
@@ -287,10 +305,14 @@ def message_flow_dot(ir: dict, dark: bool = False, show_authority: bool = False)
         parts += [f"decides {esc(cid)}" for cid in decides.get(pair, [])]
         label = "\\n".join(parts)        # (no backslash inside an f-string: Python 3.9)
         attrs = [f'label="{label}"']
-        if any(not e.declared for e in items):
-            attrs.append(f'style=dashed color="{warn}" fontcolor="{warn}"')
-        elif pair in decides:
-            attrs.append(f'color="{holder}" penwidth=2.2' + ("" if items else f' fontcolor="{holder}"'))
+        bad = any(not e.declared for e in items)
+        colour = holder if pair in decides else warn if bad else None
+        if bad:
+            attrs.append("style=dashed")
+        if colour:
+            attrs.append(f'color="{colour}" fontcolor="{colour}"')
+        if pair in decides:
+            attrs.append("penwidth=2.2")
         lines.append(f'  "{esc(s)}" -> "{esc(r)}" [{" ".join(attrs)}];')
     lines.append("}")
     return "\n".join(lines)

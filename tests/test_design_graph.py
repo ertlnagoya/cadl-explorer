@@ -76,6 +76,12 @@ def test_structure_gaps_name_what_is_missing():
     assert "Nobody decides under K." in graph.structure_gaps(_ir(no_holder))
 
 
+def test_gap_names_the_interface_that_leaves_a_message_out():
+    gaps = graph.structure_gaps(_ir(CHAIN))
+    # C lists inputs [m2] as well, so both sides leave m9 out
+    assert "B → C : m9 is missing from the outputs of B and the inputs of C." in gaps
+
+
 def test_undeclared_lifecycle_event_is_flagged():
     # The bundled example's ROBOT sends ack(accepted) in a lifecycle event but does not
     # list `ack` among its outputs.
@@ -90,3 +96,21 @@ def test_every_example_renders(name):
     dot = graph.message_flow_dot(ir, show_authority=True)
     assert dot.startswith("digraph") and dot.rstrip().endswith("}")
     assert len(graph.centrality(ir)) == len(ir["institution"]["actors"])
+
+
+def test_layout_keeps_larger_graphs_fast():
+    many = "\n".join(f"    - {{id: A{i}, role: r, autonomy: low}}" for i in range(12))
+    source = "sos:\n  name: M\n  type: Collaborative\n  actors:\n" + many + "\n"
+    dot = graph.message_flow_dot(_ir(source))
+    assert "layout=neato" in dot and "splines=true" in dot      # curved splines are very slow with neato
+    assert "layout=dot" in graph.message_flow_dot(_ir(CHAIN))           # 4 actors
+    five = CHAIN.replace("    - {id: LONE, role: d, autonomy: low}", "    - {id: LONE, role: d, autonomy: low}\n    - {id: E, role: e, autonomy: low}")
+    assert "splines=curved" in graph.message_flow_dot(_ir(five))
+
+
+def test_a_pair_with_a_decision_and_an_undeclared_message_keeps_both():
+    source = CHAIN.replace('"B -> C : m9"', '"B -> A : m9"')   # B decides K; A lists inputs [] → declared
+    source = source.replace("{input: [], output: [m1]}", "{input: [m0], output: [m1]}")
+    dot = graph.message_flow_dot(_ir(source), show_authority=True)
+    line = next(l for l in dot.splitlines() if l.strip().startswith('"B" -> "A"'))
+    assert "style=dashed" in line and "penwidth=2.2" in line and "decides K" in line

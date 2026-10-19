@@ -193,7 +193,7 @@ def _is_dark() -> bool:
 
 def _structure_view(ir: dict, source: str):
     """Message flow, centrality, N² chart and responsibilities of the design."""
-    actors = [graph.base(a.get("id")) for a in (ir.get("institution") or {}).get("actors") or []]
+    actors = graph.actor_ids(ir)
     if not actors:
         st.info("This design has no actors yet. Add them under **Forms → Actors**.")
         return
@@ -210,13 +210,20 @@ def _structure_view(ir: dict, source: str):
     with t_flow:
         show = st.toggle("Show who decides", key="design_structure_authority",
                          help="Adds an edge from each contract's decision holder to the other parties.")
+        if not graph.message_edges(ir):
+            st.info(
+                "No messages yet: the design has no protocol steps, no lifecycle event "
+                "written as `\"A -> B : msg\"` and no information sharing. Add a protocol "
+                "under **Forms → Protocols** to see who talks to whom.")
         st.graphviz_chart(graph.message_flow_dot(ir, dark=_is_dark(), show_authority=show),
                           width="stretch")
         st.caption(
             "Each arrow is what one actor sends another, from protocol steps, lifecycle "
-            "events (`on: \"A -> B : msg\"`) and information sharing. A dashed orange "
-            "arrow is a message that a declared interface leaves out. Darker actors have a "
-            "higher betweenness (see **Centrality**).")
+            "events (`on: \"A -> B : msg\"`) and information sharing. A dashed arrow "
+            "carries a message that a declared interface leaves out (amber); a thick "
+            "violet arrow carries *decides* (the sender is the contract's decision "
+            "holder). The more strongly an actor is coloured, the higher its betweenness "
+            "(see **Centrality**).")
 
     with t_central:
         rows = [{"actor": r["actor"], "betweenness": r["betweenness"], "partners": r["partners"],
@@ -258,12 +265,16 @@ def _structure_view(ir: dict, source: str):
             "those a declared interface leaves out. Many filled cells in one row or column "
             "show an actor many others depend on; an empty row and column, an actor nobody "
             "talks to.")
+        origins = {}
+        for e in graph.message_edges(ir):
+            origins.setdefault((e.sender, e.receiver, e.message), []).append(e.origin)
         pairs = [(s, r, cell) for s, row in matrix.items() for r, cell in row.items() if cell]
         if pairs:
             with st.expander(f"Messages by pair ({len(pairs)})"):
                 for s, r, cell in pairs:
-                    items = ", ".join(f"`{e.message}`" + ("" if e.declared else " ⚠")
-                                      + f" ({e.origin})" for e in cell)
+                    items = ", ".join(
+                        f"`{e.message}`" + ("" if e.declared else " ⚠") + " ("
+                        + "; ".join(dict.fromkeys(origins[(s, r, e.message)])) + ")" for e in cell)
                     st.markdown(f"- **{s} → {r}**: {items}")
 
     with t_resp:
@@ -273,7 +284,7 @@ def _structure_view(ir: dict, source: str):
         else:
             resp = graph.responsibility_table(ir, duties)
             st.dataframe(
-                [{"actor": a, **{c: ", ".join(resp[a].get(c) or []) or "—" for c in contracts}}
+                [{"actor ↓": a, **{c: ", ".join(resp[a].get(c) or []) or "—" for c in contracts}}
                  for a in actors],
                 hide_index=True, width="stretch")
             st.caption(

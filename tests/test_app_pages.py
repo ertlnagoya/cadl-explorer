@@ -98,7 +98,7 @@ def test_designer_reports_a_broken_design_without_crashing():
 
 
 @pytest.mark.parametrize("view", [
-    "Architecture", "Lifecycle", "Protocols", "Regimes",
+    "Architecture", "Structure", "Lifecycle", "Protocols", "Regimes",
     "Algorithms & metrics", "Read-back", "Checks", "Versions", "Export",
 ])
 def test_designer_views_render(view):
@@ -333,3 +333,25 @@ def test_designer_structure_view():
     assert len(at.dataframe) == 3
     at.toggle(key="design_structure_authority").set_value(True).run()
     assert not at.exception
+
+
+def test_designer_structure_view_marks_undeclared_messages():
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("sos dsl robot delivery")), "Structure")
+    n2 = at.dataframe[1].value          # Centrality, N², Responsibilities
+    assert any("⚠" in str(v) for v in n2.to_numpy().ravel())
+
+
+@pytest.mark.parametrize("source", [
+    # an actor without an id while it is being written
+    "sos:\n  name: X\n  type: Collaborative\n  actors:\n    - {role: a, autonomy: low}\n"
+    "    - {id: B, role: b, autonomy: low}\n  contracts:\n    - {id: K, parties: [B], guarantee: [\"x > 0\"]}\n",
+    # a contract whose id is the first column's name
+    "sos:\n  name: X\n  type: Collaborative\n  actors:\n    - {id: A, role: a, autonomy: low}\n"
+    "  contracts:\n    - {id: actor, parties: [A], guarantee: [\"x > 0\"], authority: {decision_holder: A}}\n",
+])
+def test_designer_structure_view_survives_odd_designs(source):
+    at = _view(_set_design(_designer(), source), "Structure")
+    assert not at.exception
+    resp = at.dataframe[2].value
+    assert "actor ↓" in resp.columns and resp["actor ↓"].tolist() in (["B"], ["A"])
