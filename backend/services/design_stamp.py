@@ -67,35 +67,58 @@ def _contracts(ir: dict) -> List[dict]:
     return [c for c in (ir.get("institution") or {}).get("contracts") or [] if isinstance(c, dict)]
 
 
-def _levels(actors: List[str], controls: Dict[str, set]) -> Dict[str, int]:
-    """Longest chain of control above each actor; actors in a cycle share a level."""
-    level = dict.fromkeys(actors, 0)
-    for _ in range(len(actors)):              # Bellman-Ford style relaxation; cycles stop growing
-        changed = False
-        for c, below in controls.items():
-            for d in below:
-                if d != c and level[d] < level[c] + 1 and level[c] + 1 < len(actors):
-                    level[d] = level[c] + 1
-                    changed = True
-        if not changed:
-            break
-    # Actors that control each other (directly or through a cycle) belong together.
-    reach = {a: _reachable(a, controls) for a in actors}
+def _components(actors: List[str], controls: Dict[str, set]) -> Dict[str, int]:
+    """Strongly connected components (Tarjan), as {actor: component index}."""
+    index, low, on_stack, stack, comp = {}, {}, set(), [], {}
+    counter = [0]
+
+    def visit(v):
+        index[v] = low[v] = counter[0]
+        counter[0] += 1
+        stack.append(v)
+        on_stack.add(v)
+        for w in sorted(controls.get(v, ())):
+            if w not in index:
+                visit(w)
+                low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            n = len(set(comp.values()))
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                comp[w] = n
+                if w == v:
+                    break
+
     for a in actors:
-        for b in actors:
-            if a != b and b in reach[a] and a in reach[b]:
-                level[a] = level[b] = min(level[a], level[b])
-    return level
+        if a not in index:
+            visit(a)
+    return comp
 
 
-def _reachable(start: str, controls: Dict[str, set]) -> set:
-    seen, stack = set(), [start]
-    while stack:
-        for nxt in controls.get(stack.pop(), ()):
-            if nxt not in seen:
-                seen.add(nxt)
-                stack.append(nxt)
-    return seen
+def _levels(actors: List[str], controls: Dict[str, set]) -> Dict[str, int]:
+    """Level 0 at the top; a controlled actor is always below its controller.
+
+    Actors that control each other (a cycle of control) form one component
+    and share a level; components are placed by the longest chain of control
+    above them, so the result does not depend on the order of the actors.
+    """
+    comp = _components(actors, controls)
+    above: Dict[int, set] = {c: set() for c in set(comp.values())}
+    for c, below in controls.items():
+        for d in below:
+            if comp[c] != comp[d]:
+                above[comp[d]].add(comp[c])
+    depth: Dict[int, int] = {}
+
+    def level_of(k: int) -> int:
+        if k not in depth:
+            depth[k] = 0 if not above[k] else 1 + max(level_of(u) for u in above[k])
+        return depth[k]
+
+    return {a: level_of(comp[a]) for a in actors}
 
 
 def control_structure(ir: dict) -> ControlStructure:
@@ -110,6 +133,9 @@ def control_structure(ir: dict) -> ControlStructure:
             if cid not in loop.contracts:
                 loop.contracts.append(cid)
 
+    # A message from s to r is a control action of the loop s → r if s controls r,
+    # and feedback of the loop r → s if r controls s. When both control each other
+    # it is both: s acts on r, and r learns about s from it.
     coordination: List[Tuple[str, str, str]] = []
     for e in graph.message_edges(ir):
         if e.sender == e.receiver:
@@ -117,9 +143,9 @@ def control_structure(ir: dict) -> ControlStructure:
         down, up = loops.get((e.sender, e.receiver)), loops.get((e.receiver, e.sender))
         if down is not None and e.message not in down.control:
             down.control.append(e.message)
-        elif up is not None and e.message not in up.feedback:
+        if up is not None and e.message not in up.feedback:
             up.feedback.append(e.message)
-        elif down is None and up is None and (e.sender, e.receiver, e.message) not in coordination:
+        if down is None and up is None and (e.sender, e.receiver, e.message) not in coordination:
             coordination.append((e.sender, e.receiver, e.message))
 
     # Monitors observe attributes of actors on behalf of their contract's holder.
@@ -202,6 +228,8 @@ def control_structure_dot(cs: ControlStructure, dark: bool = False) -> str:
         elif not l.feedback:
             lines.append(f'  "{esc(l.controller)}" -> "{esc(l.controlled)}" '
                          f'[label="decides" style=dotted color="{control}" fontcolor="{control}"];')
+        else:   # feedback only: keep the controller above with an invisible edge
+            lines.append(f'  "{esc(l.controller)}" -> "{esc(l.controlled)}" [style=invis];')
         if l.feedback:
             lines.append(f'  "{esc(l.controlled)}" -> "{esc(l.controller)}" '
                          f'[label="{up}" color="{feedback}" fontcolor="{feedback}" '
@@ -237,11 +265,14 @@ def _hints(ir: dict, controller: str, controlled: str, message: str) -> Dict[str
         transitions = (c.get("lifecycle") or {}).get("transitions") or []
         for t in transitions:
             match = graph._ARROW.match(str(t.get("on") or ""))
-            if not match or graph._message_name(match.group(3)) != message:
+            if not match or graph._message_name(match.group(3)) != message \
+                    or graph.base(match.group(1)) != controller or graph.base(match.group(2)) != controlled:
                 continue
             if t.get("deadline_ms") is not None:
                 timing.append(f"{c.get('id')}.{t.get('id')} within {_seconds(t['deadline_ms'])}")
             for nxt in transitions:
+                if nxt is t or nxt.get("to_state") in (nxt.get("from_states") or []):
+                    continue                    # the action itself, or a step that loops in place
                 if t.get("to_state") in (nxt.get("from_states") or []) and nxt.get("deadline_ms") is not None:
                     then = nxt.get("on_violation_transition") or "a violation"
                     timing.append(f"then {nxt.get('id')} within {_seconds(nxt['deadline_ms'])}, else {then}")
@@ -249,6 +280,29 @@ def _hints(ir: dict, controller: str, controlled: str, message: str) -> Dict[str
             if any(graph.base(str(o).split(".", 1)[0]) == controlled for o in m.get("observe") or []):
                 detect.append(f"monitor {m.get('id')}: {m.get('rule')}")
     return {"deadlines": "; ".join(dict.fromkeys(timing)), "detected by": "; ".join(dict.fromkeys(detect))}
+
+
+def uca_key(row: Dict[str, str]) -> str:
+    """The identity of a control action in the STPA table."""
+    return f"{row['controller']} → {row['controlled']} : {row['control action']}"
+
+
+def apply_entries(rows: List[Dict[str, str]], entries: Dict[str, Dict[str, str]]) -> List[Dict[str, str]]:
+    """Fill the guide-word cells of ``rows`` from saved ``entries`` (keyed by uca_key)."""
+    return [{**r, **{g: entries.get(uca_key(r), {}).get(g, "") for g in GUIDE_WORDS}} for r in rows]
+
+
+def update_entries(entries: Dict[str, Dict[str, str]], keys: List[str],
+                   records: List[Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    """Store what was typed for each control action; entries of other actions are kept."""
+    out = dict(entries)
+    for key, rec in zip(keys, records):
+        typed = {g: str(rec.get(g) or "") for g in GUIDE_WORDS}
+        if any(typed.values()):
+            out[key] = typed
+        else:
+            out.pop(key, None)
+    return out
 
 
 def uca_rows(ir: dict, cs: Optional[ControlStructure] = None) -> List[Dict[str, str]]:
@@ -268,4 +322,5 @@ def uca_rows(ir: dict, cs: Optional[ControlStructure] = None) -> List[Dict[str, 
 
 
 __all__ = ["Loop", "ControlStructure", "control_structure", "findings",
-           "control_structure_dot", "GUIDE_WORDS", "uca_rows"]
+           "control_structure_dot", "GUIDE_WORDS", "uca_rows", "uca_key",
+           "apply_entries", "update_entries"]

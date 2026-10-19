@@ -217,7 +217,9 @@ def _control_structure_view(ir: dict):
             "(its messages to them); dashed blue arrows up are *feedback* (their messages "
             "back, and monitors of the contract that observe them). A dotted red arrow is "
             "authority with nothing exchanged; dotted grey arrows are coordination between "
-            "actors that do not control each other. A pink box is controlled without feedback.")
+            "actors that do not control each other. A highlighted (red-tinted) box is "
+            "controlled without feedback. When two actors control each other, a message "
+            "between them counts as control for the sender and as feedback for the receiver.")
 
     with t_loops:
         if not cs.loops:
@@ -245,11 +247,19 @@ def _control_structure_view(ir: dict):
             "STPA step 3: for every control action, write when each guide word would make it "
             "unsafe (or *n/a*). **What the CADL already says** below helps with the timing "
             "and the detection.")
-        table = [{"control action": f"{r['controller']} → {r['controlled']} : {r['control action']}",
-                  **{g: r[g] for g in stamp.GUIDE_WORDS}} for r in rows]
-        edited = st.data_editor(table, hide_index=True, width="stretch", key="design_uca_table",
+        # Entries live in the session, keyed by the control action itself, so they
+        # survive switching views and never move to another action when the design
+        # changes. The editor's key follows the set of actions for the same reason.
+        entries = ss.setdefault("design_uca_entries", {})
+        rows = stamp.apply_entries(rows, entries)
+        keys = [stamp.uca_key(r) for r in rows]
+        table = [{"control action": k, **{g: r[g] for g in stamp.GUIDE_WORDS}}
+                 for k, r in zip(keys, rows)]
+        editor_key = "design_uca_" + hashlib.sha1("\n".join(keys).encode()).hexdigest()[:12]
+        edited = st.data_editor(table, hide_index=True, width="stretch", key=editor_key,
                                 disabled=["control action"])
         records = edited if isinstance(edited, list) else edited.to_dict("records")
+        ss.design_uca_entries = stamp.update_entries(entries, keys, records)
         st.markdown("**What the CADL already says**")
         st.dataframe([{"control action": t["control action"], "contracts": r["contracts"],
                        "deadlines": r["deadlines in the CADL"] or "—",
@@ -258,13 +268,13 @@ def _control_structure_view(ir: dict):
         buffer = io.StringIO()
         writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
         writer.writeheader()
-        writer.writerows({**r, **{g: rec.get(g, "") for g in stamp.GUIDE_WORDS}}
-                         for r, rec in zip(rows, records))
+        writer.writerows(stamp.apply_entries(rows, ss.design_uca_entries))
         st.download_button("Download the table (CSV)", buffer.getvalue(),
                            file_name="unsafe_control_actions.csv", mime="text/csv")
         st.caption(
             "The four guide words are those of STPA (Leveson & Thomas, *STPA Handbook*, 2018). "
-            "Entries are kept for this browser session only; download them to keep them. "
+            "Entries stay with their control action while you switch views or edit the design, "
+            "for this browser session only; download them to keep them. "
             "A deadline in the CADL bounds *too late*; a monitor that observes the controlled "
             "actor is a way the effect is *detected*, not a way it is prevented.")
 
