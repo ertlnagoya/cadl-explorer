@@ -12,6 +12,14 @@ protocol `DeliveryOrder`); `supply_chain.cadl` is still identical to
 `cadl-lang` 0.3.14. Any `*.cadl` file
 placed here appears in the list.
 
+`supply_chain.cadl` is left as it is on purpose: it is the example of
+findings on the **Control structure** view. MANUFACTURER controls WAREHOUSE
+but gets no message back and has no monitor of it (an open loop), and
+MANUFACTURER decides for RETAILER without sending it a control action. The
+other designs here have no findings on that view; on the **Structure** view,
+`robot_town.cadl` keeps the note "Nobody decides under DELIVERY_SLA.", since
+that contract has no `decision_holder`.
+
 `robot_town.cadl` is a copy of `cadl/robot_town.cadl` in the Robot Town
 repository (<https://github.com/ertlnagoya/cadl-robot-town>, Apache-2.0;
 last synchronised after ertlnagoya/cadl-robot-town#3, whose `AMEND` protocol
