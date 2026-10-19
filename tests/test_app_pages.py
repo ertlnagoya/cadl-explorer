@@ -336,8 +336,8 @@ def test_designer_structure_view():
 
 
 def test_designer_structure_view_marks_undeclared_messages():
-    from backend.services import design_service as ds
-    at = _view(_set_design(_designer(), ds.load_example("sos dsl robot delivery")), "Structure")
+    from tests.test_design_graph import UNDECLARED_EVENT
+    at = _view(_set_design(_designer(), UNDECLARED_EVENT), "Structure")
     n2 = at.dataframe[1].value          # Centrality, N², Responsibilities
     assert any("⚠" in str(v) for v in n2.to_numpy().ravel())
 

@@ -82,12 +82,43 @@ def test_gap_names_the_interface_that_leaves_a_message_out():
     assert "B → C : m9 is missing from the outputs of B and the inputs of C." in gaps
 
 
+UNDECLARED_EVENT = """
+sos:
+  name: Undeclared
+  type: Acknowledged
+  actors:
+    - {id: DISPATCHER, role: d, autonomy: low, interface: {input: [position_report], output: [route_assignment]}}
+    - {id: "ROBOT[1..N]", role: r, autonomy: high, interface: {input: [route_assignment], output: [position_report]}}
+  contracts:
+    - id: SLA
+      parties: [DISPATCHER, "ROBOT[*]"]
+      guarantee: ["delivery_time <= 300s"]
+      lifecycle:
+        states: [Assigned, Accepted, Violated]
+        initial: Assigned
+        terminal: [Accepted, Violated]
+        transitions:
+          - id: accept
+            from: Assigned
+            to: Accepted
+            on: "ROBOT[i] -> DISPATCHER : ack(accepted)"
+            deadline: 5s
+            on_violation: {transition: Violated}
+"""
+
+
 def test_undeclared_lifecycle_event_is_flagged():
-    # The bundled example's ROBOT sends ack(accepted) in a lifecycle event but does not
-    # list `ack` among its outputs.
-    ir = _ir(ds.load_example("sos dsl robot delivery"))
+    # ROBOT sends ack(accepted) in a lifecycle event but lists only position_report
+    # among its outputs (the bundled example had this gap until cadl#26).
+    ir = _ir(UNDECLARED_EVENT)
     bad = [(e.sender, e.receiver, e.message) for e in graph.message_edges(ir) if not e.declared]
     assert ("ROBOT", "DISPATCHER", "ack") in bad
+
+
+def test_bundled_delivery_example_declares_every_message():
+    ir = _ir(ds.load_example("sos dsl robot delivery"))
+    assert [e for e in graph.message_edges(ir) if not e.declared] == []
+    assert graph.structure_gaps(ir) == []
 
 
 @pytest.mark.parametrize("name", list(ds.list_examples()))
