@@ -8,8 +8,8 @@ kept identical to them. `sos_dsl_robot_delivery.cadl`,
 `a_sos_robot_delivery.cadl` and `c_sos_taxi_fleet.cadl` were last
 synchronised with `cadl` master after ertlnagoya/cadl#26 and #27, which
 declare every message of the examples in their interfaces (#26 also adds the
-protocol `DeliveryOrder`); `supply_chain.cadl` is still identical to
-`cadl-lang` 0.3.14. Any `*.cadl` file
+protocol `DeliveryOrder`); `supply_chain.cadl` has not changed upstream
+since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.18. Any `*.cadl` file
 placed here appears in the list.
 
 `supply_chain.cadl` is left as it is on purpose: it is the example of
