@@ -18,7 +18,10 @@ pandas>=2.0.0
 # pipeline still runs on the bundled `cadl_sim/` subset. From 0.3.10 the
 # Designer reads lifecycle `when:` and monitor `rule:` with its rule grammar
 # (`state IN [A, B]`); older releases fall back to the expression grammar.
-cadl-lang>=0.3.10
+# From 0.3.18 expressions accept a unary minus (`x > -0.5`, Appendix A, A.10);
+# with 0.3.17 and older the Designer reports such an item as not a valid
+# expression.
+cadl-lang>=0.3.18
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.
