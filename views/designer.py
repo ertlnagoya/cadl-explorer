@@ -17,6 +17,7 @@ import streamlit as st
 from backend.plotting.architecture import architecture_to_dot, regimes_to_dot
 from backend.plotting.sequence import participants, sequence_svg
 from backend.services import design_graph as graph
+from backend.services import design_contracts as dcon
 from backend.services import design_stamp as stamp
 from backend.services import design_readback as readback
 from backend.services import design_service as ds
@@ -194,8 +195,8 @@ def _is_dark() -> bool:
     return getattr(theme, "type", None) == "dark"
 
 
-def _control_structure_view(ir: dict):
-    """STAMP control structure inferred from authority, and the STPA table to fill in."""
+def _control_structure_view(ir: dict, source: str = ""):
+    """STAMP control structure inferred from authority, the STPA table to fill in, and what watches each promise."""
     if not graph.actor_ids(ir):
         st.info("This design has no actors yet. Add them under **Forms → Actors**.")
         return
@@ -206,7 +207,8 @@ def _control_structure_view(ir: dict):
                          f"{'s' if len(notes) != 1 else ''}", expanded=len(notes) <= 6):
             for note in notes:
                 st.markdown(f"- {note}")
-    t_diagram, t_loops, t_uca = st.tabs(["Diagram", "Control loops", "Unsafe control actions (STPA)"])
+    t_diagram, t_loops, t_uca, t_cover = st.tabs(
+        ["Diagram", "Control loops", "Unsafe control actions (STPA)", "Monitoring coverage"])
 
     with t_diagram:
         st.graphviz_chart(stamp.control_structure_dot(cs, dark=_is_dark()), width="stretch")
@@ -242,41 +244,64 @@ def _control_structure_view(ir: dict):
         rows = stamp.uca_rows(ir, cs)
         if not rows:
             st.info("There are no control actions to analyse yet.")
-            return
-        st.markdown(
-            "STPA step 3: for every control action, write when each guide word would make it "
-            "unsafe (or *n/a*). **What the CADL already says** below helps with the timing "
-            "and the detection.")
-        # Entries live in the session, keyed by the control action itself, so they
-        # survive switching views and never move to another action when the design
-        # changes. The editor's key follows the set of actions for the same reason.
-        entries = ss.setdefault("design_uca_entries", {})
-        rows = stamp.apply_entries(rows, entries)
-        keys = [stamp.uca_key(r) for r in rows]
-        table = [{"control action": k, **{g: r[g] for g in stamp.GUIDE_WORDS}}
-                 for k, r in zip(keys, rows)]
-        editor_key = "design_uca_" + hashlib.sha1("\n".join(keys).encode()).hexdigest()[:12]
-        edited = st.data_editor(table, hide_index=True, width="stretch", key=editor_key,
-                                disabled=["control action"])
-        records = edited if isinstance(edited, list) else edited.to_dict("records")
-        ss.design_uca_entries = stamp.update_entries(entries, keys, records)
-        st.markdown("**What the CADL already says**")
-        st.dataframe([{"control action": t["control action"], "contracts": r["contracts"],
-                       "deadlines": r["deadlines in the CADL"] or "—",
-                       "detected by": r["detected by"] or "—", "feedback": r["feedback"]}
-                      for t, r in zip(table, rows)], hide_index=True, width="stretch")
-        buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(stamp.apply_entries(rows, ss.design_uca_entries))
-        st.download_button("Download the table (CSV)", buffer.getvalue(),
-                           file_name="unsafe_control_actions.csv", mime="text/csv")
-        st.caption(
-            "The four guide words are those of STPA (Leveson & Thomas, *STPA Handbook*, 2018). "
-            "Entries stay with their control action while you switch views or edit the design, "
-            "for this browser session only; download them to keep them. "
-            "A deadline in the CADL bounds *too late*; a monitor that observes the controlled "
-            "actor is a way the effect is *detected*, not a way it is prevented.")
+        else:
+            st.markdown(
+                "STPA step 3: for every control action, write when each guide word would make it "
+                "unsafe (or *n/a*). **What the CADL already says** below helps with the timing "
+                "and the detection.")
+            # Entries live in the session, keyed by the control action itself, so they
+            # survive switching views and never move to another action when the design
+            # changes. The editor's key follows the set of actions for the same reason.
+            entries = ss.setdefault("design_uca_entries", {})
+            rows = stamp.apply_entries(rows, entries)
+            keys = [stamp.uca_key(r) for r in rows]
+            table = [{"control action": k, **{g: r[g] for g in stamp.GUIDE_WORDS}}
+                     for k, r in zip(keys, rows)]
+            editor_key = "design_uca_" + hashlib.sha1("\n".join(keys).encode()).hexdigest()[:12]
+            edited = st.data_editor(table, hide_index=True, width="stretch", key=editor_key,
+                                    disabled=["control action"])
+            records = edited if isinstance(edited, list) else edited.to_dict("records")
+            ss.design_uca_entries = stamp.update_entries(entries, keys, records)
+            st.markdown("**What the CADL already says**")
+            st.dataframe([{"control action": t["control action"], "contracts": r["contracts"],
+                           "deadlines": r["deadlines in the CADL"] or "—",
+                           "detected by": r["detected by"] or "—", "feedback": r["feedback"]}
+                          for t, r in zip(table, rows)], hide_index=True, width="stretch")
+            buffer = io.StringIO()
+            writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(stamp.apply_entries(rows, ss.design_uca_entries))
+            st.download_button("Download the table (CSV)", buffer.getvalue(),
+                               file_name="unsafe_control_actions.csv", mime="text/csv")
+            st.caption(
+                "The four guide words are those of STPA (Leveson & Thomas, *STPA Handbook*, 2018). "
+                "Entries stay with their control action while you switch views or edit the design, "
+                "for this browser session only; download them to keep them. "
+                "A deadline in the CADL bounds *too late*; a monitor that observes the controlled "
+                "actor is a way the effect is *detected*, not a way it is prevented.")
+
+    with t_cover:
+        promises = dcon.coverage(ir, source)
+        if not promises:
+            st.info("No contract states an assumption or a guarantee yet. Add them under "
+                    "**Forms → Contracts**.")
+        else:
+            for note in dcon.coverage_findings(ir, promises):
+                st.markdown(f"- {note}")
+            st.dataframe([{
+                "contract": p.contract, "kind": p.kind, "promise": p.text,
+                "watched by": ", ".join(p.watched_by) or "—",
+                "measured by": ", ".join(p.measured_by) or "—", "status": p.status,
+            } for p in promises], hide_index=True, width="stretch")
+            st.caption(
+                "What checks each assumption and guarantee while the contract runs: a monitor "
+                "of the contract whose `observe` or `rule` names one of its quantities, the "
+                "contract's `violation.detect`, or a lifecycle deadline that equals its time "
+                "bound (on a transition named in the quantity, such as `pickup` for "
+                "`pickup_time`, or through an `# @amend:` name). *measured by*: a metric with "
+                "the same name, which evaluates the run afterwards. The CADL does not link a "
+                "promise to its monitor, so the links are found by name: a monitor that checks "
+                "the same thing under another name is not counted.")
 
 
 def _structure_view(ir: dict, source: str):
@@ -292,8 +317,8 @@ def _structure_view(ir: dict, source: str):
                          expanded=len(gaps) <= 6):
             for note in gaps:
                 st.markdown(f"- {note}")
-    t_flow, t_central, t_n2, t_resp = st.tabs(
-        ["Message flow", "Centrality", "N² chart", "Responsibilities"])
+    t_flow, t_central, t_n2, t_resp, t_deps = st.tabs(
+        ["Message flow", "Centrality", "N² chart", "Responsibilities", "Contract dependencies"])
 
     with t_flow:
         show = st.toggle("Show who decides", key="design_structure_authority",
@@ -380,6 +405,30 @@ def _structure_view(ir: dict, source: str):
                 "*duties (n)*: entries under `responsibilities:`. *observed*: a monitor "
                 "observes one of its attributes. A contract column without *decides* has "
                 "nobody to settle a dispute; an actor row of dashes takes part in nothing.")
+
+    with t_deps:
+        if len(dcon._contracts(ir)) < 2:
+            st.info("Dependencies are between contracts; this design has fewer than two.")
+        else:
+            deps = dcon.dependencies(ir)
+            for note in dcon.dependency_findings(ir, deps):
+                st.markdown(f"- {note}")
+            st.graphviz_chart(dcon.dependency_dot(ir, dark=_is_dark()), width="stretch")
+            sources = dcon.assumption_sources(ir, deps)
+            if sources:
+                st.dataframe(sources, hide_index=True, width="stretch",
+                             column_config={"guaranteed by": st.column_config.TextColumn(
+                                 "guaranteed by", help="Contracts whose guarantee names a quantity "
+                                                       "of this assumption.")})
+            else:
+                st.markdown("- No contract states an assumption (`assume:`), so none relies on "
+                            "what another guarantees.")
+            st.caption(
+                "Each box is a contract with its parties and decision holder. A dashed line joins "
+                "two contracts that share actors: a change to one can affect how those actors "
+                "meet the other. A blue arrow runs from a contract to one whose assumption it "
+                "guarantees (it names the same quantity): the second relies on the first, as in "
+                "assume-guarantee reasoning. The links are found by name, not proved.")
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -689,7 +738,7 @@ with col_view:
         _structure_view(ir, source)
 
     elif view == "Control structure":
-        _control_structure_view(ir)
+        _control_structure_view(ir, source)
 
     elif view == "Lifecycle":
         if not ir_contracts:

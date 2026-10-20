@@ -334,8 +334,11 @@ def test_designer_structure_view():
     from backend.services import design_service as ds
     at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Structure")
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Message flow", "Centrality", "N² chart", "Responsibilities"]
-    assert len(at.dataframe) == 3
+    assert [t.label for t in at.tabs] == ["Message flow", "Centrality", "N² chart", "Responsibilities",
+                                          "Contract dependencies"]
+    assert len(at.dataframe) == 4       # Centrality, N², Responsibilities, assumptions
+    assert any("SUPPLY_AGREEMENT" in m.value and "TRANSPORT_SLA" in m.value for m in at.markdown) or \
+        any("guaranteed by another contract" in m.value for m in at.markdown)
     at.toggle(key="design_structure_authority").set_value(True).run()
     assert not at.exception
 
@@ -366,5 +369,28 @@ def test_designer_control_structure_view():
     from backend.services import design_service as ds
     at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Control structure")
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Diagram", "Control loops", "Unsafe control actions (STPA)"]
+    assert [t.label for t in at.tabs] == ["Diagram", "Control loops", "Unsafe control actions (STPA)",
+                                          "Monitoring coverage"]
     assert any("Open loop" in m.value for m in at.markdown)
+    assert any("Nothing watches the guarantee `damage_rate <= 0.01`" in m.value for m in at.markdown)
+    cover = at.dataframe[-1].value
+    assert list(cover.columns) == ["contract", "kind", "promise", "watched by", "measured by", "status"]
+    assert len(cover) == 8
+
+
+def test_designer_coverage_reads_amend_deadlines():
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("robot town")), "Control structure")
+    assert not at.exception
+    cover = at.dataframe[-1].value
+    row = cover[cover["promise"] == "hold_time <= hold_limit"].iloc[0]
+    assert row["watched by"] == "deadline of release (60s, @amend:hold_limit)"
+    at = _view(at, "Structure")
+    assert any("No contract states an assumption" in m.value for m in at.markdown)
+
+
+def test_designer_views_without_contracts():
+    source = "sos:\n  name: X\n  type: Collaborative\n  actors:\n    - {id: A, role: a, autonomy: low}\n"
+    for view in ("Structure", "Control structure"):
+        at = _view(_set_design(_designer(), source), view)
+        assert not at.exception
