@@ -3,7 +3,7 @@
 # (as in v0.5.0, which renamed the templates in backend/services/cadl_service.py,
 # v0.5.1, which changed the profile validation in the same module, and v0.5.2,
 # which changed backend/services/design_service.py; v0.5.4 changed it again;
-# v0.5.5 and v0.5.6 changed backend/version.py, which every page imports):
+# v0.5.5 to v0.5.7 changed backend/version.py, which every page imports):
 # the running process otherwise keeps the old module beside the new pages.
 streamlit>=1.50.0
 plotly>=5.18.0
