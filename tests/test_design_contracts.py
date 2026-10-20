@@ -127,3 +127,38 @@ def test_bundled_examples_render():
 def test_one_contract_has_no_dependency_findings():
     ir = _ir(ds.load_example("sos dsl robot delivery"))
     assert dcon.dependencies(ir) == [] and dcon.dependency_findings(ir, []) == []
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("pickup_time <= 120s", ["deadline of pickup (120s)"]),
+    ("ROBOT[i].pickup_time <= 120s", ["deadline of pickup (120s)"]),
+    ("120s >= pickup_time", ["deadline of pickup (120s)"]),
+    ("pickup_time <= 120s AND dropoff_time <= 120s", ["deadline of pickup (120s)"]),
+    ("unpickup_time <= 120s", []),               # the id must be a whole part of the name
+    ("pickup_time <= 60s", []),                  # a different length
+    ("pickup_time >= 120s", []),                 # not an upper bound
+])
+def test_deadline_matching(text, expected):
+    assert dcon._deadline_matches(text, [{"id": "pickup", "deadline_ms": 120000}], {}) == expected
+
+
+def test_amend_deadlines_follow_the_list_item():
+    source = ("  - id: ROAD_USE\n    lifecycle:\n      transitions:\n"
+              "        - from: [Holding, Overstay]\n          id: release\n"
+              "          deadline: \"60s\"  # @amend:hold_limit\n"
+              "        - from: Idle\n          deadline: 5s  # @amend:no_id\n")
+    assert dcon.amend_deadlines(source) == {"hold_limit": ("release", 60000), "no_id": ("", 5000)}
+
+
+def test_strings_and_actors_are_not_quantities():
+    assert dcon.quantities('mode == "idle"') == {"mode"}
+    ir = _ir(CHAIN.replace('guarantee: ["ledger_balanced()"]', 'guarantee: ["dist(SHOP, AUDIT) > 1"]')
+                  .replace('"SHOP.open == true"', '"near(SHOP, AUDIT) == true"'))
+    assert not [d for d in dcon.dependencies(ir) if d.kind == "assumes what it guarantees"
+                and d.source == "BOOKS"]
+
+
+def test_summary_when_every_assumption_is_backed():
+    ir = _ir(CHAIN.replace(', "SHOP.open == true"', ''))
+    note = [n for n in dcon.dependency_findings(ir, dcon.dependencies(ir)) if "assumption" in n][0]
+    assert note == "1 of 1 assumption is guaranteed by another contract."

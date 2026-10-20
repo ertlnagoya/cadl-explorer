@@ -32,9 +32,14 @@ _KEYWORDS = {"AND", "OR", "NOT", "IN", "and", "or", "not", "true", "false", "Tru
              "state", "now"}
 _DURATION = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(ms|sec|min|s|m|h)\s*$")
 _UNIT_MS = {"ms": 1, "s": 1000, "sec": 1000, "m": 60000, "min": 60000, "h": 3600000}
-_UPPER_BOUND = re.compile(r"^\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*(<=|<)\s*(.+?)\s*$")
-_AMEND_DEADLINE = re.compile(r"^\s*deadline:\s*(\S+)\s*#\s*@amend:\s*([A-Za-z_]\w*)")
-_TRANSITION_ID = re.compile(r"^\s*-\s*id:\s*['\"]?([A-Za-z_]\w*)")
+_NAME_AT = r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+_UPPER_BOUND = re.compile(r"^\s*" + _NAME_AT + r"\s*(<=|<)\s*(.+?)\s*$")       # name <= bound
+_LOWER_BOUND = re.compile(r"^\s*(.+?)\s*(>=|>)\s*" + _NAME_AT + r"\s*$")       # bound >= name
+_AND = re.compile(r"\s+AND\s+")
+_STRING = re.compile(r"\"[^\"]*\"|'[^']*'")
+_AMEND_DEADLINE = re.compile(r"^\s*(?:-\s*)?deadline:\s*['\"]?([^'\"\s#]+)['\"]?\s*#\s*@amend:\s*([A-Za-z_]\w*)")
+_ITEM = re.compile(r"^\s*-\s")
+_ID = re.compile(r"^\s*(?:-\s*)?id:\s*['\"]?([A-Za-z_]\w*)")
 
 
 def _contracts(ir: dict) -> List[dict]:
@@ -46,15 +51,26 @@ def _states(contract: dict) -> Set[str]:
     return {str(s) for s in (contract.get("lifecycle") or {}).get("states") or []}
 
 
+def _actors(ir: dict) -> Set[str]:
+    return {base(a.get("id")) for a in (ir.get("institution") or {}).get("actors") or []
+            if isinstance(a, dict) and a.get("id")}
+
+
+def _skip(ir: dict, contract: dict) -> Set[str]:
+    """Names that are not quantities in this contract: its states and the actors."""
+    return _states(contract) | _actors(ir)
+
+
 def quantities(expr, exclude: Set[str] = frozenset()) -> Set[str]:
     """The quantities an expression names: ``ROBOT[i].battery < 20 AND state == Assigned`` → {battery}.
 
-    Index brackets and ``IN [..]`` lists are dropped; so are keywords, the
-    names in ``exclude`` (the contract's states), units after a number, and
+    Index brackets, ``IN [..]`` lists and quoted strings are dropped; so are
+    keywords, the names in ``exclude`` (the contract's states and the
+    actors, which are not quantities), units after a number, and
     a function name followed by arguments (``min_dist(a, b)`` names a and b;
     a predicate without arguments, ``conflict_free()``, names itself).
     """
-    text = re.sub(r"\[[^\]]*\]", "", str(expr or ""))
+    text = re.sub(r"\[[^\]]*\]", "", _STRING.sub(" ", str(expr or "")))
     names = set()
     for m in _NAME.finditer(text):
         if m.start() and (text[m.start() - 1].isdigit() or text[m.start() - 1] == "."):
@@ -83,7 +99,9 @@ def amend_deadlines(source: Optional[str]) -> Dict[str, Tuple[str, int]]:
     out: Dict[str, Tuple[str, int]] = {}
     transition = ""
     for line in str(source or "").splitlines():
-        tid = _TRANSITION_ID.match(line)
+        if _ITEM.match(line):           # a new list item: its id may come on a later line
+            transition = ""
+        tid = _ID.match(line)
         if tid:
             transition = tid.group(1)
         match = _AMEND_DEADLINE.match(line)
@@ -106,30 +124,40 @@ class Promise:
         return "watched" if self.watched_by else "measured only" if self.measured_by else "not watched"
 
 
+def _time_bounds(text: str) -> List[Tuple[str, str]]:
+    """``a <= 120s AND 60s > b`` → [(a, "120s"), (b, "60s")]: each upper bound in a conjunction."""
+    out = []
+    for part in _AND.split(re.sub(r"\[[^\]]*\]", "", text)):
+        upper, lower = _UPPER_BOUND.match(part), _LOWER_BOUND.match(part)
+        if upper:
+            out.append((upper.group(1).split(".")[-1], upper.group(3)))
+        elif lower:
+            out.append((lower.group(3).split(".")[-1], lower.group(1)))
+    return out
+
+
 def _deadline_matches(text: str, transitions: List[dict], amended: Dict[str, Tuple[str, int]]
                       ) -> List[str]:
     """Deadlines that bound the same time as ``quantity <= bound``.
 
-    A deadline of the same length on a transition whose id is part of the
-    quantity's name (``pickup_time <= 120s`` and transition ``pickup``), or the
-    deadline the bound names through ``# @amend:`` (``hold_time <= hold_limit``).
+    A deadline of the same length on a transition whose id is a whole part of
+    the quantity's name (``pickup_time <= 120s`` and transition ``pickup``), or
+    the deadline the bound names through ``# @amend:`` (``hold_time <= hold_limit``).
     """
-    match = _UPPER_BOUND.match(text)
-    if not match:
-        return []
-    quantity, bound = match.group(1).split(".")[-1], match.group(3)
     out = []
-    if bound in amended:
-        tid, ms = amended[bound]
-        if any(t.get("id") == tid and t.get("deadline_ms") == ms for t in transitions):
-            out.append(f"deadline of {tid} ({_seconds(ms)}, @amend:{bound})")
-        return out
-    ms = _duration_ms(bound)
-    for t in transitions:
-        tid = str(t.get("id") or "")
-        if ms is not None and t.get("deadline_ms") == ms and tid and tid in quantity:
-            out.append(f"deadline of {tid} ({_seconds(ms)})")
-    return out
+    for quantity, bound in _time_bounds(text):
+        if bound in amended:
+            tid, ms = amended[bound]
+            if any(t.get("id") == tid and t.get("deadline_ms") == ms for t in transitions):
+                out.append(f"deadline of {tid} ({_seconds(ms)}, @amend:{bound})")
+            continue
+        ms = _duration_ms(bound)
+        for t in transitions:
+            tid = str(t.get("id") or "")
+            if ms is not None and t.get("deadline_ms") == ms and tid and \
+                    re.search(rf"(^|_){re.escape(tid)}(_|$)", quantity):
+                out.append(f"deadline of {tid} ({_seconds(ms)})")
+    return list(dict.fromkeys(out))
 
 
 def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
@@ -138,7 +166,7 @@ def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
     amended = amend_deadlines(source)
     out: List[Promise] = []
     for c in _contracts(ir):
-        states = _states(c)
+        states = _skip(ir, c)
         transitions = [t for t in (c.get("lifecycle") or {}).get("transitions") or [] if isinstance(t, dict)]
         monitors = [m for m in c.get("monitors") or [] if isinstance(m, dict)]
         detect = quantities(c.get("violation_detect"), states)
@@ -173,9 +201,9 @@ def coverage_findings(ir: dict, promises: List[Promise]) -> List[str]:
         for m in c.get("monitors") or []:
             if not isinstance(m, dict):
                 continue
-            seen = quantities(m.get("rule"), _states(c))
+            seen = quantities(m.get("rule"), _skip(ir, c))
             for o in m.get("observe") or []:
-                seen |= quantities(o, _states(c))
+                seen |= quantities(o, _skip(ir, c))
             if seen and not seen & named:
                 notes.append(f"Monitor {m.get('id')} of {c['id']} watches "
                              f"{', '.join(f'`{n}`' for n in sorted(seen))}, which no assumption "
@@ -212,13 +240,13 @@ def dependencies(ir: dict) -> List[Dependency]:
     for provider in contracts:
         given = set()
         for g in provider.get("guarantee") or []:
-            given |= quantities(g, _states(provider))
+            given |= quantities(g, _skip(ir, provider))
         for user in contracts:
             if user is provider:
                 continue
             needed = set()
             for s in user.get("assume") or []:
-                needed |= quantities(s, _states(user))
+                needed |= quantities(s, _skip(ir, user))
             if given & needed:
                 out.append(Dependency(str(provider["id"]), str(user["id"]),
                                       "assumes what it guarantees", tuple(sorted(given & needed))))
@@ -230,7 +258,7 @@ def assumption_sources(ir: dict, deps: List[Dependency]) -> List[Dict[str, str]]
     rows = []
     for c in _contracts(ir):
         for s in c.get("assume") or []:
-            names = quantities(s, _states(c))
+            names = quantities(s, _skip(ir, c))
             by = [d.source for d in deps if d.kind == "assumes what it guarantees"
                   and d.target == str(c["id"]) and names & set(d.detail)]
             rows.append({"contract": str(c["id"]), "assumption": str(s),
@@ -251,9 +279,12 @@ def dependency_findings(ir: dict, deps: List[Dependency]) -> List[str]:
     rows = assumption_sources(ir, deps)
     if rows:
         backed = sum(bool(r["guaranteed by"]) for r in rows)
+        rest = len(rows) - backed
         notes.append(f"{backed} of {len(rows)} assumption{'s' if len(rows) != 1 else ''} "
-                     f"{'is' if backed == 1 else 'are'} guaranteed by another contract; the "
-                     "others rest on the environment or on an actor's own behaviour.")
+                     f"{'is' if backed == 1 else 'are'} guaranteed by another contract"
+                     + ("." if not rest else
+                        f"; the other{'s rest' if rest != 1 else ' rests'} on the environment or "
+                        "on an actor's own behaviour."))
     return notes
 
 

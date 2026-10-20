@@ -303,6 +303,7 @@ def _control_structure_view(ir: dict, source: str = ""):
                 "promise to its monitor, so the links are found by name: a monitor that checks "
                 "the same thing under another name is not counted.")
 
+
 def _structure_view(ir: dict, source: str):
     """Message flow, centrality, N² chart and responsibilities of the design."""
     actors = graph.actor_ids(ir)
@@ -406,7 +407,7 @@ def _structure_view(ir: dict, source: str):
                 "nobody to settle a dispute; an actor row of dashes takes part in nothing.")
 
     with t_deps:
-        if len([c for c in (ir.get("institution") or {}).get("contracts") or [] if c.get("id")]) < 2:
+        if len(dcon._contracts(ir)) < 2:
             st.info("Dependencies are between contracts; this design has fewer than two.")
         else:
             deps = dcon.dependencies(ir)
