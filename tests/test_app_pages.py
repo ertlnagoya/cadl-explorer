@@ -394,3 +394,34 @@ def test_designer_views_without_contracts():
     for view in ("Structure", "Control structure"):
         at = _view(_set_design(_designer(), source), view)
         assert not at.exception
+
+
+def test_designer_amends_a_marked_value_in_place():
+    from backend.services import design_amend as amend
+    from backend.services import design_service as ds
+    town = ds.load_example("robot town")
+    at = _view(_set_design(_designer(), town), "Versions")
+    assert not at.exception
+    table = at.dataframe[0].value
+    assert table["parameter"].tolist()[:2] == ["pickup_deadline", "dropoff_deadline"]
+    assert "layer" not in table.columns                       # no constitution yet
+    next(b for b in at.button if b.label == "Use the Robot Town constitution").click().run()
+    table = at.dataframe[0].value
+    assert table.set_index("parameter").loc["pickup_deadline", "decided by"] == "a person"
+    at.selectbox(key="design_amend_name").set_value("hold_limit").run()
+    at.number_input(key="design_amend_value_hold_limit_60").set_value(70).run()
+    assert any("The constitution allows this amendment" in m.value for m in at.markdown)
+    next(b for b in at.button if b.label == "Amend hold_limit to 70").click().run()
+    assert not at.exception
+    assert amend.values(at.session_state.design_src)["hold_limit"] == 70
+    assert "# @amend:hold_limit" in at.session_state.design_src
+    assert at.session_state.design_versions[-1]["name"] == "before hold_limit 60 → 70"
+    assert any("Amended parameters" in m.value and "`hold_limit` 60 → 70" in m.value for m in at.markdown)
+    assert any("Amended hold_limit: 60 → 70" in s.value for s in at.success)
+
+
+def test_designer_versions_without_amend_tags():
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Versions")
+    assert not at.exception
+    assert not any(m.value == "**Amendable parameters**" for m in at.markdown)

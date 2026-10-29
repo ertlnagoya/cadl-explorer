@@ -22,11 +22,16 @@ that contract has no `decision_holder`.
 
 `robot_town.cadl` is a copy of `cadl/robot_town.cadl` in the Robot Town
 repository (<https://github.com/ertlnagoya/cadl-robot-town>, Apache-2.0;
-last synchronised after ertlnagoya/cadl-robot-town#3, whose `AMEND` protocol
-exchanges `violation_report` and `rule_update` between COUNCIL and
-TOWN_STEWARD),
+last synchronised after ertlnagoya/cadl-robot-town#8, which marks the
+deadlines of `DELIVERY_SLA` — its guarantees and its lifecycle — as
+amendable in the contract layer),
 the starting rules of Course D of the hands-on course
-(<https://www.ertl.jp/cadl-spec/docs/handson/robot-town-tutorial>). The
-council of that course writes amended versions to `runs/<name>/v1.cadl`,
-`v2.cadl`, ...; compare two of them on the Designer page: open one, save it
-under **Versions**, open the next and compare the two there.
+(<https://www.ertl.jp/cadl-spec/docs/handson/robot-town-tutorial>).
+`robot_town.constitution.yaml` is a copy of that repository's
+`constitution.yaml`: the layer (rule, contract), safety flag, range and step
+of each `# @amend:` name. The **Versions** view lists the amendable
+parameters, checks them against that constitution (or one you upload) and
+amends a value in place, keeping the comments. The steward and the council
+of the course write amended versions to `runs/<name>/v1.cadl`, `v2.cadl`,
+...; compare two of them on the Designer page: open one, save it under
+**Versions**, open the next and compare the two there.

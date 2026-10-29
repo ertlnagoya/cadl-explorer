@@ -17,6 +17,7 @@ import streamlit as st
 from backend.plotting.architecture import architecture_to_dot, regimes_to_dot
 from backend.plotting.sequence import participants, sequence_svg
 from backend.services import design_graph as graph
+from backend.services import design_amend as amend
 from backend.services import design_contracts as dcon
 from backend.services import design_stamp as stamp
 from backend.services import design_readback as readback
@@ -43,6 +44,7 @@ VIEWS = [
 ]
 MAX_HISTORY = 50
 MAX_VERSIONS = 20
+BUNDLED_CONSTITUTION = ds.DESIGNS_DIR / "robot_town.constitution.yaml"
 
 ss = st.session_state
 
@@ -193,6 +195,110 @@ def _md(text: str) -> str:
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
+
+
+def _amend_apply(name: str, old: float, new: float):
+    """Write the new value into every line marked with ``name``, keeping the comments."""
+    ss.design_version_name = f"before {name} {amend.fmt(old)} → {amend.fmt(new)}"
+    _save_version()
+    _set_source(amend.set_values(ss.design_src, {name: new}))
+    ss.design_amend_done = f"{name}: {amend.fmt(old)} → {amend.fmt(new)}"
+
+
+def _use_bundled_constitution():
+    ss.design_constitution = BUNDLED_CONSTITUTION.read_text(encoding="utf-8")
+    ss.design_constitution_name = BUNDLED_CONSTITUTION.name
+
+
+def _drop_constitution():
+    ss.pop("design_constitution", None)
+    ss.pop("design_constitution_name", None)
+
+
+def _amendments_section(source: str, versions: list):
+    """The `# @amend:` values, checked against a constitution, amended in place, and their history."""
+    params = amend.amendables(source)
+    if not params:
+        return
+    st.markdown("**Amendable parameters**")
+    st.caption(
+        "Values marked `# @amend:<name>` (Robot Town, Course D). A constitution "
+        "(`constitution.yaml`) gives each name its layer, range and step. Amending here "
+        "changes the number on every marked line and keeps the comments; the forms and the "
+        "source editor's other edits would drop them.")
+    up, use = st.columns([3, 2], vertical_alignment="bottom")
+    uploaded = up.file_uploader("Constitution", type=["yaml", "yml"], key="design_constitution_file",
+                                help="The constitution.yaml of the Course D repository, or your own.")
+    if uploaded is not None:
+        ss.design_constitution = uploaded.getvalue().decode("utf-8", errors="replace")
+        ss.design_constitution_name = uploaded.name
+    if ss.get("design_constitution"):
+        use.button(f"Stop using {ss.get('design_constitution_name', 'the constitution')}",
+                   on_click=_drop_constitution, width="stretch")
+    elif BUNDLED_CONSTITUTION.exists():
+        use.button("Use the Robot Town constitution", on_click=_use_bundled_constitution,
+                   width="stretch", help="The constitution.yaml bundled with the robot town example.")
+    const = None
+    if ss.get("design_constitution"):
+        try:
+            const = amend.load_constitution(ss.design_constitution)
+        except ValueError as e:
+            st.warning(f"{ss.get('design_constitution_name', 'The constitution')}: {e}")
+    rows = []
+    for a in params:
+        spec = (const or {}).get(a.name)
+        rows.append({
+            "parameter": a.name, "value": amend.fmt(a.value),
+            "lines": ", ".join(str(o.line) for o in a.occurrences),
+            **({"layer": amend.layer_of(spec),
+                "range": (f"{amend.fmt(spec.get('min'))}–{amend.fmt(spec.get('max'))}" if spec else "—"),
+                "step": amend.fmt(spec.get("step")) if spec else "—",
+                "decided by": ("a person" if amend.needs_human(spec) else "the checks") if spec
+                              else "not amendable"} if const is not None else {}),
+        })
+    st.dataframe(rows, hide_index=True, width="stretch")
+    for note in amend.findings(source, const):
+        st.markdown(f"- {note}")
+    if ss.get("design_amend_done"):
+        st.success(f"Amended {ss.pop('design_amend_done')}. The design before it is saved as a "
+                   "version; Undo also takes it back.")
+
+    names = [a.name for a in params if a.value is not None]
+    if names:
+        c_name, c_value = st.columns(2)
+        name = c_name.selectbox("Amend", names, key="design_amend_name")
+        current = next(a for a in params if a.name == name).value
+        spec = (const or {}).get(name) or {}
+        step = float(spec.get("step") or (1.0 if current == int(current) else 0.1))
+        whole = step == int(step) and current == int(current)   # integers stay integers on screen
+        value = c_value.number_input(f"New value (now {amend.fmt(current)})",
+                                     value=int(current) if whole else float(current),
+                                     step=int(step) if whole else step,
+                                     key=f"design_amend_value_{name}_{amend.fmt(current)}")
+        value = float(value)
+        if value != current:
+            gate = amend.check_amendment(source, amend.set_values(source, {name: value}), const)
+            if const is None:
+                st.caption("No constitution: only the consistency of the marked lines is checked.")
+            for reason in gate.reasons:
+                st.markdown(f"- ⚠ {reason}")
+            if const is not None and gate.ok:
+                st.markdown("- The constitution allows this amendment.")
+            if gate.for_a_person:
+                st.markdown(f"- The constitution leaves `{name}` "
+                            f"({amend.layer_of(spec)}) to a person: decide it, and keep your reason.")
+            st.button(f"Amend {name} to {amend.fmt(value)}", on_click=_amend_apply,
+                      args=(name, current, value), type="primary",
+                      help="Saves the current design as a version first, then writes the new value "
+                           "into every line marked with this name.")
+
+    if versions:
+        table = amend.history([(v["name"], v["source"]) for v in versions] + [("current", source)])
+        if table:
+            with st.expander("History of the amendable values across the versions"):
+                st.dataframe(table, hide_index=True, width="stretch")
+                st.caption("One column per saved version, then the current design; ← marks a "
+                           "value that differs from the column before.")
 
 
 def _control_structure_view(ir: dict, source: str = ""):
@@ -637,8 +743,9 @@ with col_edit:
                 st.warning(
                     "This design marks amendable values with `# @amend:` comments "
                     "(Course D). Applying a form rewrites the source without comments, "
-                    "so the council could no longer find them. Edit the **Source** "
-                    "instead, or use **Undo** after applying."
+                    "so the council could no longer find them. To change a marked value, "
+                    "use **Amendable parameters** in the **Versions** view, which keeps the "
+                    "comments; for other edits, edit the **Source** or use **Undo** after applying."
                 )
             elif ds.has_comments(source):
                 st.caption(
@@ -1036,6 +1143,9 @@ with col_view:
                             on_click=_delete_version, args=(i,))
 
         st.divider()
+        if amend.amendables(source):
+            _amendments_section(source, versions)
+            st.divider()
         st.markdown("**Compare two designs**")
         sources = {"Current design": source}
         sources.update({f"Version: {v['name']}": v["source"] for v in versions})
@@ -1062,6 +1172,12 @@ with col_view:
         else:
             changes = ds.diff_designs(base.ir, other.ir)
             total = sum(len(v) for v in changes.values())
+            old_values, new_values = amend.values(source_a), amend.values(source_b)
+            moved = [f"`{k}` {amend.fmt(old_values.get(k))} → {amend.fmt(new_values.get(k))}"
+                     for k in dict.fromkeys(list(old_values) + list(new_values))
+                     if old_values.get(k) != new_values.get(k)]
+            if moved:
+                st.markdown("Amended parameters (`# @amend:`): " + ", ".join(moved))
             st.markdown(
                 f"**A** `{base.name}` → **B** `{other.name}` — "
                 + (f"{total} structural change{'s' if total != 1 else ''}" if total

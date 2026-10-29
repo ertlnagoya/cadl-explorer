@@ -384,8 +384,13 @@ class Proposal:
 
 def propose(source: str, ops: List[dict]) -> Proposal:
     """Apply ``ops`` to a copy of ``source`` and report what would change."""
-    before = ds.analyze(source)
     new_source, changes = apply_ops(source, ops)
+    return compare(source, new_source, changes)
+
+
+def compare(source: str, new_source: str, changes: List[Change]) -> Proposal:
+    """Report what going from ``source`` to ``new_source`` (made by ``changes``) would change."""
+    before = ds.analyze(source)
     after = ds.analyze(new_source)
     keys_before, keys_after = _problem_keys(before), _problem_keys(after)
     from backend.services.design_readback import describe_contract  # avoids an import cycle
