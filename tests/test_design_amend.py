@@ -120,8 +120,13 @@ def test_workspace_amendment_and_decision_record(ws):
 
     bad = workspace.add_amendment("town", {"block_k": 1, "sanction_lambda": 1})
     assert not bad["acceptable"] and "one per amendment" in bad["constitution_problems"][0]
-    with pytest.raises(workspace.WorkspaceError, match="not applied"):
+    with pytest.raises(workspace.WorkspaceError, match="does not allow"):
         workspace.apply_proposal("town", bad["proposal_id"], reason="x")
+    far = workspace.add_amendment("town", {"hold_limit": 100})      # three steps at once
+    with pytest.raises(workspace.WorkspaceError, match="does not allow"):
+        workspace.apply_proposal("town", far["proposal_id"], allow_errors=True, reason="x")
+    with pytest.raises(workspace.WorkspaceError):
+        workspace.add_amendment("town", {"hold_limit": -10})
     with pytest.raises(workspace.WorkspaceError):
         workspace.add_amendment("town", {"ghost": 1})
 
@@ -151,3 +156,30 @@ def test_mcp_amendment_tools(ws):
     assert set(server.propose_amendment("town", {"ghost": 1})) == {"error"}
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
     assert {"list_amendables", "propose_amendment", "get_decisions"} <= tools
+
+
+@pytest.mark.parametrize("old, new, written", [
+    ("1000000", 1000001, "1000001"),
+    ("1000000", 1234567, "1234567"),
+    ("0.5", 0.1234567, "0.1234567"),
+    ("0.5", 1, "1.0"),
+    ("0.5", 0.25, "0.25"),
+    ("60", 70, "70"),
+])
+def test_values_are_written_without_an_exponent(old, new, written):
+    text = f"a: {old}  # @amend:x\n"
+    assert amend.set_values(text, {"x": new}) == f"a: {written}  # @amend:x\n"
+    assert amend.values(amend.set_values(text, {"x": new}))["x"] == pytest.approx(new)
+
+
+def test_tags_follow_cadl_robot_town():
+    assert amend.values("a: 1  # @amend: spaced\nb: 2  #@amend:tight\n") == {"tight": 2}
+    with pytest.raises(ValueError):
+        amend.set_values("a: 1  # @amend:x\n", {"x": -3})
+
+
+def test_assumptions_as_one_string(ws):
+    workspace.create("town", "robot town")
+    p = workspace.add_amendment("town", {"hold_limit": 70})
+    workspace.apply_proposal("town", p["proposal_id"], reason="r", assumptions="demand is steady")
+    assert workspace.decisions("town")[0]["assumptions"] == ["demand is steady"]

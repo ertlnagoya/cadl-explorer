@@ -197,11 +197,19 @@ def _is_dark() -> bool:
     return getattr(theme, "type", None) == "dark"
 
 
-def _amend_apply(name: str, old: float, new: float):
-    """Write the new value into every line marked with ``name``, keeping the comments."""
+def _amend_apply(name: str, old: float, new: float, layer: str = ""):
+    """Write the new value into every line marked with ``name``, keeping the comments.
+
+    The decision — with the reason, when the constitution leaves it to a
+    person — is kept in the session's decision record.
+    """
+    reason = (ss.get(f"design_amend_reason_{name}") or "").strip()
     ss.design_version_name = f"before {name} {amend.fmt(old)} → {amend.fmt(new)}"
     _save_version()
     _set_source(amend.set_values(ss.design_src, {name: new}))
+    ss.setdefault("design_decisions", []).append({
+        "time": datetime.now().strftime("%H:%M:%S"), "change": f"{name}: {amend.fmt(old)} → {amend.fmt(new)}",
+        "layer": layer, "reason": reason})
     ss.design_amend_done = f"{name}: {amend.fmt(old)} → {amend.fmt(new)}"
 
 
@@ -213,6 +221,7 @@ def _use_bundled_constitution():
 def _drop_constitution():
     ss.pop("design_constitution", None)
     ss.pop("design_constitution_name", None)
+    ss.design_constitution_key = ss.get("design_constitution_key", 0) + 1   # empties the uploader
 
 
 def _amendments_section(source: str, versions: list):
@@ -227,9 +236,11 @@ def _amendments_section(source: str, versions: list):
         "changes the number on every marked line and keeps the comments; the forms and the "
         "source editor's other edits would drop them.")
     up, use = st.columns([3, 2], vertical_alignment="bottom")
-    uploaded = up.file_uploader("Constitution", type=["yaml", "yml"], key="design_constitution_file",
+    uploaded = up.file_uploader("Constitution", type=["yaml", "yml"],
+                                key=f"design_constitution_file_{ss.get('design_constitution_key', 0)}",
                                 help="The constitution.yaml of the Course D repository, or your own.")
-    if uploaded is not None:
+    if uploaded is not None and ss.get("design_constitution_upload") != uploaded.file_id:
+        ss.design_constitution_upload = uploaded.file_id     # read each upload once
         ss.design_constitution = uploaded.getvalue().decode("utf-8", errors="replace")
         ss.design_constitution_name = uploaded.name
     if ss.get("design_constitution"):
@@ -274,6 +285,7 @@ def _amendments_section(source: str, versions: list):
         value = c_value.number_input(f"New value (now {amend.fmt(current)})",
                                      value=int(current) if whole else float(current),
                                      step=int(step) if whole else step,
+                                     min_value=0 if whole else 0.0,   # written without a sign
                                      key=f"design_amend_value_{name}_{amend.fmt(current)}")
         value = float(value)
         if value != current:
@@ -284,13 +296,31 @@ def _amendments_section(source: str, versions: list):
                 st.markdown(f"- ⚠ {reason}")
             if const is not None and gate.ok:
                 st.markdown("- The constitution allows this amendment.")
+            reason = ""
             if gate.for_a_person:
-                st.markdown(f"- The constitution leaves `{name}` "
-                            f"({amend.layer_of(spec)}) to a person: decide it, and keep your reason.")
+                st.markdown(f"- The constitution leaves `{name}` ({amend.layer_of(spec)}) to a "
+                            "person. Write the reason for your decision; it is kept in the "
+                            "decision record below.")
+                reason = st.text_input("Reason for the decision", key=f"design_amend_reason_{name}",
+                                       placeholder="why this change, and what you take for granted")
+            blocked = const is not None and not gate.ok
             st.button(f"Amend {name} to {amend.fmt(value)}", on_click=_amend_apply,
-                      args=(name, current, value), type="primary",
-                      help="Saves the current design as a version first, then writes the new value "
-                           "into every line marked with this name.")
+                      args=(name, current, value, amend.layer_of(spec) if spec else ""), type="primary",
+                      disabled=blocked or (bool(gate.for_a_person) and not reason.strip()),
+                      help=("The constitution does not allow this amendment." if blocked else
+                            "Saves the current design as a version first, then writes the new value "
+                            "into every line marked with this name."))
+
+    record = ss.get("design_decisions") or []
+    if record:
+        with st.expander(f"Decision record ({len(record)})"):
+            st.dataframe(record, hide_index=True, width="stretch")
+            text = "\n".join(f"- {d['time']} {d['change']}" + (f" ({d['layer']})" if d["layer"] else "")
+                             + (f" — {d['reason']}" if d["reason"] else "") for d in record)
+            st.download_button("Download the record (Markdown)", "# Decisions\n\n" + text + "\n",
+                               file_name="decisions.md", mime="text/markdown")
+            st.caption("The amendments made here in this browser session, with the reasons given. "
+                       "Download the record to keep it.")
 
     if versions:
         table = amend.history([(v["name"], v["source"]) for v in versions] + [("current", source)])

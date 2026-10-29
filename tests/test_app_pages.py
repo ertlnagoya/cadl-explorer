@@ -425,3 +425,27 @@ def test_designer_versions_without_amend_tags():
     at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Versions")
     assert not at.exception
     assert not any(m.value == "**Amendable parameters**" for m in at.markdown)
+
+
+def test_designer_amendment_respects_the_constitution():
+    from backend.services import design_amend as amend
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("robot town")), "Versions")
+    next(b for b in at.button if b.label == "Use the Robot Town constitution").click().run()
+    at.selectbox(key="design_amend_name").set_value("hold_limit").run()
+    at.number_input(key="design_amend_value_hold_limit_60").set_value(200).run()
+    button = next(b for b in at.button if b.label == "Amend hold_limit to 200")
+    assert button.disabled and any("outside" in m.value for m in at.markdown)
+    # a contract-layer change needs a reason, and the decision is recorded
+    at.selectbox(key="design_amend_name").set_value("pickup_deadline").run()
+    at.number_input(key="design_amend_value_pickup_deadline_120").set_value(150).run()
+    assert next(b for b in at.button if b.label == "Amend pickup_deadline to 150").disabled
+    at.text_input(key="design_amend_reason_pickup_deadline").set_value("customers accept 150 s").run()
+    next(b for b in at.button if b.label == "Amend pickup_deadline to 150").click().run()
+    assert not at.exception
+    assert amend.values(at.session_state.design_src)["pickup_deadline"] == 150
+    record = at.session_state.design_decisions
+    assert record[-1]["reason"] == "customers accept 150 s" and record[-1]["layer"] == "contract"
+    # the constitution can be dropped again
+    next(b for b in at.button if b.label.startswith("Stop using")).click().run()
+    assert "layer" not in at.dataframe[0].value.columns

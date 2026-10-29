@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
-TAG = re.compile(r"#\s*@amend:\s*(\w+)")
+TAG = re.compile(r"#\s*@amend:(\w+)")          # as in cadl-robot-town: no space after the colon
 NUM = re.compile(r"\d+(?:\.\d+)?")
 LAYERS_BY_HUMAN = ("contract", "regulation")
 
@@ -149,6 +149,16 @@ def findings(source: str, constitution: Optional[dict] = None) -> List[str]:
     return notes
 
 
+def _plain(value: float, keep_point: bool = False) -> str:
+    """A number as CADL writes it: no exponent (1000000, not 1e+06); ``.0`` kept if asked."""
+    if value < 0:
+        raise ValueError("An amendable value is written without a sign, so it cannot be negative.")
+    text = f"{value:.10f}".rstrip("0").rstrip(".")
+    if keep_point and "." not in text:
+        text += ".0"
+    return text
+
+
 def set_values(source: str, new: Dict[str, float]) -> str:
     """Write ``new`` into every tagged line of each name, keeping the rest of the text.
 
@@ -166,8 +176,7 @@ def set_values(source: str, new: Dict[str, float]) -> str:
             n = NUM.search(body)
             if n is None:
                 raise ValueError(f"A line marked `# @amend:{m.group(1)}` has no number to change.")
-            value = float(new[m.group(1)])
-            text = f"{value:.1f}" if "." in n.group() and value == int(value) else f"{value:g}"
+            text = _plain(float(new[m.group(1)]), keep_point="." in n.group())
             line = body[:n.start()] + text + body[n.end():] + line[m.start():]
         out.append(line)
     return "".join(out)

@@ -252,6 +252,10 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
     if entry["base"] != _hash(read(name)):
         raise WorkspaceError(
             "The design has changed since this proposal was made. Propose the changes again.")
+    if entry.get("gate"):
+        raise WorkspaceError(
+            "The constitution does not allow this amendment (" + "; ".join(entry["gate"]) + "), so "
+            "it cannot be applied. Propose an amendment the constitution allows.")
     if not entry.get("acceptable", True) and not allow_errors:
         added = "; ".join(entry.get("errors_introduced") or []) or "an error"
         raise WorkspaceError(
@@ -273,7 +277,8 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
         "time": _now(), "proposal": proposal_id,
         "changes": [c["summary"] for c in entry["changes"]],
         "rationale": entry.get("rationale", ""), "reason": reason,
-        "assumptions": [str(a).strip() for a in assumptions or [] if str(a).strip()],
+        "assumptions": [str(a).strip() for a in ([assumptions] if isinstance(assumptions, str)
+                                                  else assumptions or []) if str(a).strip()],
         "for_a_person": person, "allowed_errors": bool(allow_errors and not entry.get("acceptable", True)),
     })
     _save_state(name, state)
@@ -349,10 +354,6 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "") -> d
     acceptable = proposal.acceptable and gate.ok
     proposal_id = _store(name, source, proposal, rationale, for_a_person=gate.for_a_person,
                          gate=gate.reasons)
-    state = _load_state(name)
-    state["proposals"][proposal_id]["acceptable"] = acceptable
-    state["proposals"][proposal_id]["errors_introduced"] += gate.reasons
-    _save_state(name, state)
     return {
         "proposal_id": proposal_id, "applied": False,
         "changes": [c.summary for c in changes],
