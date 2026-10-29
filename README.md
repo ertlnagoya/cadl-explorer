@@ -86,6 +86,7 @@ cadl-explorer/
 │   │   ├── design_graph.py         # Message flow, authority, centrality, N² chart, responsibilities
 │   │   ├── design_stamp.py         # STAMP control structure (inferred) and the STPA table
 │   │   ├── design_contracts.py     # What watches each promise; dependencies between contracts
+│   │   ├── design_amend.py         # # @amend: values, the constitution's gate, in-place amendments
 │   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
@@ -156,6 +157,9 @@ The app has four pages:
   structure problems and conflicts between sections, says what each check
   covers, and links every problem to the form that fixes it. It also offers
   undo / redo, named versions, a step-through of a contract lifecycle,
+  amendable parameters (values marked `# @amend:`, checked against a
+  constitution and amended in place without losing the comments;
+  `backend/services/design_amend.py`),
   contract templates and a printable HTML design report. Drafting a design
   from a plain-language description is available when the app runs with the
   `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
@@ -214,7 +218,9 @@ draft a design from a requirements document or SLA.
 | `list_designs`, `create_design`, `get_design` | Find, start and outline designs in the workspace |
 | `open_questions` | What the design leaves open, as questions to ask the designer |
 | `propose_changes` | Check a set of structured changes **without applying them**; reports what would change and which problems appear or disappear |
-| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true` |
+| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true`, and records the decision — the designer's `reason` and `assumptions` — in `<name>.decisions.md` |
+| `list_amendables`, `propose_amendment` | The values marked `# @amend:<name>` (Robot Town, Course D) and what the constitution (`<name>.constitution.yaml` or `constitution.yaml` in the workspace) says about each; a proposal that changes them in place, keeping the comments, with the constitution's verdict. A change the constitution leaves to a person (contract or regulation layer, safety-related rule) cannot be applied without their reason |
+| `get_decisions` | The decision record: each applied proposal, why it was proposed, and the person's reason and assumptions |
 | `check_design` | Every check, what each covers, and what none of them check |
 | `describe_contracts`, `actor_view`, `explain_verification` | The design read back in plain sentences |
 | `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step. A monitor whose rule contains `state == X` (in a plain conjunction) is taken to fire in X only |

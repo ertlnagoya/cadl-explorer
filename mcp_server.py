@@ -46,13 +46,22 @@ Work in small steps and keep the person in charge:
 3. Turn what they say into changes and call propose_changes. Nothing is
    applied yet. Show the person the returned changes and any problems
    introduced, in plain words.
-4. Call apply_proposal only after the person agrees. If the proposal
-   adds an error, revise it instead.
+4. Call apply_proposal only after the person agrees, and pass their
+   reason (and any assumptions they state): it goes into the decision
+   record. If the proposal adds an error, revise it instead.
 5. Confirm meaning, not just consistency: use describe_contracts,
    actor_view and lifecycle_stories to read the design back and ask
    "is this what you meant?". The checks cannot tell you that.
 6. check_design passing means the design is consistent, not that it is
    right. Say so when you report results.
+
+Values marked `# @amend:<name>` (Robot Town, Course D) are changed with
+list_amendables and propose_amendment, which keep the comments and check
+the constitution. When the constitution leaves a change to a person (a
+contract or regulation layer, or a safety-related rule), do not decide it:
+lay out what it changes and for whom, give your recommendation and what
+you do not know, and let the person choose. A tool's numbers are
+measurements; your explanation is not evidence.
 
 Never write CADL source by hand; use propose_changes. Expressions in
 assume / guarantee are CADL expressions such as `delivery_time <= 300s`
@@ -269,22 +278,71 @@ def propose_changes(name: str, changes: List[Dict[str, Any]], rationale: str = "
 
 
 @mcp.tool()
-def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False) -> Dict[str, Any]:
-    """Apply a proposal the person has agreed to.
+def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
+                   reason: str = "", assumptions: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Apply a proposal the person has agreed to, and record their decision.
 
     The changes are recorded as not yet reviewed, so the Designer page
     shows them for confirmation. undo_last_change takes them back.
+
+    reason: the person's reason for the decision, in their words (not
+    yours). assumptions: what they take for granted in deciding. Both go
+    into the decision record (`<name>.decisions.md`). An amendment the
+    constitution leaves to a person is refused without a reason.
 
     A proposal that adds an error is refused. Set allow_errors only when
     the person, having seen the error, asked to apply it anyway (for
     example to fix it in a following step).
     """
     try:
-        result = workspace.apply_proposal(name, proposal_id, allow_errors)
+        result = workspace.apply_proposal(name, proposal_id, allow_errors, reason, assumptions)
     except ValueError as e:
         return _fail(e)
     result["outline"] = _outline(ds.analyze(workspace.read(name)))
     return result
+
+
+@mcp.tool()
+def list_amendables(name: str) -> Dict[str, Any]:
+    """The values the design marks `# @amend:<name>`, and what the constitution says.
+
+    For each name: its value, the lines that hold it, and — when the
+    workspace has `<name>.constitution.yaml` or `constitution.yaml` — its
+    layer (rule, contract; safety), range and step, and whether a change
+    is decided by the checks or by a person. `problems` lists lines that
+    disagree and values outside the constitution.
+    """
+    try:
+        return workspace.amendables(name)
+    except ValueError as e:
+        return _fail(e)
+
+
+@mcp.tool()
+def propose_amendment(name: str, values: Dict[str, float], rationale: str = "") -> Dict[str, Any]:
+    """Propose new values for `# @amend:` names, without applying them.
+
+    Every line marked with a name gets the new value, written in place, so
+    the comments and the rest of the file stay as they are (propose_changes
+    would rewrite the file without its comments). The result says whether
+    the constitution allows it (only marked numbers change, one name, one
+    step, within the range) and whether a person must decide it. Then
+    apply_proposal, with the person's reason, or discard_proposal.
+    """
+    try:
+        return workspace.add_amendment(name, values, rationale)
+    except ValueError as e:
+        return _fail(e)
+
+
+@mcp.tool()
+def get_decisions(name: str) -> Dict[str, Any]:
+    """The decision record: each applied proposal, why it was proposed, and the person's reason."""
+    try:
+        workspace.read(name)
+        return {"decisions": workspace.decisions(name)}
+    except ValueError as e:
+        return _fail(e)
 
 
 @mcp.tool()
