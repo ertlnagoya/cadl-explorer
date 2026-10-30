@@ -174,7 +174,7 @@ def _save_version():
 
 def _natural(name: str):
     """v2 before v10."""
-    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name)]
+    return [int(t) if i % 2 else t.lower() for i, t in enumerate(re.split(r"(\d+)", name))]
 
 
 def _add_files_as_versions():
@@ -182,8 +182,12 @@ def _add_files_as_versions():
     key = f"design_version_files_{ss.get('design_version_files_key', 0)}"
     files = sorted(ss.get(key) or [], key=lambda f: _natural(f.name))
     prefix = (ss.get("design_version_prefix") or "").strip()
+    before = [v["name"] for v in ss.get("design_versions", [])]
     added, skipped = [], []
     for f in files:
+        if f.size > MAX_SOURCE_CHARS * 4:
+            skipped.append(f"{f.name} (too large; the limit is {MAX_SOURCE_CHARS:,} characters)")
+            continue
         try:
             text = f.getvalue().decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -196,7 +200,7 @@ def _add_files_as_versions():
         added.append(_add_version(f"{prefix} {stem}" if prefix else stem, text))
     kept = {v["name"] for v in ss.get("design_versions", [])}
     ss.design_files_added = {"added": [n for n in added if n in kept], "skipped": skipped,
-                             "dropped": [n for n in added if n not in kept]}
+                             "dropped": [n for n in dict.fromkeys(before + added) if n not in kept]}
     if len(added) > 1 and added[0] in kept:
         # Compare the first and the last of the run.
         ss.design_cmp_a, ss.design_cmp_b = f"Version: {added[0]}", f"Version: {added[-1]}"
@@ -359,6 +363,19 @@ def _amendments_section(source: str, versions: list):
             st.caption("The amendments made here in this browser session, with the reasons given. "
                        "Download the record to keep it.")
 
+    _history_section(source, versions, const)
+
+
+def _constitution() -> dict | None:
+    """The constitution in use, or None when there is none or it cannot be read."""
+    try:
+        return amend.load_constitution(ss.design_constitution) if ss.get("design_constitution") else None
+    except ValueError:
+        return None
+
+
+def _history_section(source: str, versions: list, const: dict | None):
+    """How the `# @amend:` values changed across the saved versions (Course D, Exercise 12-1)."""
     if versions:
         sequence = [(v["name"], v["source"]) for v in versions] + [("current", source)]
         table = amend.history(sequence)
@@ -1220,7 +1237,8 @@ with col_view:
             picked = st.file_uploader(
                 "CADL files", type=["cadl", "yaml", "yml"], accept_multiple_files=True,
                 key=f"design_version_files_{ss.get('design_version_files_key', 0)}")
-            st.button(f"Add {len(picked or [])} file{'s' if len(picked or []) != 1 else ''} as versions",
+            count = len(picked or [])
+            st.button(f"Add {count} file as a version" if count == 1 else f"Add {count} files as versions",
                       on_click=_add_files_as_versions, disabled=not picked)
         report = ss.pop("design_files_added", None)
         if report:
@@ -1228,7 +1246,8 @@ with col_view:
                 st.success("Added " + ", ".join(f"**{n}**" for n in report["added"]) + ".")
             if report["dropped"]:
                 st.warning(f"Only the last {MAX_VERSIONS} versions are kept; "
-                           + ", ".join(report["dropped"]) + " did not fit.")
+                           + ", ".join(f"**{n}**" for n in report["dropped"]) + " no longer fit and "
+                           "were removed.")
             for item in report["skipped"]:
                 st.error(f"Not added: {item}.")
 
@@ -1248,6 +1267,10 @@ with col_view:
         st.divider()
         if amend.amendables(source):
             _amendments_section(source, versions)
+            st.divider()
+        elif any(amend.amendables(v["source"]) for v in versions):
+            # a run added as versions while another design is open
+            _history_section(source, versions, _constitution())
             st.divider()
         st.markdown("**Compare two designs**")
         sources = {"Current design": source}
@@ -1276,16 +1299,15 @@ with col_view:
             changes = ds.diff_designs(base.ir, other.ir)
             total = sum(len(v) for v in changes.values())
             old_values, new_values = amend.values(source_a), amend.values(source_b)
-            try:
-                const = amend.load_constitution(ss.get("design_constitution") or "") \
-                    if ss.get("design_constitution") else None
-            except ValueError:
-                const = None
+            const = _constitution()
 
             def _in_steps(k: str) -> str:
                 a, b = old_values.get(k), new_values.get(k)
                 n = None if a is None or b is None else amend.steps(k, b - a, const)
-                return "" if n is None else f" ({amend.fmt(round(n, 3))} step{'' if n == 1 else 's'})"
+                if n is None:
+                    return ""
+                n = round(n, 3)
+                return f" ({amend.fmt(n)} step{'' if n == 1 else 's'})"
 
             moved = [f"`{k}` {amend.fmt(old_values.get(k))} → {amend.fmt(new_values.get(k))}{_in_steps(k)}"
                      for k in dict.fromkeys(list(old_values) + list(new_values))

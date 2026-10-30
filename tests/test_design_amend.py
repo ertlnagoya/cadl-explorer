@@ -200,3 +200,9 @@ def test_movement_counts_steps_and_reversals():
     # without a constitution there is no step to count in
     assert amend.movement(seq)[0]["steps in all"] == "—"
     assert amend.steps("hold_limit", -30, const) == 3 and amend.steps("nothing", 1, const) is None
+
+
+def test_steps_of_a_fractional_step():
+    const = {"x": {"min": 0, "max": 1, "step": 0.1}}
+    assert round(amend.steps("x", 0.7 - 0.6, const), 3) == 1      # 0.9999999999999998 unrounded
+    assert amend.steps("x", 0.3, {"x": {"step": -0.1}}) == pytest.approx(3)

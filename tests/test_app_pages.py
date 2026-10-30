@@ -473,3 +473,24 @@ def test_designer_adds_a_run_as_versions():
     assert any("`hold_limit` 60 → 30 (3 steps)" in m.value for m in at.markdown)
     moved = next(d.value for d in at.dataframe if "reversals" in d.value.columns).set_index("parameter")
     assert moved.loc["hold_limit", "steps in all"] == "3" and moved.loc["block_k", "steps in all"] == "2"
+
+
+def test_designer_reports_versions_pushed_out_and_shows_a_run_over_another_design():
+    from backend.services import design_amend as amend
+    from backend.services import design_service as ds
+    town = ds.load_example("robot town")
+    at = _view(_set_design(_designer(), ds.load_example("supply chain")), "Versions")
+
+    def add(names):
+        files = [(n, amend.set_values(town, {"hold_limit": 10 * (i % 12 + 1)}).encode(), "text/plain")
+                 for i, n in enumerate(names)]
+        next(u for u in at.file_uploader if u.label == "CADL files").set_value(files).run()
+        next(b for b in at.button if b.label.startswith("Add ")).click().run()
+        assert not at.exception
+
+    add([f"a{i}.cadl" for i in range(1, 19)])
+    add([f"b{i}.cadl" for i in range(1, 6)])     # 23 versions: a1, a2, a3 no longer fit
+    assert len(at.session_state.design_versions) == 20
+    assert any("**a1**, **a2**, **a3** no longer fit" in w.value for w in at.warning)
+    # the current design has no `# @amend:` values, but the run's history is still shown
+    assert any("reversals" in d.value.columns for d in at.dataframe)

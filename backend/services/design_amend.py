@@ -280,7 +280,7 @@ def history(versions: List[Tuple[str, str]]) -> List[Dict[str, str]]:
 def steps(name: str, moved: float, constitution: Optional[dict]) -> Optional[float]:
     """``moved`` in steps of the constitution's ``step`` for ``name``; None without one."""
     step = _num((constitution or {}).get(name) or {}, "step")
-    return abs(moved) / step if step else None
+    return abs(moved) / abs(step) if step else None
 
 
 def movement(versions: List[Tuple[str, str]], constitution: Optional[dict] = None) -> List[Dict[str, str]]:
