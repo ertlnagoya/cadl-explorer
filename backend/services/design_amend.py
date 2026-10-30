@@ -277,5 +277,41 @@ def history(versions: List[Tuple[str, str]]) -> List[Dict[str, str]]:
     return rows
 
 
+def steps(name: str, moved: float, constitution: Optional[dict]) -> Optional[float]:
+    """``moved`` in steps of the constitution's ``step`` for ``name``; None without one."""
+    step = _num((constitution or {}).get(name) or {}, "step")
+    return abs(moved) / abs(step) if step else None
+
+
+def movement(versions: List[Tuple[str, str]], constitution: Optional[dict] = None) -> List[Dict[str, str]]:
+    """How each value moved across the versions, as Course D's Exercise 12-1 tabulates it.
+
+    One row per name that changed: the number of amendments, the cumulative
+    amount moved, that amount and the largest single move in steps of the
+    constitution (the original ``step``, when it is the constitution the run
+    started from), and the reversals — moves opposite to the one before.
+    """
+    series: Dict[str, List[float]] = {}
+    for _, source in versions:
+        for n, v in values(source).items():
+            series.setdefault(n, []).append(v)
+    rows = []
+    for n, vals in series.items():
+        moves = [b - a for a, b in zip(vals, vals[1:]) if abs(b - a) > 1e-9]
+        if not moves:
+            continue
+        total = sum(abs(m) for m in moves)
+        cumulative, largest = steps(n, total, constitution), steps(n, max(map(abs, moves)), constitution)
+        rows.append({
+            "parameter": n, "from → to": f"{fmt(vals[0])} → {fmt(vals[-1])}",
+            "amendments": str(len(moves)), "moved in all": fmt(total),
+            "steps in all": "—" if cumulative is None else fmt(round(cumulative, 3)),
+            "largest move (steps)": "—" if largest is None else fmt(round(largest, 3)),
+            "reversals": str(sum(1 for a, b in zip(moves, moves[1:]) if (a > 0) != (b > 0))),
+        })
+    return rows
+
+
 __all__ = ["Amendable", "Occurrence", "Gate", "amendables", "values", "load_constitution",
-           "findings", "set_values", "check_amendment", "needs_human", "layer_of", "history", "fmt"]
+           "findings", "set_values", "check_amendment", "needs_human", "layer_of", "history",
+           "movement", "steps", "fmt"]

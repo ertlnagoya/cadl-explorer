@@ -10,6 +10,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from datetime import datetime
 
 import streamlit as st
@@ -150,20 +151,60 @@ def _mark_reviewed(index=None):
     workspace.mark_reviewed(ss.design_ws_name, None if index is None else [index])
 
 
-def _save_version():
+def _add_version(base: str, source: str) -> str:
     versions = ss.setdefault("design_versions", [])
-    base = (ss.get("design_version_name") or "").strip() or f"Version {len(versions) + 1}"
+    base = base.strip() or f"Version {len(versions) + 1}"
     taken = {v["name"] for v in versions}
     name, n = base, 2
     while name in taken:            # the comparison lists versions by name
         name, n = f"{base} ({n})", n + 1
     versions.append({
-        "name": name, "time": datetime.now().strftime("%H:%M:%S"), "source": ss.design_src,
+        "name": name, "time": datetime.now().strftime("%H:%M:%S"), "source": source,
     })
     del versions[:-MAX_VERSIONS]
+    return name
+
+
+def _save_version():
+    name = _add_version(ss.get("design_version_name") or "", ss.design_src)
     ss.design_version_name = ""
     # Compare the version just saved with whatever is opened next.
     ss.design_cmp_a, ss.design_cmp_b = f"Version: {name}", "Current design"
+
+
+def _natural(name: str):
+    """v2 before v10."""
+    return [int(t) if i % 2 else t.lower() for i, t in enumerate(re.split(r"(\d+)", name))]
+
+
+def _add_files_as_versions():
+    """Course D writes runs/<name>/v1.cadl, v2.cadl, ...: add them all, in order, as versions."""
+    key = f"design_version_files_{ss.get('design_version_files_key', 0)}"
+    files = sorted(ss.get(key) or [], key=lambda f: _natural(f.name))
+    prefix = (ss.get("design_version_prefix") or "").strip()
+    before = [v["name"] for v in ss.get("design_versions", [])]
+    added, skipped = [], []
+    for f in files:
+        if f.size > MAX_SOURCE_CHARS * 4:
+            skipped.append(f"{f.name} (too large; the limit is {MAX_SOURCE_CHARS:,} characters)")
+            continue
+        try:
+            text = f.getvalue().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            skipped.append(f"{f.name} (not UTF-8 text)")
+            continue
+        if len(text) > MAX_SOURCE_CHARS:
+            skipped.append(f"{f.name} ({len(text):,} characters; the limit is {MAX_SOURCE_CHARS:,})")
+            continue
+        stem = f.name.rsplit(".", 1)[0]
+        added.append(_add_version(f"{prefix} {stem}" if prefix else stem, text))
+    kept = {v["name"] for v in ss.get("design_versions", [])}
+    ss.design_files_added = {"added": [n for n in added if n in kept], "skipped": skipped,
+                             "dropped": [n for n in dict.fromkeys(before + added) if n not in kept]}
+    if len(added) > 1 and added[0] in kept:
+        # Compare the first and the last of the run.
+        ss.design_cmp_a, ss.design_cmp_b = f"Version: {added[0]}", f"Version: {added[-1]}"
+    ss.design_version_files_key = ss.get("design_version_files_key", 0) + 1   # empties the uploader
 
 
 def _restore_version(index: int):
@@ -322,13 +363,40 @@ def _amendments_section(source: str, versions: list):
             st.caption("The amendments made here in this browser session, with the reasons given. "
                        "Download the record to keep it.")
 
+    _history_section(source, versions, const)
+
+
+def _constitution() -> dict | None:
+    """The constitution in use, or None when there is none or it cannot be read."""
+    try:
+        return amend.load_constitution(ss.design_constitution) if ss.get("design_constitution") else None
+    except ValueError:
+        return None
+
+
+def _history_section(source: str, versions: list, const: dict | None):
+    """How the `# @amend:` values changed across the saved versions (Course D, Exercise 12-1)."""
     if versions:
-        table = amend.history([(v["name"], v["source"]) for v in versions] + [("current", source)])
+        sequence = [(v["name"], v["source"]) for v in versions] + [("current", source)]
+        table = amend.history(sequence)
         if table:
             with st.expander("History of the amendable values across the versions"):
                 st.dataframe(table, hide_index=True, width="stretch")
                 st.caption("One column per saved version, then the current design; ← marks a "
                            "value that differs from the column before.")
+                moved = amend.movement(sequence[:-1], const)    # the saved versions, not the editor
+                if moved:
+                    st.markdown("**How far and how often the values moved**")
+                    st.dataframe(moved, hide_index=True, width="stretch")
+                    st.caption(
+                        "Across the saved versions, in the order above (the current design is "
+                        "left out, as it may be another design). *Steps* count the moves in units of the "
+                        "constitution's `step`" + ("" if const is not None else
+                        " (choose a constitution to see them)") + "; use the constitution the run "
+                        "started from, as Exercise 12-1 of Course D divides by the original `step`. "
+                        "A *reversal* is a move opposite to the one before it — the oscillation "
+                        "the exercise counts. How soon the KPI is reached, and the loss on the "
+                        "way, come from the simulation (`town.compare`), not from the rules.")
 
 
 def _control_structure_view(ir: dict, source: str = ""):
@@ -1159,6 +1227,30 @@ with col_view:
         v_save.button("Save as a version", on_click=_save_version, width="stretch",
                       disabled=not analysis.parsed, type="primary")
 
+        with st.expander("Add CADL files as versions"):
+            st.caption(
+                "Choose several files at once — for example `runs/<name>/v1.cadl`, `v2.cadl`, ... "
+                "of a Course D run. They are added in the order of their names (v2 before v10), "
+                f"named after the files; at most {MAX_VERSIONS} versions are kept.")
+            st.text_input("Prefix for their names (optional)", key="design_version_prefix",
+                          placeholder="e.g. step30, to tell the runs of different conditions apart")
+            picked = st.file_uploader(
+                "CADL files", type=["cadl", "yaml", "yml"], accept_multiple_files=True,
+                key=f"design_version_files_{ss.get('design_version_files_key', 0)}")
+            count = len(picked or [])
+            st.button(f"Add {count} file as a version" if count == 1 else f"Add {count} files as versions",
+                      on_click=_add_files_as_versions, disabled=not picked)
+        report = ss.pop("design_files_added", None)
+        if report:
+            if report["added"]:
+                st.success("Added " + ", ".join(f"**{n}**" for n in report["added"]) + ".")
+            if report["dropped"]:
+                st.warning(f"Only the last {MAX_VERSIONS} versions are kept; "
+                           + ", ".join(f"**{n}**" for n in report["dropped"]) + " no longer fit and "
+                           "were removed.")
+            for item in report["skipped"]:
+                st.error(f"Not added: {item}.")
+
         versions = ss.get("design_versions", [])
         for i, version in enumerate(versions):
             same = version["source"] == source
@@ -1175,6 +1267,10 @@ with col_view:
         st.divider()
         if amend.amendables(source):
             _amendments_section(source, versions)
+            st.divider()
+        elif any(amend.amendables(v["source"]) for v in versions):
+            # a run added as versions while another design is open
+            _history_section(source, versions, _constitution())
             st.divider()
         st.markdown("**Compare two designs**")
         sources = {"Current design": source}
@@ -1203,7 +1299,17 @@ with col_view:
             changes = ds.diff_designs(base.ir, other.ir)
             total = sum(len(v) for v in changes.values())
             old_values, new_values = amend.values(source_a), amend.values(source_b)
-            moved = [f"`{k}` {amend.fmt(old_values.get(k))} → {amend.fmt(new_values.get(k))}"
+            const = _constitution()
+
+            def _in_steps(k: str) -> str:
+                a, b = old_values.get(k), new_values.get(k)
+                n = None if a is None or b is None else amend.steps(k, b - a, const)
+                if n is None:
+                    return ""
+                n = round(n, 3)
+                return f" ({amend.fmt(n)} step{'' if n == 1 else 's'})"
+
+            moved = [f"`{k}` {amend.fmt(old_values.get(k))} → {amend.fmt(new_values.get(k))}{_in_steps(k)}"
                      for k in dict.fromkeys(list(old_values) + list(new_values))
                      if old_values.get(k) != new_values.get(k)]
             if moved:

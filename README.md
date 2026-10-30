@@ -156,10 +156,12 @@ The app has four pages:
   the page reports malformed expressions, undeclared messages, lifecycle
   structure problems and conflicts between sections, says what each check
   covers, and links every problem to the form that fixes it. It also offers
-  undo / redo, named versions, a step-through of a contract lifecycle,
-  amendable parameters (values marked `# @amend:`, checked against a
-  constitution and amended in place without losing the comments;
-  `backend/services/design_amend.py`),
+  undo / redo, named versions (several CADL files — the `v1.cadl`, `v2.cadl`,
+  ... of a Course D run — can be added at once), a step-through of a contract
+  lifecycle, amendable parameters (values marked `# @amend:`, checked against a
+  constitution and amended in place without losing the comments, with how far
+  and how often each moved across the versions in steps of the constitution,
+  as Exercise 12-1 of Course D tabulates; `backend/services/design_amend.py`),
   contract templates and a printable HTML design report. Drafting a design
   from a plain-language description is available when the app runs with the
   `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
