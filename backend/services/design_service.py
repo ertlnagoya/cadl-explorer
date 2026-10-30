@@ -617,19 +617,30 @@ def check_consistency(sos: dict, ir: dict) -> List[Finding]:
                     f"Contract '{cid}' detects violations at a different limit than it guarantees",
                     f"The guarantee is `{text}`, but a violation is detected when "
                     f"`{c.get('violation_detect')}`.", "Contracts", cid))
-        timed = [(quantity, value) for quantity, op, value, text in bounds
-                 if op in ("<=", "<") and duration_ms(text.split(op, 1)[1]) is not None]
+        # Time bounds as Monitoring coverage reads them: `ROBOT[i].pickup_time <= 120s`,
+        # `120s >= pickup_time`, and each part of an AND.
+        from backend.services.design_contracts import _time_bounds
+        timed = [(quantity, duration_ms(bound))
+                 for text in c.get("guarantee") or [] for quantity, bound in _time_bounds(str(text))
+                 if duration_ms(bound) is not None]
+        transitions = (c.get("lifecycle") or {}).get("transitions") or []
+
+        def step_of(quantity: str, tid: str) -> bool:
+            return bool(tid) and bool(re.search(rf"(^|_){re.escape(tid)}(_|$)", quantity))
+
+        ids = [str(t.get("id") or "") for t in transitions]
+        # A guarantee no transition is named in bounds the whole contract.
+        whole = [value for quantity, value in timed if not any(step_of(quantity, i) for i in ids)]
         if timed:
             overall = min(value for _, value in timed)
-            for t in (c.get("lifecycle") or {}).get("transitions") or []:
+            for t in transitions:
                 deadline = t.get("deadline_ms")
                 # A step bounded by a guarantee of its own (`pickup_time <= 120s`
-                # for transition `pickup`) is held to that guarantee; any other
-                # step to the tightest time the contract guarantees.
-                tid = re.escape(str(t.get("id") or ""))
-                own = [value for quantity, value in timed
-                       if tid and re.search(rf"(^|_){tid}(_|$)", quantity)]
-                limit = min(own) if own else overall
+                # for transition `pickup`) is held to that guarantee and to those
+                # of the whole contract, not to the other steps' guarantees; a
+                # step without one, to the tightest time the contract guarantees.
+                own = [value for quantity, value in timed if step_of(quantity, str(t.get("id") or ""))]
+                limit = min(own + whole) if own else overall
                 # A shorter deadline is normal (one step of several); a longer
                 # one lets a step run past what the contract promises.
                 if deadline is not None and int(deadline) > int(limit):

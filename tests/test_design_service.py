@@ -582,3 +582,19 @@ def test_a_deadline_is_held_to_its_own_guarantee():
     longer = town.replace("deadline: 120s            # @amend:pickup_deadline",
                           "deadline: 150s            # @amend:pickup_deadline")
     assert warnings(longer) == ["Its deadline is 150s, but the contract guarantees 120s."]
+
+
+def test_a_step_is_still_held_to_a_guarantee_of_the_whole_contract():
+    town = ds.load_example("robot town")
+
+    def warnings(source):
+        return sorted(f.message for f in ds.analyze(source).findings
+                      if f.stage == "Consistency" and "may take longer" in f.title)
+
+    whole = town.replace('        - "dropoff_time <= 120s"        # @amend:dropoff_deadline\n',
+                         '        - "dropoff_time <= 120s"        # @amend:dropoff_deadline\n'
+                         '        - "total_time <= 60s"\n')
+    assert warnings(whole) == ["Its deadline is 120s, but the contract guarantees 60s."] * 2
+    # a guarantee written with an index is read as Monitoring coverage reads it
+    indexed = town.replace('"pickup_time <= 120s"', '"ROBOT[i].pickup_time <= 100s"')
+    assert warnings(indexed) == ["Its deadline is 120s, but the contract guarantees 100s."]
