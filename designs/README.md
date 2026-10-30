@@ -33,5 +33,9 @@ of each `# @amend:` name. The **Versions** view lists the amendable
 parameters, checks them against that constitution (or one you upload) and
 amends a value in place, keeping the comments. The steward and the council
 of the course write amended versions to `runs/<name>/v1.cadl`, `v2.cadl`,
-...; compare two of them on the Designer page: open one, save it under
-**Versions**, open the next and compare the two there.
+...; add them all at once under **Versions → Add CADL files as versions**
+(they are put in the order of their names) and compare any two there. The
+history of the amendable values then also counts, per parameter, the
+amendments, the steps moved in all, the largest move and the reversals —
+the quantities of Exercise 12-1 of the course, which divides by the original
+`step`, so use the constitution the run started from.

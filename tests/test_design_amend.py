@@ -183,3 +183,20 @@ def test_assumptions_as_one_string(ws):
     p = workspace.add_amendment("town", {"hold_limit": 70})
     workspace.apply_proposal("town", p["proposal_id"], reason="r", assumptions="demand is steady")
     assert workspace.decisions("town")[0]["assumptions"] == ["demand is steady"]
+
+
+def test_movement_counts_steps_and_reversals():
+    # Exercise 12-1 of Course D: hold_limit 60 → 70 → 80 → 70 → 60 and back, block_k by two steps at once
+    const = amend.load_constitution(CONSTITUTION)
+    seq = [("v1", TOWN)]
+    for hold, k in ((70, 3), (80, 3), (70, 1), (60, 1)):
+        seq.append((f"v{len(seq) + 1}", amend.set_values(TOWN, {"hold_limit": hold, "block_k": k})))
+    rows = {r["parameter"]: r for r in amend.movement(seq, const)}
+    assert set(rows) == {"hold_limit", "block_k"}           # unchanged values are left out
+    assert rows["hold_limit"] == {
+        "parameter": "hold_limit", "from → to": "60 → 60", "amendments": "4", "moved in all": "40",
+        "steps in all": "4", "largest move (steps)": "1", "reversals": "1"}
+    assert rows["block_k"]["steps in all"] == "2" and rows["block_k"]["largest move (steps)"] == "2"
+    # without a constitution there is no step to count in
+    assert amend.movement(seq)[0]["steps in all"] == "—"
+    assert amend.steps("hold_limit", -30, const) == 3 and amend.steps("nothing", 1, const) is None
