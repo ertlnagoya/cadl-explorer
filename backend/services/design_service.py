@@ -617,12 +617,19 @@ def check_consistency(sos: dict, ir: dict) -> List[Finding]:
                     f"Contract '{cid}' detects violations at a different limit than it guarantees",
                     f"The guarantee is `{text}`, but a violation is detected when "
                     f"`{c.get('violation_detect')}`.", "Contracts", cid))
-        durations = [value for _, op, value, text in bounds
-                     if op in ("<=", "<") and duration_ms(text.split(op, 1)[1]) is not None]
-        if durations:
-            limit = min(durations)
+        timed = [(quantity, value) for quantity, op, value, text in bounds
+                 if op in ("<=", "<") and duration_ms(text.split(op, 1)[1]) is not None]
+        if timed:
+            overall = min(value for _, value in timed)
             for t in (c.get("lifecycle") or {}).get("transitions") or []:
                 deadline = t.get("deadline_ms")
+                # A step bounded by a guarantee of its own (`pickup_time <= 120s`
+                # for transition `pickup`) is held to that guarantee; any other
+                # step to the tightest time the contract guarantees.
+                tid = re.escape(str(t.get("id") or ""))
+                own = [value for quantity, value in timed
+                       if tid and re.search(rf"(^|_){tid}(_|$)", quantity)]
+                limit = min(own) if own else overall
                 # A shorter deadline is normal (one step of several); a longer
                 # one lets a step run past what the contract promises.
                 if deadline is not None and int(deadline) > int(limit):

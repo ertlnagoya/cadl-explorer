@@ -565,3 +565,20 @@ def test_robot_town_example_and_an_amendment():
     assert v2 != v1, "the amendable hold_limit line of robot_town.cadl changed"
     diff = {k: v for k, v in ds.diff_designs(ds.analyze(v1).ir, ds.analyze(v2).ir).items() if v}
     assert diff == {"Lifecycle": ["ROAD_USE — transition release: deadline_ms: 60000 → 70000"]}
+
+
+def test_a_deadline_is_held_to_its_own_guarantee():
+    """Robot Town: amending the pickup promise to 150 s must not be compared with the dropoff's 120 s."""
+    from backend.services import design_amend as amend
+    town = ds.load_example("robot town")
+
+    def warnings(source):
+        return [f.message for f in ds.analyze(source).findings
+                if f.stage == "Consistency" and "may take longer" in f.title]
+
+    assert warnings(town) == []
+    assert warnings(amend.set_values(town, {"pickup_deadline": 150})) == []
+    # a deadline longer than its own guarantee is still reported
+    longer = town.replace("deadline: 120s            # @amend:pickup_deadline",
+                          "deadline: 150s            # @amend:pickup_deadline")
+    assert warnings(longer) == ["Its deadline is 150s, but the contract guarantees 120s."]
