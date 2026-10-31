@@ -37,5 +37,7 @@ of the course write amended versions to `runs/<name>/v1.cadl`, `v2.cadl`,
 (they are put in the order of their names) and compare any two there. The
 history of the amendable values then also counts, per parameter, the
 amendments, the steps moved in all, the largest move and the reversals —
-the quantities of Exercise 12-1 of the course, which divides by the original
-`step`, so use the constitution the run started from.
+the quantities of Exercise 12-1 of the course. The exercise divides by the
+original `step`, so choose the constitution before its step was changed (the
+`constitution.yaml` restored with `git checkout`, or **Use the Robot Town
+constitution**); a constitution with the changed step counts in that step.
