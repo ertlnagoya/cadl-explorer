@@ -473,6 +473,8 @@ def test_designer_adds_a_run_as_versions():
     assert any("`hold_limit` 60 → 30 (3 steps)" in m.value for m in at.markdown)
     moved = next(d.value for d in at.dataframe if "reversals" in d.value.columns).set_index("parameter")
     assert moved.loc["hold_limit", "steps in all"] == "3" and moved.loc["block_k", "steps in all"] == "2"
+    # counting in the original steps needs the constitution before the step was changed
+    assert any("before its step was changed" in c.value for c in at.caption)
 
 
 def test_designer_reports_versions_pushed_out_and_shows_a_run_over_another_design():

@@ -392,8 +392,10 @@ def _history_section(source: str, versions: list, const: dict | None):
                         "Across the saved versions, in the order above (the current design is "
                         "left out, as it may be another design). *Steps* count the moves in units of the "
                         "constitution's `step`" + ("" if const is not None else
-                        " (choose a constitution to see them)") + "; use the constitution the run "
-                        "started from, as Exercise 12-1 of Course D divides by the original `step`. "
+                        " (choose a constitution to see them)") + ". Exercise 12-1 of Course D divides "
+                        "by the original `step`: choose the constitution before its step was changed "
+                        "(the `constitution.yaml` restored with `git checkout`, or the Robot Town "
+                        "constitution); one with the changed step counts in that step. "
                         "A *reversal* is a move opposite to the one before it — the oscillation "
                         "the exercise counts. How soon the KPI is reached, and the loss on the "
                         "way, come from the simulation (`town.compare`), not from the rules.")

@@ -288,8 +288,8 @@ def movement(versions: List[Tuple[str, str]], constitution: Optional[dict] = Non
 
     One row per name that changed: the number of amendments, the cumulative
     amount moved, that amount and the largest single move in steps of the
-    constitution (the original ``step``, when it is the constitution the run
-    started from), and the reversals — moves opposite to the one before.
+    constitution (the original ``step`` when it is the constitution before the
+    step was changed), and the reversals — moves opposite to the one before.
     """
     series: Dict[str, List[float]] = {}
     for _, source in versions:
