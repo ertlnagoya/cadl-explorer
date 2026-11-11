@@ -15,32 +15,44 @@ AGENTS = ds.load_example("agents tool governance")
 STOCHASTIC = ds.load_example("stochastic robot delivery")
 
 
-def test_declared_extensions():
-    assert ds.declared_extensions(NORMS) == {"sos-dsl": "0.1", "norms": "0.1"}
-    assert ds.declared_extensions(AGENTS) == {"norms": "0.1", "agents": "0.1"}
-    assert ds.declared_extensions(ds.load_example("supply chain")) == {}
-    assert ds.declared_extensions("sos: [") == {}
+def test_extensions_in_effect_as_cadl_reads_them():
+    assert ds.extensions_in_effect(NORMS) == {"norms"}
+    assert ds.extensions_in_effect(AGENTS) == {"norms", "agents"}
+    assert ds.extensions_in_effect(STOCHASTIC) == {"stochastic"}
+    assert ds.extensions_in_effect(ds.load_example("supply chain")) == set()
+    assert ds.extensions_in_effect("sos: [") == set()
+    # another version is not norms 0.1; agents needs norms
+    assert ds.extensions_in_effect(NORMS.replace("- norms: 0.1", "- norms: 0.2")) == set()
+    assert ds.extensions_in_effect(AGENTS.replace("    - norms: 0.1\n", "")) == set()
 
 
 def test_a_norm_can_move_the_contract_to_a_state():
     # report_failure's violation requests the move to Violated (on_violation: transition)
     lifecycle = [f for f in ds.analyze(NORMS).findings if f.stage == "Lifecycle"]
     assert [f.level for f in lifecycle] == ["pass"]
+    # a norm acts only while the contract is not in a terminal state
+    terminal_start = NORMS.replace("initial:  Proposed", "initial:  Completed")
+    assert any("State 'Violated' cannot be reached" in f.message
+               for f in ds.analyze(terminal_start).findings)
     broken = NORMS.replace("transition: Violated", "transition: Lost")
     assert any("Norm 'report_failure' requests a move to undeclared state 'Lost'" in f.title + f.message
                for f in ds.analyze(broken).findings)
 
 
-def test_a_temporal_guarantee_is_watched_by_the_norms_monitor():
-    ir = ds.analyze(NORMS).ir
-    promises = dcon.coverage(ir, NORMS)
-    within = next(p for p in promises if p.text.startswith("within("))
-    assert within.watched_by == ["norms monitor (within, norms 0.1)"]
+def test_the_norms_monitor_watches_every_guarantee():
+    # norms_monitor.py (cadl 0.3.22) decides every assume and guarantee item
+    extra = NORMS.replace('"within(300s, ROBOT[i].status == Delivered)"',
+                          '"within(300s, ROBOT[i].status == Delivered)"\n        - "ROBOT[i].battery > 5"')
+    assert extra != NORMS
+    ir = ds.analyze(extra).ir
+    promises = dcon.coverage(ir, extra)
+    assert all(p.watched_by == ["norms monitor (generated Python)"]
+               for p in promises if p.kind == "guarantee")
     assert dcon.coverage_findings(ir, promises) == []
-    # without the declaration `within` is an ordinary function name
-    plain = NORMS.replace("    - norms: 0.1\n", "")
-    assert not next(p for p in dcon.coverage(ds.analyze(plain).ir, plain)
-                    if p.text.startswith("within(")).watched_by
+    # not without norms 0.1: cadl generates no monitor then
+    for other in (extra.replace("- norms: 0.1", "- norms: 0.2"), extra.replace("    - norms: 0.1\n", "")):
+        assert not any(p.watched_by for p in dcon.coverage(ds.analyze(other).ir, other)
+                       if p.kind == "guarantee")
 
 
 def test_read_back_states_the_norms():
@@ -50,8 +62,17 @@ def test_read_back_states_the_norms():
             "violation and the reparation report_failure.") in lines
     assert any(x.startswith("Norm no_low_battery_driving (prohibition): ROBOT[i] must not bring about")
                for x in lines)
-    assert "Norm reassign (power): DISPATCHER can bring about reassignment." in lines
+    assert "Norm reassign (power): DISPATCHER can bring about `reassignment`." in lines
     assert "`DISPATCHER -> ROBOT[i] : replan_command` counts as reassignment." in lines
+    # a message sent by someone other than the bearer, and a counts-as condition
+    other = NORMS.replace('content: "ROBOT[i] -> DISPATCHER : failure_report"',
+                          'content: "DISPATCHER -> CUSTOMER[1] : notice"')
+    other = other.replace("creates: reassignment", "creates: reassignment\n          if: \"ROBOT[i].battery > 20\"")
+    lines = rb.describe_design(other)["DELIVERY_SLA"]
+    assert any(x.startswith("Norm report_failure (obligation): ROBOT[i] must bring about "
+                            "`DISPATCHER -> CUSTOMER[1] : notice`") for x in lines)
+    assert ("`DISPATCHER -> ROBOT[i] : replan_command` counts as reassignment when "
+            "`ROBOT[i].battery > 20` holds.") in lines
 
 
 def test_norms_diff_of_an_amendment():
@@ -64,8 +85,12 @@ def test_norms_diff_of_an_amendment():
     # a transform target the new version lacks prevents the amendment
     bad = NORMS.replace("on_amendment: discharge", "on_amendment: {transform: nothing_like_it}")
     assert not ds.norms_diff(bad, NORMS)["ok"]
-    # only between two versions with norms
-    assert ds.norms_diff(NORMS, ds.load_example("supply chain")) is None
+    # B without norms 0.1 cannot take effect; A with type-check errors cannot be amended
+    dropped = ds.norms_diff(NORMS, NORMS.replace("    - norms: 0.1\n", ""))
+    assert not dropped["ok"] and "B does not declare 'norms: 0.1'" in dropped["errors"][0]
+    invalid = ds.norms_diff(NORMS.replace("reparation: report_failure", "reparation: nope"), NORMS)
+    assert invalid["invalid_old"] and not invalid["ok"]
+    assert ds.norms_diff(ds.load_example("supply chain"), ds.load_example("supply chain")) is None
 
 
 def test_agent_policies_and_prism_files():

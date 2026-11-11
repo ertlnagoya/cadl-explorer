@@ -30,9 +30,6 @@ from backend.services.design_graph import base
 _NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _KEYWORDS = {"AND", "OR", "NOT", "IN", "and", "or", "not", "true", "false", "True", "False",
              "state", "now"}
-# Bounded temporal operators of the norms extension (norms 0.1): `within(d, p)`,
-# `throughout(d, p)`, `until(p, q, d)`. Ordinary function names without it.
-_TEMPORAL = re.compile(r"\b(within|throughout|until)\s*\(")
 _DURATION = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(ms|sec|min|s|m|h)\s*$")
 _UNIT_MS = {"ms": 1, "s": 1000, "sec": 1000, "m": 60000, "min": 60000, "h": 3600000}
 _NAME_AT = r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
@@ -167,8 +164,10 @@ def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
     """Every assumption and guarantee, with what watches it and what measures it."""
     metrics = [str(m.get("id")) for m in ir.get("metrics") or [] if isinstance(m, dict) and m.get("id")]
     amended = amend_deadlines(source)
-    from backend.services.design_service import declared_extensions
-    norms = "norms" in declared_extensions(source)
+    from backend.services.design_service import extensions_in_effect
+    # With norms 0.1, cadl generates norms_monitor.py with the Python runtime: it
+    # decides every assume and guarantee item while the contract runs (cadl 0.3.22).
+    norms = source is not None and "norms" in extensions_in_effect(source)
     out: List[Promise] = []
     for c in _contracts(ir):
         states = _skip(ir, c)
@@ -188,10 +187,8 @@ def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
                     p.watched_by.append("violation.detect")
                 if kind == "guarantee":
                     p.watched_by += _deadline_matches(str(text), transitions, amended)
-                if norms and _TEMPORAL.search(str(text)):
-                    # cadl 0.3.22 generates norms_monitor.py for it (Python target);
-                    # `cadl norms-eval` gives its verdict on a recorded trace.
-                    p.watched_by.append(f"norms monitor ({_TEMPORAL.search(str(text)).group(1)}, norms 0.1)")
+                if norms:
+                    p.watched_by.append("norms monitor (generated Python)")
                 p.measured_by = [f"metric {mid}" for mid in metrics if mid in p.names]
                 out.append(p)
     return out

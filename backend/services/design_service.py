@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import copy
 import difflib
+import functools
 import html
+import importlib
 import io
 import json
 import os
@@ -163,10 +165,10 @@ NOT_CHECKED = [
     "Functions used in expressions, such as `all_routes_conflict_free()`: they are treated "
     "as unknown predicates.",
     "Timing of lifecycle deadlines against protocol time bounds.",
-    "The verdicts of norms (norms 0.1) on a run: `cadl norms-eval` computes them on a recorded "
-    "trace, and the Python code generated for the design monitors them online.",
-    "The probabilities and rewards of a stochastic model (stochastic 0.1): `cadl model-check` "
-    "evaluates them, or a model checker on the PRISM files under Export.",
+    "The verdicts of norms (norms 0.1) on a run; `cadl norms-eval` computes them on a "
+    "recorded trace.",
+    "The probabilities and rewards of a stochastic model (stochastic 0.1); `cadl model-check` "
+    "evaluates them.",
 ]
 
 
@@ -197,13 +199,18 @@ class DesignAnalysis:
 
 
 def _ir_to_dict(ir) -> dict:
-    d = asdict(ir)
-    # Rename lambda_ back to lambda, as `cadl sim-ir` does.
-    for c in d.get("institution", {}).get("contracts", []):
-        gov = c.get("governance") or {}
-        if "lambda_" in gov:
-            gov["lambda"] = gov.pop("lambda_")
-    return d
+    """The IR as `cadl sim-ir` writes it (`lambda`, counts-as `if`, the agent
+    fields only for a design that declares agents 0.1)."""
+    try:
+        from cadl.cli import _ir_to_dict as cadl_ir_to_dict
+    except ImportError:         # an older cadl: rename lambda_ as it did
+        d = asdict(ir)
+        for c in d.get("institution", {}).get("contracts", []):
+            gov = c.get("governance") or {}
+            if "lambda_" in gov:
+                gov["lambda"] = gov.pop("lambda_")
+        return d
+    return cadl_ir_to_dict(ir)
 
 
 def _parse(source: str):
@@ -888,21 +895,24 @@ def check_lifecycles(ir: dict) -> List[Finding]:
                 error(f"Norm '{n.get('id', '?')}' requests a move to undeclared state '{target}'.")
 
         if initial in known:
-            # Monitors, and the violation of a norm (norms 0.1, `on_violation:
-            # transition:`), can move the contract from any state to their target.
-            monitor_targets = ({
+            # Monitors can move the contract from any state to their target; the
+            # violation of a norm (norms 0.1, `on_violation: transition:`) from any
+            # state that is not terminal, as `cadl norms-eval` requests it.
+            monitor_targets = {
                 m.get("on_match_transition") for m in c.get("monitors") or []
-            } | {n.get("on_violation_transition") for n in c.get("norms") or []}) & known
+            } & known
+            norm_targets = {n.get("on_violation_transition") for n in c.get("norms") or []} & known
             reached, frontier = {initial}, [initial]
             while frontier:
-                for nxt in edges[frontier.pop()] | monitor_targets:
+                node = frontier.pop()
+                for nxt in edges[node] | monitor_targets | (norm_targets if node not in terminal else set()):
                     if nxt not in reached:
                         reached.add(nxt)
                         frontier.append(nxt)
             for s in states:
                 if s not in reached:
                     warn(f"State '{s}' cannot be reached from the initial state '{initial}'.", s)
-                elif s not in terminal and not edges[s] and not monitor_targets:
+                elif s not in terminal and not edges[s] and not monitor_targets and not norm_targets:
                     warn(f"State '{s}' is not terminal but has no way out.", s)
         if not terminal & known:
             warn("No terminal state is declared, so a contract instance never ends.")
@@ -1458,53 +1468,65 @@ def export_sim_config(source: str, target: str) -> str:
     return generate_config(lower_to_ir(_parse(source)), target)
 
 
-def declared_extensions(source: Optional[str]) -> Dict[str, str]:
-    """The extensions a design declares under `sos.extensions`, as {name: version}.
-
-    Written as a list of one-key mappings (`- norms: 0.1`) or as one mapping;
-    an unreadable source declares none.
-    """
+@functools.lru_cache(maxsize=64)
+def extensions_in_effect(source: str) -> frozenset:
+    """The extensions that cadl reads in this design: "norms" (norms 0.1),
+    "agents" (agents 0.1 together with norms 0.1) and "stochastic"
+    (stochastic 0.1). Decided by cadl itself; a design that does not parse has none."""
     try:
-        sos = (yaml.safe_load(source or "") or {}).get("sos") or {}
-    except (yaml.YAMLError, AttributeError):
-        return {}
-    items = sos.get("extensions") if isinstance(sos, dict) else None
-    entries = items if isinstance(items, list) else [items] if isinstance(items, dict) else []
-    out = {}
-    for entry in entries:
-        if isinstance(entry, dict):
-            out.update({str(k): str(v) for k, v in entry.items()})
-        elif isinstance(entry, str):
-            out[entry] = ""
-    return out
+        sos = _parse(source or "")
+    except Exception:
+        return frozenset()
+    found = set()
+    for name, module, test in (("norms", "cadl.norms", "norms_declared"),
+                               ("agents", "cadl.agents", "agents_active"),
+                               ("stochastic", "cadl.stochastic", "stochastic_declared")):
+        try:
+            if getattr(importlib.import_module(module), test)(sos):
+                found.add(name)
+        except (ImportError, AttributeError):
+            pass                # a cadl without the extension
+    return frozenset(found)
 
 
 def norms_diff(old_source: str, new_source: str) -> Optional[dict]:
-    """What amending `old_source` to `new_source` does to their norms (`cadl norms-diff`).
+    """What amending `old_source` (A) to `new_source` (B) does to their norms, as
+    `cadl norms-diff A B` reports it.
 
-    None unless both declare norms 0.1. The result has `contracts`
-    (`id`, `findings` with `level` and `text`), `errors` and `ok`; a new
-    version that does not type-check cannot take effect, which is an error.
+    None when neither declares norms 0.1. The result has `contracts`
+    (`id`, `findings` with `level` and `text`), `errors` and `ok`. As in
+    cadl, B that cannot take effect (not parsed, no `norms: 0.1`, type-check
+    errors) is an error of the amendment; A that cannot be read is reported
+    under `invalid_old`, since then there is nothing to amend.
     """
-    if not all(declared_extensions(s).get("norms") == "0.1" for s in (old_source, new_source)):
+    if not ({"norms"} & (extensions_in_effect(old_source) | extensions_in_effect(new_source))):
         return None
     from cadl.norms_diff import diff_versions
-    from cadl.norms_eval import NormsEvalError
-    from cadl.type_checker import type_check
+    from cadl.norms_eval import NormsEvalError, load_version
 
-    old = _parse(old_source)
-    try:
-        new = _parse(new_source)
-        check = type_check(new)
-    except Exception as e:      # the new version cannot be read
-        return {"contracts": [], "errors": [f"The new version cannot be read: {e}"], "ok": False}
-    if not check.ok:
-        errors = [f"The new version has type-check errors: {'; '.join(map(str, check.errors))}"]
-        return {"contracts": [], "errors": errors, "ok": False}
-    try:
-        return diff_versions(old, new)
-    except NormsEvalError as e:
-        return {"contracts": [], "errors": [str(e)], "ok": False}
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = {"A": Path(tmp) / "A.cadl", "B": Path(tmp) / "B.cadl"}
+
+        def load(label: str, text: str):
+            _check_source_text(text)
+            paths[label].write_text(text, encoding="utf-8")
+            try:
+                return load_version(paths[label])
+            except NormsEvalError as e:
+                raise ValueError(str(e).replace(str(paths[label]), label)) from None
+
+        try:
+            old = load("A", old_source)
+        except ValueError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False, "invalid_old": True}
+        try:
+            new = load("B", new_source)
+        except ValueError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False}
+        try:
+            return diff_versions(old, new)
+        except NormsEvalError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False}
 
 
 def prism_files(source: str) -> Dict[str, str]:
