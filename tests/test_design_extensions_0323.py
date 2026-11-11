@@ -3,7 +3,9 @@ quantified and wildcard predicates in norms, `cadl norms-check` and the
 norms monitors of the OPA and Solidity targets."""
 import copy
 import io
+import time
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,7 @@ CONFLICT = ds.load_example("norms check conflict")
 NORMS = ds.load_example("norms robot delivery")
 AGENTS = ds.load_example("agents tool governance")
 
+DATA = Path(__file__).parent / "data"
 needs_prism = pytest.mark.skipif(not ds.prism_available(), reason="PRISM (prism) is not on PATH")
 
 
@@ -61,8 +64,10 @@ def test_read_back_states_the_strategic_model():
 
 def test_read_back_states_the_grounding():
     lines = rb.describe_design(GROUNDING)["DELIVERY_SLA"]
-    assert ("Its information items (grounding 0.1) are route, held by DISPATCHER, status, held by "
-            "ROBOT[*], battery, held by ROBOT[*] and failure, held by ROBOT[*].") in lines
+    assert ("Its information items (grounding 0.1) are route, from DISPATCHER, status, from "
+            "ROBOT[*], battery, from ROBOT[*] and failure, from ROBOT[*].") in lines
+    assert any(x.startswith("Pairs of an item and a party other than its origin") for x in lines)
+    assert any("a declared 0 or 1 is tested by J-6 instead" in x for x in lines)
     assert any("5 of 8 (α̂ = 5/8 = 0.625)" in x for x in lines)
     assert any("1 of 2 (β̂ = 1/2 = 0.5)" in x for x in lines)
     assert any("1 of 3 (χ = 1/3 = 0.333)" in x for x in lines)
@@ -102,7 +107,7 @@ def test_norms_indices():
 
 def test_game_check_at_the_fixed_values_and_as_a_map():
     fixed = ds.game_check(GAMES)
-    assert fixed["status"] == 0
+    assert fixed["status"] == 0 and fixed["failure"] is None
     assert "--- Equilibrium check 'comply_nash': profile 'comply', epsilon = 0 ---" in fixed["text"]
     assert "status: not_equilibrium; deviators: R" in fixed["text"]
     assert "Equilibrium maps not computed (give --certify)" in fixed["text"]
@@ -112,9 +117,31 @@ def test_game_check_at_the_fixed_values_and_as_a_map():
     assert "lambda in [0.15625, 1]: equilibrium, from_every_state: true" in certified["text"]
     assert "end points (I.9): condition A holds for 'lambda'" in certified["text"]
     # nothing can be claimed for a design that is not a strategic model
-    assert ds.game_check(ds.load_example("stochastic robot delivery"))["status"] == 2
-    with pytest.raises(TimeoutError):
-        ds.game_check(GAMES, certify=True, timeout=0.01)
+    plain = ds.game_check(ds.load_example("stochastic robot delivery"))
+    assert plain["status"] == 2 and "not a strategic model" in plain["errors"]
+    late = ds.game_check(GAMES, certify=True, timeout=0.5)
+    assert late["failure"] == "`cadl game-check` did not finish within 0.5 s; nothing is claimed."
+    assert late["text"] == ""
+
+
+CRASH = 'raise ValueError("an internal error in /home/someone/cadl/games_eval.py")\n'
+
+
+def test_a_crash_of_cadl_is_not_a_result(monkeypatch):
+    monkeypatch.setattr(ds, "_CHILD", CRASH)
+    for check in (ds.game_check(GAMES), ds.norms_check(CONFLICT)):
+        assert check["failure"].endswith("failed with an internal error; nothing is claimed.")
+        assert "someone" not in str(check) and "Traceback" not in str(check)
+
+
+@pytest.mark.skipif(not hasattr(__import__("sys"), "set_int_max_str_digits"),
+                    reason="this Python has no limit on the digits of an integer")
+def test_the_crash_reproducer_of_game_check():
+    # cadl 0.3.25 raises in games_eval on this file (more than 4300 digits)
+    crash = ds.game_check((DATA / "game_check_crash.cadl").read_text(encoding="utf-8"))
+    assert crash["failure"] == ("`cadl game-check` failed with an internal error; "
+                                "nothing is claimed.")
+    assert crash["text"] == "" and crash["errors"] == ""     # no traceback, no path
 
 
 # ── Quantifiers and wildcard references in norms ────────────────────
@@ -151,6 +178,14 @@ def test_wildcard_references_are_read_as_quantifiers_and_n15_is_shown():
 
 # ── cadl norms-check ────────────────────────────────────────────────
 
+def _without_prism() -> str:
+    """PATH without the directories that hold PRISM (also for the subprocess)."""
+    import os
+    import shutil
+    return os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if not shutil.which("prism", path=d))
+
+
 def test_norms_contracts():
     assert ds.norms_contracts(CONFLICT) == ["STATUS_REPORTING"]
     assert ds.norms_contracts(ds.load_example("supply chain")) == []
@@ -159,6 +194,7 @@ def test_norms_contracts():
 @needs_prism
 def test_norms_check_answers_conflicts_and_witnesses():
     result = ds.norms_check(CONFLICT)
+    assert result["failure"] is None and result["notice"] is None
     report = result["report"]
     assert report["checked"] and report["contract"] == "STATUS_REPORTING"
     assert sorted(report["findings"]) == sorted([
@@ -176,6 +212,8 @@ def test_norms_check_answers_conflicts_and_witnesses():
     assert "the design" in report["file"]
     assert "STATUS_REPORTING.prism" in result["files"]
     assert any(name.startswith("witness_conflict_") for name in result["files"])
+    assert "/" not in result["text"].split("Witnesses", 1)[1].split("Findings")[0].replace(" / ", "")
+    assert sorted(zipfile.ZipFile(io.BytesIO(result["zip"])).namelist()) == result["files"]
     # the options of the command line
     small = ds.norms_check(CONFLICT, bindings=["i=2"], members=["ROBOT=2"], step="1s", horizon=4)
     assert small["report"]["instance"]["horizon"] == 4
@@ -184,13 +222,33 @@ def test_norms_check_answers_conflicts_and_witnesses():
 
 @needs_prism
 def test_norms_check_respects_the_timeout():
-    with pytest.raises(ValueError, match="did not finish within --timeout"):
-        ds.norms_check(CONFLICT, timeout=0.01)
+    result = ds.norms_check(CONFLICT, timeout=0.01)
+    assert result["report"] is None
+    assert "the model checker did not finish within --timeout" in result["failure"]
+    assert result["failure"].endswith("nothing is claimed.")
+
+
+def test_norms_check_of_a_heavy_design_is_bounded():
+    # building the model of this design takes minutes and hundreds of MB, which
+    # --timeout does not bound; the subprocess is stopped after timeout + budget
+    heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
+    start = time.monotonic()
+    result = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=1, budget=4)
+    assert time.monotonic() - start < 15
+    assert result["report"] is None and result["zip"] is None
+    assert result["failure"].startswith("`cadl norms-check` did not finish within 5 s; "
+                                        "nothing is claimed.")
+
+
+def test_norms_check_does_not_offer_a_large_export(monkeypatch):
+    monkeypatch.setattr(ds, "MAX_EXPORT_BYTES", 1000)
+    result = ds.norms_check(CONFLICT)
+    assert result["zip"] is None and result["report"] is not None
+    assert "not offered for download" in result["notice"]
 
 
 def test_norms_check_without_prism_checks_nothing(monkeypatch):
-    import cadl.norms_check as nc
-    monkeypatch.setattr(nc, "find_checker", lambda: None)
+    monkeypatch.setenv("PATH", _without_prism())
     assert not ds.prism_available()
     result = ds.norms_check(CONFLICT)
     assert result["report"]["checked"] is False
@@ -204,10 +262,9 @@ def test_norms_check_refusals():
     report = ds.norms_check(QUANTIFIED)["report"]
     assert any(n["id"] == "no_double_assignment" and n["status"] == "untranslated"
                and "quantifier" in n["reason"] for n in report["norms"])
-    with pytest.raises(ValueError, match="no contract 'NOPE'"):
-        ds.norms_check(CONFLICT, contract="NOPE")
-    with pytest.raises(ValueError, match="does not declare 'norms: 0.1'"):
-        ds.norms_check(ds.load_example("supply chain"))
+    assert ds.norms_check(CONFLICT, contract="NOPE")["failure"] == (
+        "no contract 'NOPE' in the file; nothing is claimed.")
+    assert "does not declare 'norms: 0.1'" in ds.norms_check(ds.load_example("supply chain"))["failure"]
 
 
 # ── Norms monitors of the OPA and Solidity targets ──────────────────

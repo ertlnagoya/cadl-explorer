@@ -35,8 +35,8 @@ copies of the upstream files of 0.3.25:
 - `games_grounding_robot_delivery.cadl` (games 0.1 and grounding 0.1,
   Appendices I and J): a strategic model whose sanction comes from a norm.
   **Read-back** states the players, profiles, payoffs and equilibrium
-  queries; **Checks** runs `cadl game-check` (with the equilibrium maps on
-  request) and `cadl norms-indices`.
+  queries; **Checks** shows `cadl norms-indices` and runs `cadl game-check`
+  (with the equilibrium maps on request) on a button.
 - `grounding_robot_delivery.cadl` (grounding 0.1, Appendix J): information
   items, `shares:` and magnitudes. **Read-back** states the derived indices
   (α̂ = 5/8, β̂ = 1/2, χ = 1/3); the **Checks** keep cadl's warning J-7 that

@@ -706,25 +706,30 @@ def _extension_checks(source: str, extensions: frozenset):
     if "games" in extensions:
         with st.expander("Equilibria (games 0.1): `cadl game-check`", expanded=True):
             st.caption("Whether each named profile is an equilibrium at the fixed values of the "
-                       "parameters, with exact arithmetic (Appendix I, I.8). The equilibrium maps "
-                       "(entries with `over:`) are computed only on request, as certified cells "
-                       "(I.9; `--certify`).")
-            certify = st.checkbox("Also compute the equilibrium maps (--certify)",
+                       "parameters, with exact arithmetic (Appendix I, I.8), and, if you ask, the "
+                       "equilibrium maps (entries with `over:`) as certified cells (I.9; "
+                       f"`--certify`). The run is stopped after {ds.GAME_CHECK_TIMEOUT:g} s.")
+            g1, g2 = st.columns([3, 2], vertical_alignment="center")
+            certify = g1.checkbox("Also compute the equilibrium maps (--certify)",
                                   key="design_game_certify")
-            try:
-                with st.spinner("Running cadl game-check ..."):
-                    game = cached_game_check(source, certify)
-            except TimeoutError as e:
-                st.error(f"{e}; nothing is claimed.")
-            except Exception as e:
-                st.error(f"Not run: {e}")
-            else:
-                if game["status"] == 2:
-                    st.error("Nothing can be claimed: " + (game["errors"] or "see the report."))
-                elif game["status"] == 1:
-                    st.warning("A map did not reach its resolution, or a query was not evaluated.")
-                if game["text"]:
-                    st.code(game["text"], language="text")
+            options = (source, certify)
+            if g2.button("Run game-check", key="design_game_run"):
+                ss.design_game_options = options
+            if ss.get("design_game_options") == options:
+                try:
+                    with st.spinner("Running cadl game-check ..."):
+                        game = cached_game_check(source, certify)
+                except Exception as e:
+                    game = {"failure": f"Not run: {e}"}
+                if game.get("failure"):
+                    st.error(game["failure"])
+                else:
+                    if game["status"] == 2:
+                        st.error("Nothing can be claimed: " + (game["errors"] or "see the report."))
+                    elif game["status"] == 1:
+                        st.warning("A map did not reach its resolution, or a query was not evaluated.")
+                    if game["text"]:
+                        st.code(game["text"], language="text")
     if "norms" in extensions:
         _norms_check_section(source)
 
@@ -739,7 +744,8 @@ def _norms_check_section(source: str):
             "prohibitions are in conflict, and whether powers and reparations are used. Every "
             "answer \"possible\" comes with a witness trace that the norms engine confirms "
             "(Appendix F, F.12). Predicates with quantifiers, aggregates or arithmetic are not "
-            "translated.")
+            f"translated. The runs of PRISM are stopped after the timeout, and the whole command "
+            f"after the timeout and {ds.BUILD_BUDGET:g} s more for building the model.")
         if not contracts:
             st.caption("No contract has norms.")
             return
@@ -774,7 +780,10 @@ def _norms_check_section(source: str):
             with st.spinner("Running cadl norms-check ..."):
                 result = cached_norms_check(*options)
         except Exception as e:
-            st.error(f"Not checked: {e}")
+            result = {"failure": str(e)}
+        if result.get("failure"):
+            ss.design_nc_options = None     # shown once; the next run needs the button
+            st.error(f"Not checked: {result['failure']}")
             return
         _norms_check_report(result)
 
@@ -792,12 +801,16 @@ def _norms_check_report(result: dict):
     elif report.get("unconfirmed"):
         st.error("A witness is not confirmed by the norms engine (an error of norms-check): "
                  + "; ".join(map(str, report["unconfirmed"])))
-    elif report.get("findings"):
+    if report.get("checked") and report.get("findings"):
         st.warning("Findings:\n" + "\n".join(f"- {f}" for f in report["findings"]))
-    elif report.get("runs"):
+    elif report.get("checked") and report.get("runs") and not report.get("unconfirmed"):
         st.success("No finding.")
-    else:
+    elif report.get("checked") and not report.get("runs"):
         st.info("Nothing to ask the model checker: no norm is translated.")
+    for note in report.get("notes") or []:
+        st.caption(_md(f"Note: {note}."))
+    if not report.get("excuse_known", True):
+        st.caption("An assumption is not translated, so a violation may be excused in a run.")
     if report.get("checked") and report.get("runs"):
         rows = [{"norm": n["id"], "kind": n["kind"], "activated": _yes(n.get("activatable")),
                  "violable": _yes(n.get("violable")), "fulfillable": _yes(n.get("fulfillable")),
@@ -824,13 +837,12 @@ def _norms_check_report(result: dict):
             st.markdown(_md(f"- {n['id']}: {n['reason']}"))
     with st.expander("The report of norms-check, with every witness"):
         st.code(result["text"], language="text")
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, text in result["files"].items():
-            zf.writestr(name, text)
-    st.download_button(f"Model, properties and witnesses ({len(result['files'])} files, .zip)",
-                       buffer.getvalue(), file_name=f"{report['contract']}.norms-check.zip",
-                       mime="application/zip", key="design_nc_download")
+    if result.get("notice"):
+        st.caption(result["notice"])
+    if result.get("zip"):
+        st.download_button(f"Model, properties and witnesses ({len(result['files'])} files, .zip)",
+                           result["zip"], file_name=f"{report['contract']}.norms-check.zip",
+                           mime="application/zip", key="design_nc_download")
 
 
 if "design_src" not in ss:

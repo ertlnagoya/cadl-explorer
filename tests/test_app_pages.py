@@ -529,10 +529,52 @@ def test_designer_reads_back_and_checks_games_and_grounding():
     at = _view(at, "Checks")
     assert not at.exception
     codes = [c.value for c in at.code]
-    assert any("Equilibrium check 'comply_nash'" in c and "deviators: R" in c for c in codes)
     assert any(c.startswith("Derived indices of the design") for c in codes)
+    assert not any("Equilibrium check" in c for c in codes)     # only on the button
+    at = _click(at, "Run game-check")
+    codes = [c.value for c in at.code]
+    assert any("Equilibrium check 'comply_nash'" in c and "deviators: R" in c for c in codes)
     at.checkbox(key="design_game_certify").check().run()
+    assert not any("lambda in [0.15625, 1]" in c.value for c in at.code)
+    at = _click(at, "Run game-check")
     assert any("lambda in [0.15625, 1]: equilibrium" in c.value for c in at.code)
+
+
+class _Runs:
+    """Counts the subprocesses that design_service starts."""
+
+    def __init__(self, monkeypatch):
+        from backend.services import design_service as ds
+        self.count, real = 0, ds.subprocess.Popen
+
+        def popen(*args, **kwargs):
+            self.count += 1
+            return real(*args, **kwargs)
+        monkeypatch.setattr(ds.subprocess, "Popen", popen)
+
+
+def test_designer_reports_a_crash_of_game_check_once(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    st.cache_data.clear()
+    from backend.services import design_service as ds
+    runs = _Runs(monkeypatch)
+    monkeypatch.setattr(ds, "_CHILD", 'raise ValueError("an internal error")\n')
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Checks")
+    assert runs.count == 0
+    at = _click(at, "Run game-check")
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        "`cadl game-check` failed with an internal error; nothing is claimed."]
+    assert not any("Traceback" in c.value for c in at.code)
+    at.run()
+    at.run()
+    assert runs.count == 1          # the failure is kept, not run again on each rerun
+
+
+def ds_example(name):
+    from backend.services import design_service as ds
+    return ds.load_example(name)
 
 
 def _norms_check(at):
@@ -557,13 +599,33 @@ def test_designer_runs_norms_check(monkeypatch):
     assert any("keep radio_silence: report_status violated (confirmed by norms-eval)" in m.value
                for m in at.markdown)
     assert any("Model, properties and witnesses" in b.label for b in at.get("download_button"))
+    assert any("Note: index i is not bound" in c.value for c in at.caption)
+
+
+def test_designer_clears_a_failed_norms_check(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    st.cache_data.clear()
+    runs = _Runs(monkeypatch)
+    at = _view(_set_design(_designer(), ds_example("norms check conflict")), "Checks")
+    at.selectbox(key="design_nc_contract")      # the form is there
+    at.text_input(key="design_nc_members").set_value("NOBODY=2").run()
+    at = _click(at, "Run norms-check")
+    assert not at.exception
+    assert len(at.error) == 1 and at.error[0].value.startswith("Not checked:")
+    assert at.error[0].value.endswith("nothing is claimed.")
+    assert runs.count == 1
+    at.run()
+    assert runs.count == 1 and not at.error     # shown once; not run again
 
 
 def test_designer_says_that_norms_check_checked_nothing_without_prism(monkeypatch):
     pytest.importorskip("cadl.norms_check")
-    import cadl.norms_check as nc
+    import shutil
     import streamlit as st
-    monkeypatch.setattr(nc, "find_checker", lambda: None)
+    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if not shutil.which("prism", path=d))
+    monkeypatch.setenv("PATH", path)
     st.cache_data.clear()
     at = _norms_check(_designer())
     assert not at.exception

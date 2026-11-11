@@ -171,11 +171,11 @@ def _grounding_sentences(grounding) -> List[str]:
     items = grounding.get("items") or {}
     if items:
         lines.append("Its information items (grounding 0.1) are "
-                     + _join([f"{k}, held by {v}" for k, v in items.items()]) + ".")
+                     + _join([f"{k}, from {v}" for k, v in items.items()]) + ".")
     indices = grounding.get("indices") or {}
     alpha, beta, cov = indices.get("alpha"), indices.get("beta"), indices.get("coverage")
     if isinstance(alpha, dict) and _ratio(alpha.get("given"), alpha.get("pairs")):
-        lines.append(f"Pairs of an item and a party that does not hold it, given to the party by "
+        lines.append(f"Pairs of an item and a party other than its origin, given to the party by "
                      f"a sharing entry or a norm: {alpha['given']} of {alpha['pairs']} "
                      f"(α̂ = {_ratio(alpha.get('given'), alpha.get('pairs'))}).")
     if isinstance(beta, dict) and _ratio(beta.get("largest"), beta.get("powers")):
@@ -186,7 +186,9 @@ def _grounding_sentences(grounding) -> List[str]:
                      f"{cov['norms']} (χ = {_ratio(cov.get('incentive'), cov.get('norms'))}).")
     if (items or indices) and grounding.get("tolerance") is not None:
         lines.append(f"A declared α or β may differ from its index by at most "
-                     f"{grounding['tolerance']:g} (`cadl norms-indices` compares them).")
+                     f"{grounding['tolerance']:g} (J-7); a declared 0 or 1 is tested by J-6 instead, "
+                     f"which looks in the norms for a counterexample. `cadl norms-indices` "
+                     f"reports both.")
     return lines
 
 
