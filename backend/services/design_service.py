@@ -40,6 +40,12 @@ CODEGEN_TARGETS = {
     "opa": "OPA policy (Rego)",
     "solidity": "Solidity contracts",
 }
+# The boundary policy of the agent governance extension (agents 0.1, cadl 0.3.20+);
+# offered under Export only for a design that declares it.
+AGENT_CODEGEN_TARGETS = {
+    "agent-rego": "Agent policy (Rego, agents 0.1)",
+    "agent-cedar": "Agent policy (Cedar, agents 0.1)",
+}
 SIM_TARGETS = {"unity": "Unity", "python": "Python", "go": "Go"}
 VERIFICATION_TYPES = ["consistency", "deadlock", "safety", "liveness"]
 VERIFICATION_METHODS = ["smt", "model_check", "simulation", "proof"]
@@ -157,6 +163,10 @@ NOT_CHECKED = [
     "Functions used in expressions, such as `all_routes_conflict_free()`: they are treated "
     "as unknown predicates.",
     "Timing of lifecycle deadlines against protocol time bounds.",
+    "The verdicts of norms (norms 0.1) on a run: `cadl norms-eval` computes them on a recorded "
+    "trace, and the Python code generated for the design monitors them online.",
+    "The probabilities and rewards of a stochastic model (stochastic 0.1): `cadl model-check` "
+    "evaluates them, or a model checker on the PRISM files under Export.",
 ]
 
 
@@ -872,11 +882,17 @@ def check_lifecycles(ir: dict) -> List[Finding]:
             if target and target not in known:
                 error(f"Monitor '{m.get('id', '?')}' moves to undeclared state '{target}'.")
 
+        for n in c.get("norms") or []:
+            target = n.get("on_violation_transition")
+            if target and target not in known:
+                error(f"Norm '{n.get('id', '?')}' requests a move to undeclared state '{target}'.")
+
         if initial in known:
-            # Monitors can move the contract from any state to their target.
-            monitor_targets = {
+            # Monitors, and the violation of a norm (norms 0.1, `on_violation:
+            # transition:`), can move the contract from any state to their target.
+            monitor_targets = ({
                 m.get("on_match_transition") for m in c.get("monitors") or []
-            } & known
+            } | {n.get("on_violation_transition") for n in c.get("norms") or []}) & known
             reached, frontier = {initial}, [initial]
             while frontier:
                 for nxt in edges[frontier.pop()] | monitor_targets:
@@ -1440,6 +1456,75 @@ def export_sim_config(source: str, target: str) -> str:
     from cadl.sim import generate_config, lower_to_ir
 
     return generate_config(lower_to_ir(_parse(source)), target)
+
+
+def declared_extensions(source: Optional[str]) -> Dict[str, str]:
+    """The extensions a design declares under `sos.extensions`, as {name: version}.
+
+    Written as a list of one-key mappings (`- norms: 0.1`) or as one mapping;
+    an unreadable source declares none.
+    """
+    try:
+        sos = (yaml.safe_load(source or "") or {}).get("sos") or {}
+    except (yaml.YAMLError, AttributeError):
+        return {}
+    items = sos.get("extensions") if isinstance(sos, dict) else None
+    entries = items if isinstance(items, list) else [items] if isinstance(items, dict) else []
+    out = {}
+    for entry in entries:
+        if isinstance(entry, dict):
+            out.update({str(k): str(v) for k, v in entry.items()})
+        elif isinstance(entry, str):
+            out[entry] = ""
+    return out
+
+
+def norms_diff(old_source: str, new_source: str) -> Optional[dict]:
+    """What amending `old_source` to `new_source` does to their norms (`cadl norms-diff`).
+
+    None unless both declare norms 0.1. The result has `contracts`
+    (`id`, `findings` with `level` and `text`), `errors` and `ok`; a new
+    version that does not type-check cannot take effect, which is an error.
+    """
+    if not all(declared_extensions(s).get("norms") == "0.1" for s in (old_source, new_source)):
+        return None
+    from cadl.norms_diff import diff_versions
+    from cadl.norms_eval import NormsEvalError
+    from cadl.type_checker import type_check
+
+    old = _parse(old_source)
+    try:
+        new = _parse(new_source)
+        check = type_check(new)
+    except Exception as e:      # the new version cannot be read
+        return {"contracts": [], "errors": [f"The new version cannot be read: {e}"], "ok": False}
+    if not check.ok:
+        errors = [f"The new version has type-check errors: {'; '.join(map(str, check.errors))}"]
+        return {"contracts": [], "errors": errors, "ok": False}
+    try:
+        return diff_versions(old, new)
+    except NormsEvalError as e:
+        return {"contracts": [], "errors": [str(e)], "ok": False}
+
+
+def prism_files(source: str) -> Dict[str, str]:
+    """The PRISM model and properties files of a stochastic model (`cadl model-export`).
+
+    Raises ValueError when the design has no interpreted `model:` block.
+    """
+    from cadl.stochastic import ExportError, analyse, export_prism, stochastic_declared
+    from cadl.type_checker import type_check
+
+    sos = _parse(source)
+    if sos.model is None or not stochastic_declared(sos):
+        raise ValueError("The design has no `model:` block under `stochastic: 0.1`.")
+    check = type_check(sos)
+    if not check.ok:
+        raise ValueError("The model is not interpreted while the design has type-check errors.")
+    try:
+        return export_prism(analyse(sos).model)
+    except ExportError as e:
+        raise ValueError(str(e)) from e
 
 
 def export_codegen_zip(source: str, target: str) -> bytes:

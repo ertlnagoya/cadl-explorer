@@ -166,7 +166,12 @@ The app has four pages:
   from a plain-language description is available when the app runs with the
   `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
   sent to the Explorer, and exported as CADL, simulator IR, simulator config
-  or generated runtime code. Example designs live in `designs/`.
+  or generated runtime code. Example designs live in `designs/`. The
+  extensions of `cadl-lang` 0.3.19 to 0.3.22 are read as well: the norms of a
+  contract (norms 0.1) are stated in the read-back, count in the lifecycle
+  checks and coverage, and an amendment between two versions with norms is
+  checked with `cadl norms-diff`; a design with agents 0.1 can be exported as
+  agent policies (Rego, Cedar), and one with stochastic 0.1 as PRISM files.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.

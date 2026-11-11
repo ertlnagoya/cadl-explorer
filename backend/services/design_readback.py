@@ -11,6 +11,7 @@ language model is involved — so the same design always reads the same.
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional
 
 from backend.services import design_service as ds
@@ -100,7 +101,50 @@ def describe_contract(contract: dict) -> List[str]:
                    else f"a {m.get('on_match_violation')} violation is raised"
                    if m.get("on_match_violation") else "nothing is defined to happen")
         lines.append(f"Monitor {m.get('id')} watches `{m.get('rule')}`; when it holds, {outcome}.")
+    lines += [_norm_sentence(n) for n in contract.get("norms") or [] if isinstance(n, dict)]
+    for r in contract.get("counts_as") or []:
+        if isinstance(r, dict):
+            lines.append(f"`{r.get('when')}` counts as {r.get('creates')}"
+                         + (f" when `{r['if_']}` holds." if r.get("if_") else "."))
     return lines
+
+
+_NORM_VERB = {"obligation": "must", "permission": "may", "prohibition": "must not"}
+_MESSAGE = re.compile(r"^\s*(.+?)\s*->\s*(.+?)\s*:\s*(.+?)\s*$")
+
+
+def _norm_sentence(n: dict) -> str:
+    """A norm of the norms extension (norms 0.1) as one sentence."""
+    kind = str(n.get("kind") or "norm")
+    bearer = n.get("bearer") or "someone"
+    content = str(n.get("content") or "")
+    message = _MESSAGE.match(content)
+    if kind == "power":
+        what = f"can bring about {content}"
+    elif message:
+        what = f"{_NORM_VERB.get(kind, 'is bound to')} send `{message.group(3)}` to {message.group(2)}"
+    else:
+        what = f"{_NORM_VERB.get(kind, 'is bound to')} bring about `{content}`"
+    head = f"Norm {n.get('id')} ({kind}): {bearer} {what}"
+    when = []
+    if n.get("trigger"):
+        when.append(f"after `{n['trigger']}`")
+    if n.get("until"):
+        when.append(f"until `{n['until']}`")
+    if n.get("deadline_ms") is not None:
+        when.append(f"within {n['deadline_ms'] / 1000:g} s")
+    text = head + (", " + ", ".join(when) if when else "") + "."
+    then = [f"a {n['on_violation_severity']} violation" if n.get("on_violation_severity") else ""]
+    if n.get("on_violation_sanction"):
+        then.append(f"the sanction “{n['on_violation_sanction']}”")
+    if n.get("on_violation_reparation"):
+        then.append(f"the reparation {n['on_violation_reparation']}")
+    if n.get("on_violation_transition"):
+        then.append(f"a move to {n['on_violation_transition']}")
+    then = [x for x in then if x]
+    if then:
+        text += f" Violating it brings {_join(then)}."
+    return text
 
 
 def _responsibilities(source: str) -> Dict[str, Dict[str, List[str]]]:

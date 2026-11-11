@@ -20,8 +20,10 @@ pandas>=2.0.0
 # (`state IN [A, B]`); older releases fall back to the expression grammar.
 # From 0.3.18 expressions accept a unary minus (`x > -0.5`, Appendix A, A.10);
 # with 0.3.17 and older the Designer reports such an item as not a valid
-# expression.
-cadl-lang>=0.3.18
+# expression. 0.3.19 to 0.3.22 add the norms, agents and stochastic
+# extensions (norms and counts_as in the IR, norms-diff, the agent policies,
+# PRISM export), which the Designer uses.
+cadl-lang>=0.3.22
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.
