@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -1581,9 +1582,31 @@ try:
             pass
 except ImportError:
     pass
+import subprocess
+_Popen = subprocess.Popen
+
+
+class _Recorded(_Popen):
+    # cadl starts PRISM in a session of its own; the page kills its group too
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            with open({pids!r}, "a") as f:
+                f.write(str(self.pid) + "\\n")
+        except OSError:
+            pass
+
+
+subprocess.Popen = _Recorded
 from cadl.cli import main
 sys.exit(main())
 """
+
+# At most this many cadl commands run at once for all sessions of the server; a
+# further request is refused (each may take 1 GiB and minutes).
+MAX_CONCURRENT_RUNS = 2
+_RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
+BUSY = "The server is running other checks; try again shortly. Nothing is claimed."
 
 
 def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
@@ -1594,18 +1617,34 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
     most CADL_FILE_LIMIT bytes and, with `memory`, CADL_MEMORY_LIMIT bytes of address
     space (POSIX). The limits are inherited by PRISM, which norms-check starts; the
     Java VM reserves more address space than CADL_MEMORY_LIMIT, so norms-check sets
-    no memory limit when PRISM is on PATH.
+    no memory limit when PRISM is on PATH. cadl starts PRISM in a session of its
+    own, so the child records the pid of every process it starts, and each of their
+    process groups is killed with the child's when the child does not end by itself.
+    At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
 
-    Returns {"status", "stdout", "stderr", "failure"}: `failure` is None when cadl
-    ran to its exit status, otherwise a sentence that says nothing is claimed. The
-    temporary path is replaced by "the design"; tracebacks are not returned.
+    Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
+    None when cadl ran to its exit status, otherwise a sentence that says nothing
+    is claimed; `transient` is True for a failure that may not recur (the server
+    busy, a timeout, a limit), which a caller should not cache. The temporary path
+    is replaced by "the design"; tracebacks are not returned.
     """
     _parse(source)                  # the input limits of the page
+    if not _RUN_SLOTS.acquire(timeout=1):
+        return {"status": None, "stdout": "", "stderr": "", "failure": BUSY, "transient": True}
+    try:
+        return _run_cadl_slot(args, source, wall, memory, workdir)
+    finally:
+        _RUN_SLOTS.release()
+
+
+def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
+                   workdir: Optional[str]) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "design.cadl"
         path.write_text(source, encoding="utf-8")
+        pids = Path(tmp) / "pids"
         code = _CHILD.format(cpu=int(wall) + 1, memory=CADL_MEMORY_LIMIT if memory else 0,
-                             fsize=CADL_FILE_LIMIT)
+                             fsize=CADL_FILE_LIMIT, pids=str(pids))
         command = [sys.executable, "-c", code, args[0], str(path), *args[1:]]
         out_path, err_path = Path(tmp) / "stdout", Path(tmp) / "stderr"
         with open(out_path, "wb") as out, open(err_path, "wb") as err:
@@ -1617,17 +1656,23 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _kill(proc)
+            if timed_out or (proc.returncode or 0) < 0:
+                _kill_recorded(pids)
         name = f"`cadl {args[0]}`"
-        result = {"status": proc.returncode, "stdout": "", "stderr": "", "failure": None}
+        result = {"status": proc.returncode, "stdout": "", "stderr": "", "failure": None,
+                  "transient": False}
         stderr = _read_capped(err_path).replace(str(path), "the design")
         if workdir:
             stderr = stderr.replace(workdir, "")
         if timed_out:
             result["failure"] = f"{name} did not finish within {wall:g} s; nothing is claimed."
+            result["transient"] = True
         elif proc.returncode is not None and proc.returncode < 0:
             result["failure"] = (f"{name} was stopped at a limit of CPU time, memory or file size "
                                  f"of this app; nothing is claimed.")
+            result["transient"] = True
         elif "Traceback (most recent call last)" in stderr:
+            result["transient"] = "MemoryError" in stderr
             result["failure"] = (f"{name} ran out of the memory this app allows; nothing is claimed."
                                  if "MemoryError" in stderr else
                                  f"{name} failed with an internal error; nothing is claimed.")
@@ -1642,14 +1687,30 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
 
 
 def _kill(proc: subprocess.Popen) -> None:
+    """Kill the child and its process group (the processes it starts in its own
+    session, such as PRISM, are killed by _kill_recorded)."""
     try:
         if os.name == "posix":
-            os.killpg(proc.pid, 9)  # also PRISM, which runs in the same group
+            os.killpg(proc.pid, 9)
         else:
             proc.kill()
     except (ProcessLookupError, PermissionError, OSError):
         pass
     proc.wait()
+
+
+def _kill_recorded(pids: Path) -> None:
+    """Kill the process group of every process that the child recorded."""
+    try:
+        recorded = [int(x) for x in pids.read_text().split() if x.isdigit()]
+    except OSError:
+        return
+    for pid in recorded:
+        for kill in ((os.killpg, os.kill) if os.name == "posix" else (os.kill,)):
+            try:
+                kill(pid, 9)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
 
 def _read_capped(path: Path, limit: int = 1 << 16) -> str:
@@ -1698,10 +1759,18 @@ def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_T
     """
     run = _run_cadl(["game-check"] + (["--certify"] if certify else []), source, timeout)
     return {"status": run["status"], "text": run["stdout"].rstrip(),
-            "errors": run["stderr"].strip(), "failure": run["failure"]}
+            "errors": _usage_error(run["stderr"]), "failure": run["failure"],
+            "transient": run["transient"]}
+
+
+def _usage_error(stderr: str) -> str:
+    """stderr of a command, with argparse's usage text cut to its last line."""
+    text = stderr.strip()
+    return text.splitlines()[-1] if text.startswith("usage:") else text
 
 
 NORMS_CHECK_TIMEOUT = 60.0
+MAX_NORMS_CHECK_TIMEOUT = 120.0     # the largest --timeout the page passes
 
 
 def prism_available() -> bool:
@@ -1728,7 +1797,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance, translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
-    the command line; `timeout` bounds the runs of PRISM together (`--timeout`).
+    the command line; `timeout` bounds the runs of PRISM together (`--timeout`;
+    at most MAX_NORMS_CHECK_TIMEOUT).
     The command runs in a subprocess (see _run_cadl) that is stopped after
     `timeout + budget` seconds, since building the model is not bounded by
     `--timeout`.
@@ -1737,13 +1807,16 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     report of the command and its text, the model, property files and witnesses
     as one zip (None when they exceed MAX_EXPORT_BYTES, which `notice` says), and
     `failure` instead of a report when the design cannot be checked, PRISM
-    exceeded the timeout, or the command did not finish, hit a limit or failed.
+    exceeded the timeout, or the command did not finish, hit a limit or failed;
+    `transient` as in _run_cadl.
     When PRISM is not on PATH, `report["checked"]` is False and nothing was
     checked. Never raises for a design that parses.
     """
     from cadl.norms_check import format_text
 
-    out = {"report": None, "text": "", "zip": None, "files": [], "notice": None, "failure": None}
+    timeout = min(float(timeout), MAX_NORMS_CHECK_TIMEOUT)
+    out = {"report": None, "text": "", "zip": None, "files": [], "notice": None, "failure": None,
+           "transient": False}
     with tempfile.TemporaryDirectory() as tmp:
         export_dir = Path(tmp) / "export"
         args = ["norms-check", "--format", "json", "--export", str(export_dir),
@@ -1761,7 +1834,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
         run = _run_cadl(args, source, timeout + budget, memory=not prism_available(),
                         workdir=tmp)
         if run["failure"]:
-            out["failure"] = run["failure"]
+            out["failure"], out["transient"] = run["failure"], run["transient"]
             if "did not finish" in run["failure"]:
                 out["failure"] += (f" The limit is the timeout of PRISM and {budget:g} s to build "
                                    "the model; a coarser step, a smaller horizon or fewer members "
@@ -1770,7 +1843,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             return out
         if run["status"] == 2 or not run["stdout"].strip():
             errors = [line[len("Error: "):] if line.startswith("Error: ") else line
-                      for line in run["stderr"].strip().splitlines()]
+                      for line in _usage_error(run["stderr"]).splitlines()]
             message = " ".join(errors).replace(str(export_dir) + os.sep, "").strip()
             out["failure"] = (message or "`cadl norms-check` gave no report") + "; nothing is claimed."
             return out

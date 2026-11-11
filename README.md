@@ -182,9 +182,11 @@ The app has four pages:
   two run in a subprocess that is stopped after a time limit (120 s for
   game-check; for norms-check the PRISM timeout and 30 s to build the model)
   and, on POSIX, at limits of CPU time, file size and, without PRISM, memory
-  (1 GiB); a crash of cadl is reported as such, and nothing is claimed then.
-  The model and witnesses of norms-check are offered for download up to
-  10 MB. **Export** lists the norms
+  (1 GiB); PRISM is stopped with it. At most two such runs take place at once
+  on one server; a further one is refused with a request to try again. The
+  timeout of norms-check is at most 120 s. A crash of cadl is reported as
+  such, and nothing is claimed then. The model and witnesses of norms-check
+  are offered for download up to 10 MB. **Export** lists the norms
   monitors of the OPA and Solidity code with their warnings, and, for agents
   0.1, names `cadl mcp-gateway`, `cadl a2a-gateway` and `cadl audit-verify`,
   which the Explorer does not run.

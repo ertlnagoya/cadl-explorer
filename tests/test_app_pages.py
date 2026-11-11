@@ -614,6 +614,7 @@ def test_designer_clears_a_failed_norms_check(monkeypatch):
     assert not at.exception
     assert len(at.error) == 1 and at.error[0].value.startswith("Not checked:")
     assert at.error[0].value.endswith("nothing is claimed.")
+    assert "usage:" not in at.error[0].value
     assert runs.count == 1
     at.run()
     assert runs.count == 1 and not at.error     # shown once; not run again
@@ -645,3 +646,24 @@ def test_designer_exports_the_norms_monitors_and_names_the_gateways():
     assert any("`norms_monitor_status_reporting.rego`" in c.value for c in at.caption)
     at = _set_design(at, ds.load_example("agents tool governance"))
     assert any("`cadl a2a-gateway`" in c.value and "`cadl audit-verify`" in c.value for c in at.caption)
+
+
+def test_designer_does_not_keep_a_busy_server(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    from backend.services import design_service as ds
+    st.cache_data.clear()
+    runs = _Runs(monkeypatch)
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Checks")
+    assert at.number_input(key="design_nc_timeout").max == 120
+    held = [ds._RUN_SLOTS.acquire(timeout=1) for _ in range(ds.MAX_CONCURRENT_RUNS)]
+    try:
+        at = _click(at, "Run game-check")
+        assert [e.value for e in at.error] == [ds.BUSY]
+    finally:
+        for _ in held:
+            ds._RUN_SLOTS.release()
+    assert runs.count == 0
+    at = _click(at, "Run game-check")           # pressing again retries: nothing was cached
+    assert not at.error and runs.count == 1
+    assert any("Equilibrium check 'comply_nash'" in c.value for c in at.code)

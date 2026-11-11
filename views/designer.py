@@ -672,16 +672,45 @@ def cached_norms_indices(source: str) -> dict:
     return ds.norms_indices(source)
 
 
+class _NotCached(Exception):
+    """A failure that may not recur (the server busy, a timeout, a limit): raised
+    out of a cached function so that st.cache_data does not keep it."""
+
+    def __init__(self, result: dict):
+        super().__init__(result.get("failure"))
+        self.result = result
+
+
+def _uncached(result: dict) -> dict:
+    if result.get("transient"):
+        raise _NotCached(result)
+    return result
+
+
 @st.cache_data(show_spinner=False, max_entries=16)
-def cached_game_check(source: str, certify: bool = False) -> dict:
-    return ds.game_check(source, certify)
+def _cached_game_check(source: str, certify: bool) -> dict:
+    return _uncached(ds.game_check(source, certify))
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
-                       step: str, horizon: int, timeout: float) -> dict:
-    return ds.norms_check(source, contract or None, list(bindings), list(members), step or None,
-                          horizon or None, timeout)
+def _cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
+                        step: str, horizon: int, timeout: float) -> dict:
+    return _uncached(ds.norms_check(source, contract or None, list(bindings), list(members),
+                                    step or None, horizon or None, timeout))
+
+
+def cached_game_check(source: str, certify: bool = False) -> dict:
+    try:
+        return _cached_game_check(source, certify)
+    except _NotCached as e:
+        return e.result
+
+
+def cached_norms_check(*options) -> dict:
+    try:
+        return _cached_norms_check(*options)
+    except _NotCached as e:
+        return e.result
 
 
 def _extension_checks(source: str, extensions: frozenset):
@@ -722,6 +751,7 @@ def _extension_checks(source: str, extensions: frozenset):
                 except Exception as e:
                     game = {"failure": f"Not run: {e}"}
                 if game.get("failure"):
+                    ss.design_game_options = None   # shown once; the next run needs the button
                     st.error(game["failure"])
                 else:
                     if game["status"] == 2:
@@ -766,7 +796,8 @@ def _norms_check_section(source: str):
         horizon = c5.number_input("Horizon (0: default)", min_value=0, max_value=1000, step=1,
                                   key="design_nc_horizon",
                                   help="Last observation of an instance (--horizon).")
-        timeout = c6.number_input("Timeout (s)", min_value=1, max_value=600,
+        timeout = c6.number_input("Timeout (s)", min_value=1,
+                                  max_value=int(ds.MAX_NORMS_CHECK_TIMEOUT),
                                   value=int(ds.NORMS_CHECK_TIMEOUT), step=10,
                                   key="design_nc_timeout",
                                   help="Time for all runs of PRISM together (--timeout).")

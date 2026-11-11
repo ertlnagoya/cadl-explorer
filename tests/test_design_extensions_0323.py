@@ -3,6 +3,7 @@ quantified and wildcard predicates in norms, `cadl norms-check` and the
 norms monitors of the OPA and Solidity targets."""
 import copy
 import io
+import os
 import time
 import zipfile
 from pathlib import Path
@@ -290,3 +291,57 @@ def test_norms_monitors_in_the_opa_and_solidity_code():
     # other targets and designs without norms have none
     assert ds.norms_monitor_notes(CONFLICT, "python") == {"files": [], "warnings": []}
     assert ds.norms_monitor_notes(ds.load_example("supply chain"), "opa") == {"files": [], "warnings": []}
+
+
+# ── Bounds of the commands on a shared server ───────────────────────
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_prism_does_not_survive_a_timeout(tmp_path, monkeypatch):
+    # cadl starts PRISM in a session of its own; a fake prism records its pid and waits
+    pid_file = tmp_path / "prism.pid"
+    fake = tmp_path / "bin" / "prism"
+    fake.parent.mkdir()
+    fake.write_text(f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 47\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    assert ds.prism_available()
+    result = ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=5, budget=-1)
+    assert result["failure"].startswith("`cadl norms-check` did not finish within 4 s")
+    assert result["transient"]
+    pid = int(pid_file.read_text())
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        pytest.fail("the fake PRISM survived the timeout")
+
+
+def test_at_most_two_commands_run_at_once():
+    assert ds.MAX_CONCURRENT_RUNS == 2
+    held = [ds._RUN_SLOTS.acquire(timeout=1) for _ in range(ds.MAX_CONCURRENT_RUNS)]
+    try:
+        assert all(held)
+        busy = ds.game_check(GAMES)
+        assert busy["failure"] == ("The server is running other checks; try again shortly. "
+                                   "Nothing is claimed.")
+        assert busy["transient"] and busy["text"] == ""
+        assert ds.norms_check(CONFLICT)["failure"] == busy["failure"]
+    finally:
+        for _ in held:
+            ds._RUN_SLOTS.release()
+    assert ds.game_check(GAMES)["failure"] is None
+
+
+def test_norms_check_timeout_is_at_most_120_s():
+    # the wall-clock limit is the (capped) timeout and the budget
+    late = ds.norms_check(CONFLICT, timeout=10_000, budget=-119.5)
+    assert late["failure"].startswith("`cadl norms-check` did not finish within 0.5 s")
+
+
+def test_a_usage_error_is_one_line():
+    failure = ds.norms_check(CONFLICT, members=["NOBODY=2"])["failure"]
+    assert failure == "--members NOBODY: NOBODY is not a declared set of actors; nothing is claimed."
