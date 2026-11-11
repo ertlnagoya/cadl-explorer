@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import copy
 import difflib
+import functools
 import html
+import importlib
 import io
 import json
 import os
@@ -39,6 +41,12 @@ CODEGEN_TARGETS = {
     "unity-csharp": "Unity C#",
     "opa": "OPA policy (Rego)",
     "solidity": "Solidity contracts",
+}
+# The boundary policy of the agent governance extension (agents 0.1, cadl 0.3.20+);
+# offered under Export only for a design that declares it.
+AGENT_CODEGEN_TARGETS = {
+    "agent-rego": "Agent policy (Rego, agents 0.1)",
+    "agent-cedar": "Agent policy (Cedar, agents 0.1)",
 }
 SIM_TARGETS = {"unity": "Unity", "python": "Python", "go": "Go"}
 VERIFICATION_TYPES = ["consistency", "deadlock", "safety", "liveness"]
@@ -157,6 +165,10 @@ NOT_CHECKED = [
     "Functions used in expressions, such as `all_routes_conflict_free()`: they are treated "
     "as unknown predicates.",
     "Timing of lifecycle deadlines against protocol time bounds.",
+    "The verdicts of norms (norms 0.1) on a run; `cadl norms-eval` computes them on a "
+    "recorded trace.",
+    "The probabilities and rewards of a stochastic model (stochastic 0.1); `cadl model-check` "
+    "evaluates them.",
 ]
 
 
@@ -187,13 +199,18 @@ class DesignAnalysis:
 
 
 def _ir_to_dict(ir) -> dict:
-    d = asdict(ir)
-    # Rename lambda_ back to lambda, as `cadl sim-ir` does.
-    for c in d.get("institution", {}).get("contracts", []):
-        gov = c.get("governance") or {}
-        if "lambda_" in gov:
-            gov["lambda"] = gov.pop("lambda_")
-    return d
+    """The IR as `cadl sim-ir` writes it (`lambda`, counts-as `if`, the agent
+    fields only for a design that declares agents 0.1)."""
+    try:
+        from cadl.cli import _ir_to_dict as cadl_ir_to_dict
+    except ImportError:         # an older cadl: rename lambda_ as it did
+        d = asdict(ir)
+        for c in d.get("institution", {}).get("contracts", []):
+            gov = c.get("governance") or {}
+            if "lambda_" in gov:
+                gov["lambda"] = gov.pop("lambda_")
+        return d
+    return cadl_ir_to_dict(ir)
 
 
 def _parse(source: str):
@@ -872,21 +889,30 @@ def check_lifecycles(ir: dict) -> List[Finding]:
             if target and target not in known:
                 error(f"Monitor '{m.get('id', '?')}' moves to undeclared state '{target}'.")
 
+        for n in c.get("norms") or []:
+            target = n.get("on_violation_transition")
+            if target and target not in known:
+                error(f"Norm '{n.get('id', '?')}' requests a move to undeclared state '{target}'.")
+
         if initial in known:
-            # Monitors can move the contract from any state to their target.
+            # Monitors can move the contract from any state to their target; the
+            # violation of a norm (norms 0.1, `on_violation: transition:`) from any
+            # state that is not terminal, as `cadl norms-eval` requests it.
             monitor_targets = {
                 m.get("on_match_transition") for m in c.get("monitors") or []
             } & known
+            norm_targets = {n.get("on_violation_transition") for n in c.get("norms") or []} & known
             reached, frontier = {initial}, [initial]
             while frontier:
-                for nxt in edges[frontier.pop()] | monitor_targets:
+                node = frontier.pop()
+                for nxt in edges[node] | monitor_targets | (norm_targets if node not in terminal else set()):
                     if nxt not in reached:
                         reached.add(nxt)
                         frontier.append(nxt)
             for s in states:
                 if s not in reached:
                     warn(f"State '{s}' cannot be reached from the initial state '{initial}'.", s)
-                elif s not in terminal and not edges[s] and not monitor_targets:
+                elif s not in terminal and not edges[s] and not monitor_targets and not norm_targets:
                     warn(f"State '{s}' is not terminal but has no way out.", s)
         if not terminal & known:
             warn("No terminal state is declared, so a contract instance never ends.")
@@ -1440,6 +1466,87 @@ def export_sim_config(source: str, target: str) -> str:
     from cadl.sim import generate_config, lower_to_ir
 
     return generate_config(lower_to_ir(_parse(source)), target)
+
+
+@functools.lru_cache(maxsize=64)
+def extensions_in_effect(source: str) -> frozenset:
+    """The extensions that cadl reads in this design: "norms" (norms 0.1),
+    "agents" (agents 0.1 together with norms 0.1) and "stochastic"
+    (stochastic 0.1). Decided by cadl itself; a design that does not parse has none."""
+    try:
+        sos = _parse(source or "")
+    except Exception:
+        return frozenset()
+    found = set()
+    for name, module, test in (("norms", "cadl.norms", "norms_declared"),
+                               ("agents", "cadl.agents", "agents_active"),
+                               ("stochastic", "cadl.stochastic", "stochastic_declared")):
+        try:
+            if getattr(importlib.import_module(module), test)(sos):
+                found.add(name)
+        except (ImportError, AttributeError):
+            pass                # a cadl without the extension
+    return frozenset(found)
+
+
+def norms_diff(old_source: str, new_source: str) -> Optional[dict]:
+    """What amending `old_source` (A) to `new_source` (B) does to their norms, as
+    `cadl norms-diff A B` reports it.
+
+    None when neither declares norms 0.1. The result has `contracts`
+    (`id`, `findings` with `level` and `text`), `errors` and `ok`. As in
+    cadl, B that cannot take effect (not parsed, no `norms: 0.1`, type-check
+    errors) is an error of the amendment; A that cannot be read is reported
+    under `invalid_old`, since then there is nothing to amend.
+    """
+    if not ({"norms"} & (extensions_in_effect(old_source) | extensions_in_effect(new_source))):
+        return None
+    from cadl.norms_diff import diff_versions
+    from cadl.norms_eval import NormsEvalError, load_version
+
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = {"A": Path(tmp) / "A.cadl", "B": Path(tmp) / "B.cadl"}
+
+        def load(label: str, text: str):
+            _check_source_text(text)
+            paths[label].write_text(text, encoding="utf-8")
+            try:
+                return load_version(paths[label])
+            except NormsEvalError as e:
+                raise ValueError(str(e).replace(str(paths[label]), label)) from None
+
+        try:
+            old = load("A", old_source)
+        except ValueError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False, "invalid_old": True}
+        try:
+            new = load("B", new_source)
+        except ValueError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False}
+        try:
+            return diff_versions(old, new)
+        except NormsEvalError as e:
+            return {"contracts": [], "errors": [str(e)], "ok": False}
+
+
+def prism_files(source: str) -> Dict[str, str]:
+    """The PRISM model and properties files of a stochastic model (`cadl model-export`).
+
+    Raises ValueError when the design has no interpreted `model:` block.
+    """
+    from cadl.stochastic import ExportError, analyse, export_prism, stochastic_declared
+    from cadl.type_checker import type_check
+
+    sos = _parse(source)
+    if sos.model is None or not stochastic_declared(sos):
+        raise ValueError("The design has no `model:` block under `stochastic: 0.1`.")
+    check = type_check(sos)
+    if not check.ok:
+        raise ValueError("The model is not interpreted while the design has type-check errors.")
+    try:
+        return export_prism(analyse(sos).model)
+    except ExportError as e:
+        raise ValueError(str(e)) from e
 
 
 def export_codegen_zip(source: str, target: str) -> bytes:

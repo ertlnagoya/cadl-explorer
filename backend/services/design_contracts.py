@@ -164,6 +164,10 @@ def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
     """Every assumption and guarantee, with what watches it and what measures it."""
     metrics = [str(m.get("id")) for m in ir.get("metrics") or [] if isinstance(m, dict) and m.get("id")]
     amended = amend_deadlines(source)
+    from backend.services.design_service import extensions_in_effect
+    # With norms 0.1, cadl generates norms_monitor.py with the Python runtime: it
+    # decides every assume and guarantee item while the contract runs (cadl 0.3.22).
+    norms = source is not None and "norms" in extensions_in_effect(source)
     out: List[Promise] = []
     for c in _contracts(ir):
         states = _skip(ir, c)
@@ -183,6 +187,8 @@ def coverage(ir: dict, source: Optional[str] = None) -> List[Promise]:
                     p.watched_by.append("violation.detect")
                 if kind == "guarantee":
                     p.watched_by += _deadline_matches(str(text), transitions, amended)
+                if norms:
+                    p.watched_by.append("norms monitor (generated Python)")
                 p.measured_by = [f"metric {mid}" for mid in metrics if mid in p.names]
                 out.append(p)
     return out

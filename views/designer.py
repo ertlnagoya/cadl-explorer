@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import re
+import zipfile
 from datetime import datetime
 
 import streamlit as st
@@ -504,7 +505,9 @@ def _control_structure_view(ir: dict, source: str = ""):
                 "of the contract whose `observe` or `rule` names one of its quantities, the "
                 "contract's `violation.detect`, or a lifecycle deadline that equals its time "
                 "bound (on a transition named in the quantity, such as `pickup` for "
-                "`pickup_time`, or through an `# @amend:` name). *measured by*: a metric with "
+                "`pickup_time`, or through an `# @amend:` name), or, in a design that declares "
+                "norms 0.1, the norms monitor generated with the Python runtime, which decides "
+                "every assumption and guarantee. *measured by*: a metric with "
                 "the same name, which evaluates the run afterwards. The CADL does not link a "
                 "promise to its monitor, so the links are found by name: a monitor that checks "
                 "the same thing under another name is not counted.")
@@ -638,13 +641,23 @@ def _structure_view(ir: dict, source: str):
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
-def cached_analyze(source: str, _version: int = 4) -> ds.DesignAnalysis:
+def cached_analyze(source: str, _version: int = 5) -> ds.DesignAnalysis:
     return ds.analyze(source)
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
 def cached_codegen(source: str, target: str) -> bytes:
     return ds.export_codegen_zip(source, target)
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def cached_prism(source: str) -> dict:
+    return ds.prism_files(source)
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def cached_norms_diff(old_source: str, new_source: str):
+    return ds.norms_diff(old_source, new_source)
 
 
 if "design_src" not in ss:
@@ -1326,6 +1339,32 @@ with col_view:
                     with st.expander(f"{topic} ({len(items)})", expanded=len(items) <= 8):
                         for item in items:
                             st.markdown(f"- {item}")
+            try:
+                amendment = cached_norms_diff(source_a, source_b)
+            except Exception as e:
+                amendment = {"contracts": [], "errors": [str(e)], "ok": False}
+            if amendment is not None:
+                with st.expander("Norms: amending A to B (norms 0.1)", expanded=not amendment["ok"]):
+                    st.caption("What the amendment does to the norms of contract instances that "
+                               "are running under A: norms removed, added or of another kind, "
+                               "norms carried over with a changed content or deadline, and "
+                               "`transform:` targets that B lacks (`cadl norms-diff`).")
+                    for c in amendment["contracts"]:
+                        st.markdown(f"**{c['id']}**" + ("" if c["findings"] else
+                                                        " — no difference in `norms:` or `counts_as:`"))
+                        for f in c["findings"]:
+                            st.markdown(f"- {LEVEL_ICON.get(f['level'], '')} {f['text']}")
+                    if not amendment["contracts"] and amendment["ok"]:
+                        st.markdown("No contract of A has norms, so no running instance is amended.")
+                    for e in amendment["errors"] if not amendment["contracts"] else []:
+                        st.markdown(f"- {LEVEL_ICON['error']} {e}")
+                    if amendment.get("invalid_old"):
+                        st.error("A cannot be read as a version with norms, so there is nothing "
+                                 "to amend.")
+                    else:
+                        (st.success if amendment["ok"] else st.error)(
+                            "Nothing prevents the amendment." if amendment["ok"] else
+                            f"{len(amendment['errors'])} error(s) prevent the amendment.")
             raw = ds.source_diff(source_a, source_b, name_a, name_b)
             if raw:
                 with st.expander(f"Source diff ({len(raw.splitlines())} lines)"):
@@ -1389,18 +1428,52 @@ with col_view:
                 file_name=f"{file_stem}.sim.{sim_target}.txt", width="stretch")
 
         st.markdown("**Runtime code**")
+        extensions = ds.extensions_in_effect(source)
+        targets = dict(ds.CODEGEN_TARGETS)
+        if "agents" in extensions:
+            targets.update(ds.AGENT_CODEGEN_TARGETS)
         c1, c2 = st.columns([2, 3], vertical_alignment="bottom")
-        code_target = c1.selectbox("Target", list(ds.CODEGEN_TARGETS),
-                                   format_func=ds.CODEGEN_TARGETS.get, key="design_code_target")
+        if ss.get("design_code_target") not in targets:
+            ss.design_code_target = next(iter(targets))
+        code_target = c1.selectbox("Target", list(targets),
+                                   format_func=targets.get, key="design_code_target")
         try:
             code_zip = cached_codegen(source, code_target)
         except Exception as e:
             c2.error(f"Cannot generate: {e}")
         else:
             c2.download_button(
-                f"Download {ds.CODEGEN_TARGETS[code_target]} (.zip)", code_zip,
+                f"Download {targets[code_target]} (.zip)", code_zip,
                 file_name=f"{file_stem}.{code_target}.zip", mime="application/zip",
                 width="stretch")
+        notes = []
+        if "norms" in extensions:
+            notes.append("With norms 0.1, the Python runtime includes `norms_monitor.py`, an online "
+                         "monitor of the norms and of every `assume` / `guarantee` item; the other "
+                         "targets leave out the items with `within`, `throughout` or `until`.")
+        if "agents" in extensions:
+            notes.append("The agent policies (agents 0.1) decide the messages at the enforcement "
+                         "point; the Cedar policies cover the statically decidable norms only.")
+        for note in notes:
+            st.caption(note)
+
+        if "stochastic" in extensions:
+            st.markdown("**Stochastic model (PRISM)**")
+            m1, m2 = st.columns([2, 3], vertical_alignment="bottom")
+            m1.caption("The `model:` block (stochastic 0.1) as PRISM model and properties files, "
+                       "one pair per design, for PRISM or Storm (`cadl model-export`).")
+            try:
+                prism = cached_prism(source)
+            except Exception as e:
+                m2.error(f"Cannot export: {e}")
+            else:
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for name, text in prism.items():
+                        zf.writestr(name, text)
+                m2.download_button(f"Download {len(prism)} PRISM files (.zip)", buffer.getvalue(),
+                                   file_name=f"{file_stem}.prism.zip", mime="application/zip",
+                                   width="stretch")
 
         st.markdown("**Analyses**")
         with st.expander("Regime map"):

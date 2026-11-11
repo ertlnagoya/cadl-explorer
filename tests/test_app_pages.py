@@ -496,3 +496,24 @@ def test_designer_reports_versions_pushed_out_and_shows_a_run_over_another_desig
     assert any("**a1**, **a2**, **a3** no longer fit" in w.value for w in at.warning)
     # the current design has no `# @amend:` values, but the run's history is still shown
     assert any("reversals" in d.value.columns for d in at.dataframe)
+
+
+def test_designer_exports_and_compares_the_extensions():
+    pytest.importorskip("cadl.norms_diff")
+    from backend.services import design_service as ds
+    agents = ds.load_example("agents tool governance")
+    at = _view(_set_design(_designer(), agents), "Export")
+    assert not at.exception
+    assert "Agent policy (Cedar, agents 0.1)" in at.selectbox(key="design_code_target").options
+    at = _view(_set_design(at, ds.load_example("stochastic robot delivery")), "Export")
+    assert "Agent policy (Cedar, agents 0.1)" not in at.selectbox(key="design_code_target").options
+    assert any(b.label == "Download 4 PRISM files (.zip)" for b in at.get("download_button"))
+    # Compare: what amending one version with norms to the next does to the norms
+    norms = ds.load_example("norms robot delivery")
+    at = _view(_set_design(at, norms), "Versions")
+    at.text_input(key="design_version_name").set_value("v1").run()
+    at = _click(at, "Save as a version")
+    at = _view(_set_design(at, norms.replace("deadline: 5s", "deadline: 3s", 1)), "Versions")
+    assert not at.exception
+    assert any("acknowledge: carries over, and deadline changes" in m.value for m in at.markdown)
+    assert any("Nothing prevents the amendment." in s.value for s in at.success)

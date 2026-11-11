@@ -9,14 +9,36 @@ kept identical to them. `sos_dsl_robot_delivery.cadl`,
 synchronised with `cadl` master after ertlnagoya/cadl#26 and #27, which
 declare every message of the examples in their interfaces (#26 also adds the
 protocol `DeliveryOrder`); `supply_chain.cadl` has not changed upstream
-since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.18. Any `*.cadl` file
+since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.22. Any `*.cadl` file
 placed here appears in the list.
+
+Three examples of the extensions added in `cadl-lang` 0.3.19 and 0.3.20 are
+copies of the upstream files of 0.3.22:
+
+- `norms_robot_delivery.cadl` (norms 0.1, Appendix F): obligations with a
+  contrary-to-duty obligation, a prohibition, a permission, a power and a
+  `counts_as:` rule. **Read-back** states the norms; the violation of
+  `report_failure` moves the contract to `Violated`, which the **Checks**
+  count as a way to reach that state; **Monitoring coverage** counts its
+  guarantee as watched by the norms monitor of the generated Python code;
+  under **Versions**, comparing two versions with norms shows what the
+  amendment does to the norms (`cadl norms-diff`).
+- `agents_tool_governance.cadl` (agents 0.1, Appendix G): an LLM agent, tool
+  servers and an enforced contract. **Export** offers the agent policies
+  (Rego and Cedar). The Designer's **Checks** warn that the SoS has no type.
+- `stochastic_robot_delivery.cadl` (stochastic 0.1, Appendix H): a `model:`
+  block with two designs. **Export** writes it as PRISM files.
+
+They are upstream examples of the extensions, so they keep their findings
+on the **Structure** and **Control structure** views (for example, no
+contract of the first two names a decision holder).
 
 `supply_chain.cadl` is left as it is on purpose: it is the example of
 findings on the **Control structure** view. MANUFACTURER controls WAREHOUSE
 but gets no message back and has no monitor of it (an open loop), and
 MANUFACTURER decides for RETAILER without sending it a control action. The
-other designs here have no findings on that view; on the **Structure** view,
+other designs here, apart from the examples of the extensions, have no
+findings on that view; on the **Structure** view,
 `robot_town.cadl` keeps the note "Nobody decides under DELIVERY_SLA.", since
 that contract has no `decision_holder`.
 
