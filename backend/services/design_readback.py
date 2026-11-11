@@ -107,6 +107,88 @@ def describe_contract(contract: dict) -> List[str]:
             condition = r.get("if", r.get("if_"))       # `if` as `cadl sim-ir` writes it
             lines.append(f"`{r.get('when')}` counts as {r.get('creates')}"
                          + (f" when `{condition}` holds." if condition else "."))
+    lines += _grounding_sentences(contract.get("grounding"))
+    if contract.get("norms"):
+        lines += _wildcard_sentences(contract)
+    return lines
+
+
+def _wildcard_reading(text) -> Optional[str]:
+    """How cadl reads a predicate with `A[*]` or `A[lo..hi]` outside a quantifier
+    (norms 0.1, F.5, cadl 0.3.24): the quantified form, or None when nothing is
+    rewritten (also for a message event or a text that is not a predicate)."""
+    try:
+        from cadl.norms_eval import desugar_wildcards
+        from cadl.parser import parse_rule
+        from cadl.unparse import expr_to_source
+    except ImportError:         # a cadl before 0.3.24
+        return None
+    if not isinstance(text, str) or not re.search(r"\[(\*|[^\[\]]*\.\.[^\[\]]*)\]", text):
+        return None
+    try:
+        tree = parse_rule(text)
+        plain, read = expr_to_source(tree), expr_to_source(desugar_wildcards(tree))
+    except Exception:
+        return None
+    return read if read != plain else None
+
+
+def _wildcard_sentences(contract: dict) -> List[str]:
+    """One sentence per predicate of a contract with norms whose wildcard or range
+    references cadl reads as a quantifier or comprehension."""
+    texts = [str(x) for key in ("assume", "guarantee") for x in contract.get(key) or []]
+    for n in contract.get("norms") or []:
+        if isinstance(n, dict):
+            texts += [str(n[k]) for k in ("trigger", "until", "content") if n.get(k)]
+    for r in contract.get("counts_as") or []:
+        if isinstance(r, dict):
+            texts += [str(r[k]) for k in ("when", "if", "if_") if r.get(k)]
+    out = []
+    for text in dict.fromkeys(texts):
+        read = _wildcard_reading(text)
+        if read:
+            out.append(f"`{text}` is read as `{read}`.")
+    if out:
+        out.insert(0, "A reference such as `ROBOT[*]` outside a quantifier is read as a quantifier "
+                      "or comprehension over the members (F.5); `*1`, `*2` name the variables:")
+    return out
+
+
+def _ratio(given, total) -> str:
+    from fractions import Fraction
+    if not isinstance(given, int) or not isinstance(total, int) or total <= 0:
+        return ""
+    value = Fraction(given, total)
+    return str(value) if value.denominator == 1 else f"{value} = {float(value):.3g}"
+
+
+def _grounding_sentences(grounding) -> List[str]:
+    """The grounding of a contract (grounding 0.1, Appendix J) as the IR carries it:
+    its information items and the indices derived from its norms."""
+    if not isinstance(grounding, dict):
+        return []
+    lines = []
+    items = grounding.get("items") or {}
+    if items:
+        lines.append("Its information items (grounding 0.1) are "
+                     + _join([f"{k}, from {v}" for k, v in items.items()]) + ".")
+    indices = grounding.get("indices") or {}
+    alpha, beta, cov = indices.get("alpha"), indices.get("beta"), indices.get("coverage")
+    if isinstance(alpha, dict) and _ratio(alpha.get("given"), alpha.get("pairs")):
+        lines.append(f"Pairs of an item and a party other than its origin, given to the party by "
+                     f"a sharing entry or a norm: {alpha['given']} of {alpha['pairs']} "
+                     f"(α̂ = {_ratio(alpha.get('given'), alpha.get('pairs'))}).")
+    if isinstance(beta, dict) and _ratio(beta.get("largest"), beta.get("powers")):
+        lines.append(f"Powers held by the single actor with the most: {beta['largest']} of "
+                     f"{beta['powers']} (β̂ = {_ratio(beta.get('largest'), beta.get('powers'))}).")
+    if isinstance(cov, dict) and _ratio(cov.get("incentive"), cov.get("norms")):
+        lines.append(f"Obligations and prohibitions that carry an incentive: {cov['incentive']} of "
+                     f"{cov['norms']} (χ = {_ratio(cov.get('incentive'), cov.get('norms'))}).")
+    if (items or indices) and grounding.get("tolerance") is not None:
+        lines.append(f"A declared α or β may differ from its index by at most "
+                     f"{grounding['tolerance']:g} (J-7); a declared 0 or 1 is tested by J-6 instead, "
+                     f"which looks in the norms for a counterexample. `cadl norms-indices` "
+                     f"reports both.")
     return lines
 
 
@@ -137,11 +219,17 @@ def _norm_sentence(n: dict) -> str:
     text += "."
     if n.get("until"):
         text += f" It ends when `{n['until']}`."
+    if n.get("shares"):
+        text += f" Its message gives the information {_join([f'`{x}`' for x in n['shares']])} to the receiver."
     then = []
+    magnitude = n.get("on_violation_magnitude")
+    size = f" of magnitude {magnitude:g}" if isinstance(magnitude, (int, float)) else ""
     if n.get("on_violation_severity"):
         then.append(f"a {n['on_violation_severity']} violation")
     if n.get("on_violation_sanction"):
-        then.append(f"the sanction “{n['on_violation_sanction']}”")
+        then.append(f"the sanction “{n['on_violation_sanction']}”{size}")
+    elif size:
+        then.append(f"a sanction{size}")
     if n.get("on_violation_reparation"):
         then.append(f"the reparation {n['on_violation_reparation']}")
     if n.get("on_violation_transition"):
@@ -150,6 +238,10 @@ def _norm_sentence(n: dict) -> str:
         text += f" Violating it brings {_join(then)}."
     elif kind in ("obligation", "prohibition"):
         text += " Violating it is a Major violation (the default)."
+    reward, size = n.get("on_fulfilment_reward"), n.get("on_fulfilment_magnitude")
+    if reward or isinstance(size, (int, float)):
+        text += (" Fulfilling it brings " + (f"the reward “{reward}”" if reward else "a reward")
+                 + (f" of magnitude {size:g}" if isinstance(size, (int, float)) else "") + ".")
     return text
 
 
@@ -182,8 +274,78 @@ def describe_design(source: str) -> Dict[str, List[str]]:
         lines = describe_contract(c)
         for actor, items in duties.get(cid, {}).items():
             lines.insert(2, f"{actor} is specifically responsible for: {_join(items)}.")
+        # N-15 (cadl 0.3.24): a wildcard or range reference whose reading may surprise.
+        lines += [f"Check that this is meant (N-15): {f.title[0].lower()}{f.title[1:-len(' (N-15)')]}."
+                  for f in analysis.findings
+                  if f.title.endswith("(N-15)") and f"of contract '{cid}'" in f.title]
         described[cid] = lines
     return described
+
+
+# ── The strategic model in words ────────────────────────────────────
+
+
+def _term(term: dict) -> str:
+    weight = str(term.get("weight"))
+    return f"{f'({weight})' if ' ' in weight else weight} × {term.get('reward')}"
+
+
+def describe_model(source: str) -> List[str]:
+    """The strategic model of a design (games 0.1, Appendix I) in plain sentences:
+    players, who chooses which command, the profiles, the payoffs and the
+    equilibrium queries. Empty for a design without one."""
+    analysis = ds.analyze(source)
+    model = (analysis.ir or {}).get("stochastic_model") or {}
+    if model.get("kind") != "smg" or "games" not in ds.extensions_in_effect(source):
+        return []
+    players = model.get("players") or []
+    lines = ["The `model:` block is a turn-based stochastic game (games 0.1) between "
+             + _join([f"{p.get('id')} ({_join(p.get('actors') or []) or 'no actor'})"
+                      for p in players]) + "."]
+    owned: Dict[str, List[str]] = {}
+    for c in model.get("commands") or []:
+        owned.setdefault(str(c.get("owner") or ""), [])
+        if c.get("action") and c["action"] not in owned[str(c.get("owner") or "")]:
+            owned[str(c.get("owner") or "")].append(str(c["action"]))
+    for p in players:
+        actions = owned.get(str(p.get("id")), [])
+        lines.append(f"{p.get('id')} chooses " + (_join([f"`{a}`" for a in actions], "or")
+                                                   if actions else "no command") + ".")
+    if owned.get(""):
+        lines.append(f"No player owns {_join([f'`{a}`' for a in owned['']])}.")
+    for prof in model.get("profiles") or []:
+        rules = prof.get("rules") or []
+        said = [f"`{r.get('choose')}`" if str(r.get("guard", "true")) == "true"
+                else f"`{r.get('choose')}` when `{r.get('guard')}`" for r in rules]
+        compliance = " (the compliance profile)" if prof.get("id") == model.get("compliance") else ""
+        lines.append(f"Profile {prof.get('id')}{compliance} chooses {'; otherwise '.join(said)}.")
+    for pay in model.get("payoffs") or []:
+        terms = pay.get("terms") or []
+        lines.append(f"The payoff of {pay.get('player')} is the sum of "
+                     f"{_join([_term(t) for t in terms])}, accumulated until `{pay.get('until')}`."
+                     if len(terms) > 1 else
+                     f"The payoff of {pay.get('player')} is {_join([_term(t) for t in terms])}, "
+                     f"accumulated until `{pay.get('until')}`.")
+        for t in terms:
+            for key, what, counts in (
+                    ("sanction_of", "minus the magnitude of the sanction of", "violations"),
+                    ("reward_of", "the magnitude of the reward of", "fulfilments")):
+                if t.get(key):
+                    lines.append(f"The weight of {t.get('reward')} is {what} norm {t[key]} times "
+                                 f"the parameter bound to the λ of its contract (grounding 0.1, "
+                                 f"J.7); every result assumes that {t.get('reward')} counts the "
+                                 f"{counts} of the norm.")
+    for q in model.get("equilibria") or []:
+        concept = ("an equilibrium from every reachable state" if q.get("concept") == "every_reachable_state"
+                   else "a Nash equilibrium")
+        epsilon = f" up to ε = {q['epsilon']:g}" if q.get("epsilon") else ""
+        over = q.get("over") or {}
+        where = (" over " + _join([f"{k} in [{v[0]:g}, {v[1]:g}]" for k, v in over.items()])
+                 if over else "")
+        lines.append(f"Query {q.get('id')} asks whether profile {q.get('profile')} is {concept}"
+                     f"{epsilon}{where}, in {_join(q.get('regimes') or [], 'and')}"
+                     + (" (a map: `cadl game-check --certify`)." if over else "."))
+    return lines
 
 
 # ── One actor's point of view ───────────────────────────────────────

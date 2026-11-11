@@ -517,3 +517,153 @@ def test_designer_exports_and_compares_the_extensions():
     assert not at.exception
     assert any("acknowledge: carries over, and deadline changes" in m.value for m in at.markdown)
     assert any("Nothing prevents the amendment." in s.value for s in at.success)
+
+
+def test_designer_reads_back_and_checks_games_and_grounding():
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Read-back")
+    assert not at.exception
+    assert any(m.value == "**Strategic model**" for m in at.markdown)
+    assert any("R chooses `careful` or `careless`." in m.value for m in at.markdown)
+    at = _view(at, "Checks")
+    assert not at.exception
+    codes = [c.value for c in at.code]
+    assert any(c.startswith("Derived indices of the design") for c in codes)
+    assert not any("Equilibrium check" in c for c in codes)     # only on the button
+    at = _click(at, "Run game-check")
+    codes = [c.value for c in at.code]
+    assert any("Equilibrium check 'comply_nash'" in c and "deviators: R" in c for c in codes)
+    at.checkbox(key="design_game_certify").check().run()
+    assert not any("lambda in [0.15625, 1]" in c.value for c in at.code)
+    at = _click(at, "Run game-check")
+    assert any("lambda in [0.15625, 1]: equilibrium" in c.value for c in at.code)
+
+
+class _Runs:
+    """Counts the subprocesses that design_service starts."""
+
+    def __init__(self, monkeypatch):
+        from backend.services import design_service as ds
+        self.count, real = 0, ds.subprocess.Popen
+
+        def popen(*args, **kwargs):
+            self.count += 1
+            return real(*args, **kwargs)
+        monkeypatch.setattr(ds.subprocess, "Popen", popen)
+
+
+def test_designer_reports_a_crash_of_game_check_once(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    st.cache_data.clear()
+    from backend.services import design_service as ds
+    runs = _Runs(monkeypatch)
+    monkeypatch.setattr(ds, "_CHILD", 'raise ValueError("an internal error")\n')
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Checks")
+    assert runs.count == 0
+    at = _click(at, "Run game-check")
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        "`cadl game-check` failed with an internal error; nothing is claimed."]
+    assert not any("Traceback" in c.value for c in at.code)
+    at.run()
+    at.run()
+    assert runs.count == 1          # the failure is kept, not run again on each rerun
+
+
+def ds_example(name):
+    from backend.services import design_service as ds
+    return ds.load_example(name)
+
+
+def _norms_check(at):
+    from backend.services import design_service as ds
+    at = _view(_set_design(at, ds.load_example("norms check conflict")), "Checks")
+    assert not at.exception
+    return _click(at, "Run norms-check")
+
+
+def test_designer_runs_norms_check(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    if not ds.prism_available():
+        pytest.skip("PRISM (prism) is not on PATH")
+    import streamlit as st
+    st.cache_data.clear()
+    at = _norms_check(_designer())
+    assert not at.exception
+    assert any("report_status and radio_silence are in conflict" in w.value for w in at.warning)
+    norms = next(d.value for d in at.dataframe if "violable" in d.value.columns)
+    assert list(norms["norm"]) == ["report_status", "apologise", "radio_silence", "audit"]
+    assert any("keep radio_silence: report_status violated (confirmed by norms-eval)" in m.value
+               for m in at.markdown)
+    assert any("Model, properties and witnesses" in b.label for b in at.get("download_button"))
+    assert any("Note: index i is not bound" in c.value for c in at.caption)
+
+
+def test_designer_clears_a_failed_norms_check(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    st.cache_data.clear()
+    runs = _Runs(monkeypatch)
+    at = _view(_set_design(_designer(), ds_example("norms check conflict")), "Checks")
+    at.selectbox(key="design_nc_contract")      # the form is there
+    at.text_input(key="design_nc_members").set_value("NOBODY=2").run()
+    at = _click(at, "Run norms-check")
+    assert not at.exception
+    assert len(at.error) == 1 and at.error[0].value.startswith("Not checked:")
+    assert at.error[0].value.endswith("nothing is claimed.")
+    assert "usage:" not in at.error[0].value
+    assert runs.count == 1
+    at.run()
+    assert runs.count == 1 and not at.error     # shown once; not run again
+
+
+def test_designer_says_that_norms_check_checked_nothing_without_prism(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import shutil
+    import streamlit as st
+    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if not shutil.which("prism", path=d))
+    monkeypatch.setenv("PATH", path)
+    st.cache_data.clear()
+    at = _norms_check(_designer())
+    assert not at.exception
+    assert any("PRISM is not installed where this app runs" in i.value for i in at.info)
+    assert any(w.value.startswith("Nothing was checked: no model checker found") for w in at.warning)
+    assert not any(s.value == "No finding." for s in at.success)
+
+
+def test_designer_exports_the_norms_monitors_and_names_the_gateways():
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("norms no double assignment")), "Export")
+    at.selectbox(key="design_code_target").set_value("opa").run()
+    assert not at.exception
+    assert any("no norms monitor is generated" in w.value for w in at.warning)
+    at = _set_design(at, ds.load_example("norms check conflict"))
+    assert any("`norms_monitor_status_reporting.rego`" in c.value for c in at.caption)
+    at = _set_design(at, ds.load_example("agents tool governance"))
+    assert any("`cadl a2a-gateway`" in c.value and "`cadl audit-verify`" in c.value for c in at.caption)
+
+
+def test_designer_does_not_keep_a_busy_server(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import streamlit as st
+    from backend.services import design_service as ds
+    st.cache_data.clear()
+    runs = _Runs(monkeypatch)
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Checks")
+    assert at.number_input(key="design_nc_timeout").max == 120
+    held = [ds._RUN_SLOTS.acquire(timeout=1) for _ in range(ds.MAX_CONCURRENT_RUNS)]
+    try:
+        at = _click(at, "Run game-check")
+        assert [e.value for e in at.error] == [ds.BUSY]
+    finally:
+        for _ in held:
+            ds._RUN_SLOTS.release()
+    assert runs.count == 0
+    at = _click(at, "Run game-check")           # pressing again retries: nothing was cached
+    assert not at.error and runs.count == 1
+    assert any("Equilibrium check 'comply_nash'" in c.value for c in at.code)

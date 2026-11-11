@@ -21,7 +21,10 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
+import threading
 import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -1471,8 +1474,10 @@ def export_sim_config(source: str, target: str) -> str:
 @functools.lru_cache(maxsize=64)
 def extensions_in_effect(source: str) -> frozenset:
     """The extensions that cadl reads in this design: "norms" (norms 0.1),
-    "agents" (agents 0.1 together with norms 0.1) and "stochastic"
-    (stochastic 0.1). Decided by cadl itself; a design that does not parse has none."""
+    "agents" (agents 0.1 together with norms 0.1), "stochastic"
+    (stochastic 0.1), "games" (games 0.1 together with stochastic 0.1) and
+    "grounding" (grounding 0.1 together with norms 0.1). Decided by cadl
+    itself; a design that does not parse has none."""
     try:
         sos = _parse(source or "")
     except Exception:
@@ -1480,12 +1485,16 @@ def extensions_in_effect(source: str) -> frozenset:
     found = set()
     for name, module, test in (("norms", "cadl.norms", "norms_declared"),
                                ("agents", "cadl.agents", "agents_active"),
-                               ("stochastic", "cadl.stochastic", "stochastic_declared")):
+                               ("stochastic", "cadl.stochastic", "stochastic_declared"),
+                               ("games", "cadl.games", "games_declared"),
+                               ("grounding", "cadl.grounding", "grounding_active")):
         try:
             if getattr(importlib.import_module(module), test)(sos):
                 found.add(name)
         except (ImportError, AttributeError):
             pass                # a cadl without the extension
+    if "stochastic" not in found:
+        found.discard("games")  # the strategic model is a `model:` block of Appendix H
     return frozenset(found)
 
 
@@ -1547,6 +1556,368 @@ def prism_files(source: str) -> Dict[str, str]:
         return export_prism(analyse(sos).model)
     except ExportError as e:
         raise ValueError(str(e)) from e
+
+
+# Limits of a cadl command run for the page (game-check, norms-check): the
+# commands run in a subprocess, so a heavy design cannot hold the server.
+CADL_MEMORY_LIMIT = 1 << 30         # address space, bytes (POSIX; not with PRISM, see _run_cadl)
+CADL_FILE_LIMIT = 100 << 20         # largest file the command may write, bytes
+MAX_OUTPUT_BYTES = 5 << 20          # largest report read back
+MAX_EXPORT_BYTES = 10 << 20         # largest model and witnesses offered for download
+BUILD_BUDGET = 30.0                 # seconds for norms-check besides the runs of PRISM
+
+_CHILD = """import sys
+try:
+    import resource
+    for name, value in (("RLIMIT_CPU", {cpu}), ("RLIMIT_AS", {memory}), ("RLIMIT_FSIZE", {fsize})):
+        limit = getattr(resource, name, None)
+        if limit is None or not value:
+            continue
+        try:
+            soft, hard = resource.getrlimit(limit)
+            if hard != resource.RLIM_INFINITY:
+                value = min(value, hard)
+            resource.setrlimit(limit, (value, hard))
+        except (ValueError, OSError):
+            pass
+except ImportError:
+    pass
+import subprocess
+_Popen = subprocess.Popen
+
+
+class _Recorded(_Popen):
+    # cadl starts PRISM in a session of its own; the page kills its group too
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            with open({pids!r}, "a") as f:
+                f.write(str(self.pid) + "\\n")
+        except OSError:
+            pass
+
+
+subprocess.Popen = _Recorded
+from cadl.cli import main
+sys.exit(main())
+"""
+
+# At most this many cadl commands run at once for all sessions of the server; a
+# further request is refused (each may take 1 GiB and minutes).
+MAX_CONCURRENT_RUNS = 2
+_RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
+BUSY = "The server is running other checks; try again shortly. Nothing is claimed."
+
+
+def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
+              workdir: Optional[str] = None) -> dict:
+    """Run `cadl ARGS[0] design.cadl ARGS[1:]` in a subprocess with the design in a
+    temporary file and with bounds: `wall` seconds of wall-clock time (the process
+    group is killed after it), as many seconds of CPU time per process, files of at
+    most CADL_FILE_LIMIT bytes and, with `memory`, CADL_MEMORY_LIMIT bytes of address
+    space (POSIX). The limits are inherited by PRISM, which norms-check starts; the
+    Java VM reserves more address space than CADL_MEMORY_LIMIT, so norms-check sets
+    no memory limit when PRISM is on PATH. cadl starts PRISM in a session of its
+    own, so the child records the pid of every process it starts, and each of their
+    process groups is killed with the child's when the child does not end by itself.
+    At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
+
+    Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
+    None when cadl ran to its exit status, otherwise a sentence that says nothing
+    is claimed; `transient` is True for a failure that may not recur (the server
+    busy, a timeout, a limit), which a caller should not cache. The temporary path
+    is replaced by "the design"; tracebacks are not returned.
+    """
+    _parse(source)                  # the input limits of the page
+    if not _RUN_SLOTS.acquire(timeout=1):
+        return {"status": None, "stdout": "", "stderr": "", "failure": BUSY, "transient": True}
+    try:
+        return _run_cadl_slot(args, source, wall, memory, workdir)
+    finally:
+        _RUN_SLOTS.release()
+
+
+def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
+                   workdir: Optional[str]) -> dict:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "design.cadl"
+        path.write_text(source, encoding="utf-8")
+        pids = Path(tmp) / "pids"
+        code = _CHILD.format(cpu=int(wall) + 1, memory=CADL_MEMORY_LIMIT if memory else 0,
+                             fsize=CADL_FILE_LIMIT, pids=str(pids))
+        command = [sys.executable, "-c", code, args[0], str(path), *args[1:]]
+        out_path, err_path = Path(tmp) / "stdout", Path(tmp) / "stderr"
+        with open(out_path, "wb") as out, open(err_path, "wb") as err:
+            proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp,
+                                    start_new_session=(os.name == "posix"))
+            try:
+                proc.wait(timeout=wall)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill(proc)
+            if timed_out or proc.returncode != 0:
+                # also after a crash of cadl, which can leave PRISM running
+                _kill_recorded(pids)
+        name = f"`cadl {args[0]}`"
+        result = {"status": proc.returncode, "stdout": "", "stderr": "", "failure": None,
+                  "transient": False}
+        stderr = _read_capped(err_path).replace(str(path), "the design")
+        if workdir:
+            stderr = stderr.replace(workdir, "")
+        if timed_out:
+            result["failure"] = f"{name} did not finish within {wall:g} s; nothing is claimed."
+            result["transient"] = True
+        elif proc.returncode is not None and proc.returncode < 0:
+            result["failure"] = (f"{name} was stopped at a limit of CPU time, memory or file size "
+                                 f"of this app; nothing is claimed.")
+            result["transient"] = True
+        elif "Traceback (most recent call last)" in stderr:
+            result["transient"] = "MemoryError" in stderr
+            result["failure"] = (f"{name} ran out of the memory this app allows; nothing is claimed."
+                                 if "MemoryError" in stderr else
+                                 f"{name} failed with an internal error; nothing is claimed.")
+        elif out_path.stat().st_size > MAX_OUTPUT_BYTES:
+            result["failure"] = (f"The report of {name} is larger than "
+                                 f"{MAX_OUTPUT_BYTES >> 20} MB and is not shown.")
+        if result["failure"] is None:
+            result["stdout"] = out_path.read_text(encoding="utf-8", errors="replace").replace(
+                str(path), "the design")
+            result["stderr"] = stderr
+        return result
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    """Kill the child and its process group (the processes it starts in its own
+    session, such as PRISM, are killed by _kill_recorded)."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, 9)
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    proc.wait()
+
+
+def _kill_recorded(pids: Path) -> None:
+    """Kill the process group of every process that the child recorded."""
+    try:
+        recorded = [int(x) for x in pids.read_text().split() if x.isdigit()]
+    except OSError:
+        return
+    own_group = os.getpgid(0) if os.name == "posix" else None
+    for pid in recorded:
+        if pid == os.getpid():
+            continue
+        if os.name == "posix":
+            # cadl starts PRISM in its own session, so a recorded process that is
+            # still ours leads its own group; a reused pid of an unrelated process
+            # (or of this app's group) is left alone
+            try:
+                group = os.getpgid(pid)
+            except (ProcessLookupError, PermissionError, OSError):
+                continue
+            if group != pid or group == own_group:
+                continue
+        for kill in ((os.killpg, os.kill) if os.name == "posix" else (os.kill,)):
+            try:
+                kill(pid, 9)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+
+def _read_capped(path: Path, limit: int = 1 << 16) -> str:
+    with open(path, "rb") as f:
+        return f.read(limit).decode("utf-8", errors="replace")
+
+
+def norms_indices(source: str) -> dict:
+    """The derived indices of grounding 0.1 (Appendix J, J.4), as `cadl norms-indices`
+    reports them: α̂, β̂ and χ per contract, and the indices of the SoS for two or
+    more contracts. {"report": the JSON of the command, "text": its text}.
+
+    Raises ValueError for a design without grounding 0.1 and norms 0.1, or with
+    type-check errors.
+    """
+    from cadl.grounding import GroundingError, format_report_text, report
+    from cadl.type_checker import type_check
+
+    sos = _parse(source)
+    try:
+        result = report(sos)
+    except GroundingError as e:
+        raise ValueError(str(e)) from None
+    check = type_check(sos)
+    if not check.ok:
+        raise ValueError(f"The indices are not computed while the design has "
+                         f"{len(check.errors)} type-check error(s).")
+    result = {"file": "the design", **result}
+    return {"report": result, "text": format_report_text(result)}
+
+
+GAME_CHECK_TIMEOUT = 120.0
+
+
+def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_TIMEOUT) -> dict:
+    """The equilibrium checks of a strategic model (games 0.1, Appendix I, I.8) and,
+    with `certify`, its equilibrium maps (I.9), as `cadl game-check [--certify]`
+    reports them, run in a bounded subprocess (see _run_cadl).
+
+    Returns {"status", "text", "errors", "failure"}. Exit status 0: every
+    requested result was computed; 1: a map did not reach its resolution or a
+    query was not evaluated; 2: nothing can be claimed (`errors` says why).
+    `failure` is set, and nothing is claimed, when the command did not finish,
+    hit a limit or failed with an internal error. Never raises for a design
+    that parses.
+    """
+    run = _run_cadl(["game-check"] + (["--certify"] if certify else []), source, timeout)
+    return {"status": run["status"], "text": run["stdout"].rstrip(),
+            "errors": _usage_error(run["stderr"]), "failure": run["failure"],
+            "transient": run["transient"]}
+
+
+def _usage_error(stderr: str) -> str:
+    """stderr of a command, with argparse's usage text cut to its last line."""
+    text = stderr.strip()
+    return text.splitlines()[-1] if text.startswith("usage:") else text
+
+
+NORMS_CHECK_TIMEOUT = 60.0
+MAX_NORMS_CHECK_TIMEOUT = 120.0     # the largest --timeout the page passes
+
+
+def prism_available() -> bool:
+    """Whether PRISM, which `cadl norms-check` runs, is on PATH (it is not on
+    Streamlit Community Cloud)."""
+    try:
+        from cadl.norms_check import find_checker
+    except ImportError:         # a cadl before 0.3.25
+        return False
+    return find_checker() is not None
+
+
+def norms_contracts(source: str) -> List[str]:
+    """The contracts with norms (norms 0.1) that `cadl norms-check` can be asked about."""
+    if "norms" not in extensions_in_effect(source):
+        return []
+    return [c.id for c in _parse(source).contracts if getattr(c, "norms", None)]
+
+
+def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
+                members: Optional[List[str]] = None, step: Optional[str] = None,
+                horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
+                budget: float = BUILD_BUDGET) -> dict:
+    """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
+    one contract instance, translated into a model for PRISM and checked over every
+    behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
+    the command line; `timeout` bounds the runs of PRISM together (`--timeout`;
+    at most MAX_NORMS_CHECK_TIMEOUT).
+    The command runs in a subprocess (see _run_cadl) that is stopped after
+    `timeout + budget` seconds, since building the model is not bounded by
+    `--timeout`.
+
+    Returns {"report", "text", "zip", "files", "notice", "failure"}: the JSON
+    report of the command and its text, the model, property files and witnesses
+    as one zip (None when they exceed MAX_EXPORT_BYTES, which `notice` says), and
+    `failure` instead of a report when the design cannot be checked, PRISM
+    exceeded the timeout, or the command did not finish, hit a limit or failed;
+    `transient` as in _run_cadl.
+    When PRISM is not on PATH, `report["checked"]` is False and nothing was
+    checked. Never raises for a design that parses.
+    """
+    from cadl.norms_check import format_text
+
+    timeout = min(float(timeout), MAX_NORMS_CHECK_TIMEOUT)
+    out = {"report": None, "text": "", "zip": None, "files": [], "notice": None, "failure": None,
+           "transient": False}
+    with tempfile.TemporaryDirectory() as tmp:
+        export_dir = Path(tmp) / "export"
+        args = ["norms-check", "--format", "json", "--export", str(export_dir),
+                "--timeout", f"{timeout:g}"]
+        if contract:
+            args += ["--contract", contract]
+        for value in bindings or []:
+            args += ["--bindings", value]
+        for value in members or []:
+            args += ["--members", value]
+        if step:
+            args += ["--step", step]
+        if horizon:
+            args += ["--horizon", str(int(horizon))]
+        run = _run_cadl(args, source, timeout + budget, memory=not prism_available(),
+                        workdir=tmp)
+        if run["failure"]:
+            out["failure"], out["transient"] = run["failure"], run["transient"]
+            if "did not finish" in run["failure"]:
+                out["failure"] += (f" The limit is the timeout of PRISM and {budget:g} s to build "
+                                   "the model; a coarser step, a smaller horizon or fewer members "
+                                   "make the model smaller, or run `cadl norms-check` on your "
+                                   "machine.")
+            return out
+        if run["status"] == 2 or not run["stdout"].strip():
+            errors = [line[len("Error: "):] if line.startswith("Error: ") else line
+                      for line in _usage_error(run["stderr"]).splitlines()]
+            message = " ".join(errors).replace(str(export_dir) + os.sep, "").strip()
+            out["failure"] = (message or "`cadl norms-check` gave no report") + "; nothing is claimed."
+            return out
+        report = json.loads(run["stdout"])
+        report["file"] = "the design"
+        for key in ("exported",):
+            report.pop(key, None)
+        for item in [e for n in report.get("norms", []) for e in n.values() if isinstance(e, dict)] + \
+                [w for c in report.get("conflicts", []) for w in c.get("witnesses", [])]:
+            w = item.get("witness", item)
+            if isinstance(w, dict):
+                w.pop("file", None)     # the text shows the choices, not a temporary path
+        out["report"] = report
+        out["text"] = format_text(report)
+        files = sorted(p for p in export_dir.iterdir() if p.is_file()) if export_dir.is_dir() else []
+        out["files"] = [p.name for p in files]
+        size = sum(p.stat().st_size for p in files)
+        if size > MAX_EXPORT_BYTES:
+            out["notice"] = (f"The model, property files and witnesses take {size / (1 << 20):.0f} MB, "
+                             f"more than {MAX_EXPORT_BYTES >> 20} MB, so they are not offered for "
+                             f"download; run `cadl norms-check --export DIR` on your machine.")
+        elif files:
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for p in files:
+                    zf.write(p, p.name)
+            out["zip"] = buffer.getvalue()
+    return out
+
+
+def norms_monitor_notes(source: str, target: str) -> dict:
+    """The norms monitors that the OPA or Solidity target generates for a design
+    with norms 0.1 (Appendix D, D.5; cadl 0.3.25), and what `cadl codegen` warns
+    about them: {"files": [monitor files], "warnings": [texts]}. Empty for other
+    targets and designs."""
+    out: dict = {"files": [], "warnings": []}
+    try:
+        from cadl.codegen import norms_monitors
+        monitors = norms_monitors(_parse(source), target)
+    except Exception:           # an older cadl, or a design that does not generate
+        return out
+    for m in monitors:
+        cid, name = m["contract"], m["file"]
+        if m["text"] is None:
+            out["warnings"].append(
+                f"Contract {cid}: no norms monitor is generated for this target, so its norms, "
+                f"counts-as rules and items are not monitored ({'; '.join(m['reasons'])}); the "
+                f"Python target monitors them (norms_monitor.py).")
+            continue
+        out["files"].append(name)
+        for norm in m.get("gas", []):
+            out["warnings"].append(
+                f"Contract {cid}, norm {norm}: its content has a temporal operator; in {name} "
+                f"each observation inside an open window of it costs about 4 x 10^4 gas on every "
+                f"later observation until the window closes.")
+        for key, pos, text, reason in m["left_out"]:
+            out["warnings"].append(
+                f"The {key} item {pos} of contract {cid} is not monitored by {name} ({reason}): "
+                f"`{text}`.")
+    return out
 
 
 def export_codegen_zip(source: str, target: str) -> bytes:

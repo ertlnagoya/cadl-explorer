@@ -172,6 +172,24 @@ The app has four pages:
   checks and coverage, and an amendment between two versions with norms is
   checked with `cadl norms-diff`; a design with agents 0.1 can be exported as
   agent policies (Rego, Cedar), and one with stochastic 0.1 as PRISM files.
+  The extensions of 0.3.23 to 0.3.25 are read too: the read-back states a strategic model
+  (games 0.1), the information items and derived indices of a contract
+  (grounding 0.1), and how cadl reads a wildcard reference such as
+  `ROBOT[*].battery > 10` in a norm, with the N-15 warnings. **Checks** shows
+  `cadl norms-indices` and runs, on a button, `cadl game-check` (also
+  `--certify`) and `cadl norms-check`, which needs PRISM on PATH (without it,
+  it says that nothing was checked, as on Streamlit Community Cloud). These
+  two run in a subprocess that is stopped after a time limit (120 s for
+  game-check; for norms-check the PRISM timeout and 30 s to build the model)
+  and, on POSIX, at limits of CPU time, file size and, without PRISM, memory
+  (1 GiB); PRISM is stopped with it. At most two such runs take place at once
+  on one server; a further one is refused with a request to try again. The
+  timeout of norms-check is at most 120 s. A crash of cadl is reported as
+  such, and nothing is claimed then. The model and witnesses of norms-check
+  are offered for download up to 10 MB. **Export** lists the norms
+  monitors of the OPA and Solidity code with their warnings, and, for agents
+  0.1, names `cadl mcp-gateway`, `cadl a2a-gateway` and `cadl audit-verify`,
+  which the Explorer does not run.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
