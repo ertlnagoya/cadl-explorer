@@ -172,6 +172,16 @@ The app has four pages:
   checks and coverage, and an amendment between two versions with norms is
   checked with `cadl norms-diff`; a design with agents 0.1 can be exported as
   agent policies (Rego, Cedar), and one with stochastic 0.1 as PRISM files.
+  The extensions of 0.3.23 to 0.3.25 are read too: the read-back states a strategic model
+  (games 0.1), the information items and derived indices of a contract
+  (grounding 0.1), and how cadl reads a wildcard reference such as
+  `ROBOT[*].battery > 10` in a norm, with the N-15 warnings. **Checks** runs
+  `cadl norms-indices`, `cadl game-check` (also `--certify`) and `cadl
+  norms-check`, which needs PRISM on PATH (without it, it says that nothing
+  was checked, as on Streamlit Community Cloud). **Export** lists the norms
+  monitors of the OPA and Solidity code with their warnings, and, for agents
+  0.1, names `cadl mcp-gateway`, `cadl a2a-gateway` and `cadl audit-verify`,
+  which the Explorer does not run.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.

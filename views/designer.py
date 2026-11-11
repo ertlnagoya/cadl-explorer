@@ -6,6 +6,8 @@ The source text in st.session_state.design_src is the single source of
 truth; forms read it and write it back.
 """
 
+from __future__ import annotations
+
 import csv
 import hashlib
 import io
@@ -660,6 +662,177 @@ def cached_norms_diff(old_source: str, new_source: str):
     return ds.norms_diff(old_source, new_source)
 
 
+@st.cache_data(show_spinner=False, max_entries=32)
+def cached_monitor_notes(source: str, target: str) -> dict:
+    return ds.norms_monitor_notes(source, target)
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def cached_norms_indices(source: str) -> dict:
+    return ds.norms_indices(source)
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def cached_game_check(source: str, certify: bool = False) -> dict:
+    return ds.game_check(source, certify)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
+                       step: str, horizon: int, timeout: float) -> dict:
+    return ds.norms_check(source, contract or None, list(bindings), list(members), step or None,
+                          horizon or None, timeout)
+
+
+def _extension_checks(source: str, extensions: frozenset):
+    """The design-time checks that cadl offers for the extensions in effect:
+    `cadl norms-indices` (grounding 0.1), `cadl game-check` (games 0.1) and
+    `cadl norms-check` (norms 0.1)."""
+    st.markdown("**Checks of the extensions**")
+    st.caption("Commands of cadl that check the norms and the strategic model of the design "
+               "before it runs. They are separate from the checks above.")
+    if "grounding" in extensions:
+        with st.expander("Derived indices (grounding 0.1): `cadl norms-indices`"):
+            st.caption("α̂, β̂ and χ of each contract, derived from its norms and compared with the "
+                       "declared α and β (Appendix J, J.4); for two or more contracts also the "
+                       "indices of the SoS. The comparisons are the warnings J-6 to J-8 under "
+                       "Type check.")
+            try:
+                indices = cached_norms_indices(source)
+            except Exception as e:
+                st.error(f"Not computed: {e}")
+            else:
+                st.code(indices["text"], language="text")
+    if "games" in extensions:
+        with st.expander("Equilibria (games 0.1): `cadl game-check`", expanded=True):
+            st.caption("Whether each named profile is an equilibrium at the fixed values of the "
+                       "parameters, with exact arithmetic (Appendix I, I.8). The equilibrium maps "
+                       "(entries with `over:`) are computed only on request, as certified cells "
+                       "(I.9; `--certify`).")
+            certify = st.checkbox("Also compute the equilibrium maps (--certify)",
+                                  key="design_game_certify")
+            try:
+                with st.spinner("Running cadl game-check ..."):
+                    game = cached_game_check(source, certify)
+            except TimeoutError as e:
+                st.error(f"{e}; nothing is claimed.")
+            except Exception as e:
+                st.error(f"Not run: {e}")
+            else:
+                if game["status"] == 2:
+                    st.error("Nothing can be claimed: " + (game["errors"] or "see the report."))
+                elif game["status"] == 1:
+                    st.warning("A map did not reach its resolution, or a query was not evaluated.")
+                if game["text"]:
+                    st.code(game["text"], language="text")
+    if "norms" in extensions:
+        _norms_check_section(source)
+
+
+def _norms_check_section(source: str):
+    contracts = ds.norms_contracts(source)
+    with st.expander("Norms over all behaviours (norms 0.1): `cadl norms-check`"):
+        st.caption(
+            "The norms of one contract instance are translated into a model for PRISM, which "
+            "answers over every behaviour up to the horizon whether each norm can be activated, "
+            "violated and fulfilled, whether every activation can be kept, which obligations and "
+            "prohibitions are in conflict, and whether powers and reparations are used. Every "
+            "answer \"possible\" comes with a witness trace that the norms engine confirms "
+            "(Appendix F, F.12). Predicates with quantifiers, aggregates or arithmetic are not "
+            "translated.")
+        if not contracts:
+            st.caption("No contract has norms.")
+            return
+        if not ds.prism_available():
+            st.info("PRISM is not installed where this app runs, so `cadl norms-check` checks "
+                    "nothing here; it still writes the model, which you can download and check "
+                    "with PRISM on your machine.")
+        c1, c2, c3 = st.columns(3)
+        contract = c1.selectbox("Contract", contracts, key="design_nc_contract")
+        bindings = c2.text_input("Bindings (i=n, ...)", key="design_nc_bindings",
+                                 help="Index values of the instance (--bindings); by default the "
+                                      "lower bound of each set.")
+        members = c3.text_input("Members (SET=n, ...)", key="design_nc_members",
+                                help="Number of members of a set in the instance (--members).")
+        c4, c5, c6 = st.columns(3)
+        step = c4.text_input("Step", key="design_nc_step", placeholder="from the durations",
+                             help="Time between two observations, such as 1s (--step).")
+        horizon = c5.number_input("Horizon (0: default)", min_value=0, max_value=1000, step=1,
+                                  key="design_nc_horizon",
+                                  help="Last observation of an instance (--horizon).")
+        timeout = c6.number_input("Timeout (s)", min_value=1, max_value=600,
+                                  value=int(ds.NORMS_CHECK_TIMEOUT), step=10,
+                                  key="design_nc_timeout",
+                                  help="Time for all runs of PRISM together (--timeout).")
+        options = (source, contract, tuple(ds.split_list(bindings)), tuple(ds.split_list(members)),
+                   step.strip(), int(horizon), float(timeout))
+        if st.button("Run norms-check", key="design_nc_run"):
+            ss.design_nc_options = options
+        if ss.get("design_nc_options") != options:
+            return
+        try:
+            with st.spinner("Running cadl norms-check ..."):
+                result = cached_norms_check(*options)
+        except Exception as e:
+            st.error(f"Not checked: {e}")
+            return
+        _norms_check_report(result)
+
+
+def _yes(entry) -> str:
+    if not isinstance(entry, dict) or "answer" not in entry:
+        return "-"
+    return "yes" if entry["answer"] else "no"
+
+
+def _norms_check_report(result: dict):
+    report = result["report"]
+    if not report.get("checked"):
+        st.warning(f"Nothing was checked: {report.get('skipped')}")
+    elif report.get("unconfirmed"):
+        st.error("A witness is not confirmed by the norms engine (an error of norms-check): "
+                 + "; ".join(map(str, report["unconfirmed"])))
+    elif report.get("findings"):
+        st.warning("Findings:\n" + "\n".join(f"- {f}" for f in report["findings"]))
+    elif report.get("runs"):
+        st.success("No finding.")
+    else:
+        st.info("Nothing to ask the model checker: no norm is translated.")
+    if report.get("checked") and report.get("runs"):
+        rows = [{"norm": n["id"], "kind": n["kind"], "activated": _yes(n.get("activatable")),
+                 "violable": _yes(n.get("violable")), "fulfillable": _yes(n.get("fulfillable")),
+                 "kept": _yes(n.get("keepable")), "unavoidable": _yes(n.get("unavoidable")),
+                 "exercised": _yes(n.get("exercisable")), "reparation": _yes(n.get("reparation"))}
+                for n in report["norms"] if n["status"] == "model"]
+        st.dataframe(rows, hide_index=True, width="stretch")
+        st.caption("*kept*: every activation can be kept; *unavoidable*: violated in every "
+                   "instance that runs to the horizon; -: the question does not apply.")
+        if report["conflicts"]:
+            st.markdown("*Conflicts*")
+        for c in report["conflicts"]:
+            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}: after {c.get('prefix', '?')} "
+                        "observation(s), keeping one violates the other.")
+            for w in c.get("witnesses", []):
+                st.markdown(_md(f"    - keep {w['keeps']}: {w['claim']}"
+                                f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
+                                f"norms-eval): " + "; ".join(
+                                    f"#{k} `{x}`" for k, x in enumerate(w["choices"]))))
+    untranslated = [n for n in report["norms"] if n["status"] != "model"]
+    if untranslated:
+        st.markdown("*Not translated*")
+        for n in untranslated:
+            st.markdown(_md(f"- {n['id']}: {n['reason']}"))
+    with st.expander("The report of norms-check, with every witness"):
+        st.code(result["text"], language="text")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, text in result["files"].items():
+            zf.writestr(name, text)
+    st.download_button(f"Model, properties and witnesses ({len(result['files'])} files, .zip)",
+                       buffer.getvalue(), file_name=f"{report['contract']}.norms-check.zip",
+                       mime="application/zip", key="design_nc_download")
+
+
 if "design_src" not in ss:
     ss.design_src = (
         ds.load_example(DEFAULT_EXAMPLE) if DEFAULT_EXAMPLE in ds.list_examples() else ds.NEW_DESIGN)
@@ -1174,6 +1347,11 @@ with col_view:
             with st.expander(cid, expanded=len(described) <= 2):
                 for line in lines:
                     st.markdown(_md(f"- {line}"))
+        game_lines = readback.describe_model(source)
+        if game_lines:
+            st.markdown("**Strategic model**")
+            for line in game_lines:
+                st.markdown(_md(f"- {line}"))
 
         actor_ids = [str(a.get("id")) for a in ir["institution"].get("actors") or []]
         if actor_ids:
@@ -1230,6 +1408,9 @@ with col_view:
         with st.expander("Not checked"):
             for item in ds.NOT_CHECKED:
                 st.markdown(f"- {item}")
+        extensions = ds.extensions_in_effect(source)
+        if extensions & {"norms", "games", "grounding"}:
+            _extension_checks(source, extensions)
 
     elif view == "Versions":
         st.caption(
@@ -1449,13 +1630,31 @@ with col_view:
         notes = []
         if "norms" in extensions:
             notes.append("With norms 0.1, the Python runtime includes `norms_monitor.py`, an online "
-                         "monitor of the norms and of every `assume` / `guarantee` item; the other "
-                         "targets leave out the items with `within`, `throughout` or `until`.")
+                         "monitor of the norms and of every `assume` / `guarantee` item. The OPA "
+                         "and Solidity targets include a norms monitor per contract "
+                         "(`norms_monitor_<contract>.rego`, `<Contract>NormsMonitor.sol`) that "
+                         "follows the norms observation by observation (Appendix D, D.5); a "
+                         "contract with a quantifier, an aggregate, a wildcard or range reference "
+                         "in a norm, a counts-as rule or an `assume:` item gets none. Unity C# "
+                         "leaves out the items with `within`, `throughout` or `until`.")
         if "agents" in extensions:
             notes.append("The agent policies (agents 0.1) decide the messages at the enforcement "
-                         "point; the Cedar policies cover the statically decidable norms only.")
+                         "point; the Cedar policies cover the statically decidable norms only. "
+                         "cadl also runs the contract in front of agents: `cadl mcp-gateway` "
+                         "decides every tool call of an MCP agent and `cadl a2a-gateway` every "
+                         "message of an A2A agent, holding the calls that need approval, and "
+                         "`cadl audit-verify` checks their tamper-evident audit log "
+                         f"([Appendix G]({SPEC_URL}docs/spec/appendix-g-agents), G.8, G.11, "
+                         "G.13). The Explorer does not run them.")
         for note in notes:
             st.caption(note)
+        monitors = cached_monitor_notes(source, code_target) if "norms" in extensions else None
+        if monitors and (monitors["files"] or monitors["warnings"]):
+            if monitors["files"]:
+                st.caption("Norms monitors in this archive: "
+                           + ", ".join(f"`{f}`" for f in monitors["files"]) + ".")
+            for warning in monitors["warnings"]:
+                st.warning(_md(warning), icon=":material/warning:")
 
         if "stochastic" in extensions:
             st.markdown("**Stochastic model (PRISM)**")

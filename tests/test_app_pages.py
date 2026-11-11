@@ -517,3 +517,69 @@ def test_designer_exports_and_compares_the_extensions():
     assert not at.exception
     assert any("acknowledge: carries over, and deadline changes" in m.value for m in at.markdown)
     assert any("Nothing prevents the amendment." in s.value for s in at.success)
+
+
+def test_designer_reads_back_and_checks_games_and_grounding():
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("games grounding robot delivery")), "Read-back")
+    assert not at.exception
+    assert any(m.value == "**Strategic model**" for m in at.markdown)
+    assert any("R chooses `careful` or `careless`." in m.value for m in at.markdown)
+    at = _view(at, "Checks")
+    assert not at.exception
+    codes = [c.value for c in at.code]
+    assert any("Equilibrium check 'comply_nash'" in c and "deviators: R" in c for c in codes)
+    assert any(c.startswith("Derived indices of the design") for c in codes)
+    at.checkbox(key="design_game_certify").check().run()
+    assert any("lambda in [0.15625, 1]: equilibrium" in c.value for c in at.code)
+
+
+def _norms_check(at):
+    from backend.services import design_service as ds
+    at = _view(_set_design(at, ds.load_example("norms check conflict")), "Checks")
+    assert not at.exception
+    return _click(at, "Run norms-check")
+
+
+def test_designer_runs_norms_check(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    if not ds.prism_available():
+        pytest.skip("PRISM (prism) is not on PATH")
+    import streamlit as st
+    st.cache_data.clear()
+    at = _norms_check(_designer())
+    assert not at.exception
+    assert any("report_status and radio_silence are in conflict" in w.value for w in at.warning)
+    norms = next(d.value for d in at.dataframe if "violable" in d.value.columns)
+    assert list(norms["norm"]) == ["report_status", "apologise", "radio_silence", "audit"]
+    assert any("keep radio_silence: report_status violated (confirmed by norms-eval)" in m.value
+               for m in at.markdown)
+    assert any("Model, properties and witnesses" in b.label for b in at.get("download_button"))
+
+
+def test_designer_says_that_norms_check_checked_nothing_without_prism(monkeypatch):
+    pytest.importorskip("cadl.norms_check")
+    import cadl.norms_check as nc
+    import streamlit as st
+    monkeypatch.setattr(nc, "find_checker", lambda: None)
+    st.cache_data.clear()
+    at = _norms_check(_designer())
+    assert not at.exception
+    assert any("PRISM is not installed where this app runs" in i.value for i in at.info)
+    assert any(w.value.startswith("Nothing was checked: no model checker found") for w in at.warning)
+    assert not any(s.value == "No finding." for s in at.success)
+
+
+def test_designer_exports_the_norms_monitors_and_names_the_gateways():
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    at = _view(_set_design(_designer(), ds.load_example("norms no double assignment")), "Export")
+    at.selectbox(key="design_code_target").set_value("opa").run()
+    assert not at.exception
+    assert any("no norms monitor is generated" in w.value for w in at.warning)
+    at = _set_design(at, ds.load_example("norms check conflict"))
+    assert any("`norms_monitor_status_reporting.rego`" in c.value for c in at.caption)
+    at = _set_design(at, ds.load_example("agents tool governance"))
+    assert any("`cadl a2a-gateway`" in c.value and "`cadl audit-verify`" in c.value for c in at.caption)

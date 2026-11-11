@@ -21,6 +21,8 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import zipfile
 from dataclasses import asdict, dataclass, field
@@ -1471,8 +1473,10 @@ def export_sim_config(source: str, target: str) -> str:
 @functools.lru_cache(maxsize=64)
 def extensions_in_effect(source: str) -> frozenset:
     """The extensions that cadl reads in this design: "norms" (norms 0.1),
-    "agents" (agents 0.1 together with norms 0.1) and "stochastic"
-    (stochastic 0.1). Decided by cadl itself; a design that does not parse has none."""
+    "agents" (agents 0.1 together with norms 0.1), "stochastic"
+    (stochastic 0.1), "games" (games 0.1 together with stochastic 0.1) and
+    "grounding" (grounding 0.1 together with norms 0.1). Decided by cadl
+    itself; a design that does not parse has none."""
     try:
         sos = _parse(source or "")
     except Exception:
@@ -1480,12 +1484,16 @@ def extensions_in_effect(source: str) -> frozenset:
     found = set()
     for name, module, test in (("norms", "cadl.norms", "norms_declared"),
                                ("agents", "cadl.agents", "agents_active"),
-                               ("stochastic", "cadl.stochastic", "stochastic_declared")):
+                               ("stochastic", "cadl.stochastic", "stochastic_declared"),
+                               ("games", "cadl.games", "games_declared"),
+                               ("grounding", "cadl.grounding", "grounding_active")):
         try:
             if getattr(importlib.import_module(module), test)(sos):
                 found.add(name)
         except (ImportError, AttributeError):
             pass                # a cadl without the extension
+    if "stochastic" not in found:
+        found.discard("games")  # the strategic model is a `model:` block of Appendix H
     return frozenset(found)
 
 
@@ -1547,6 +1555,151 @@ def prism_files(source: str) -> Dict[str, str]:
         return export_prism(analyse(sos).model)
     except ExportError as e:
         raise ValueError(str(e)) from e
+
+
+def _cadl_cli(args: List[str], source: str, timeout: float) -> tuple:
+    """Run `cadl ARGS design.cadl` in a subprocess with the design in a temporary
+    file, as the command line does; (exit status, stdout, stderr), with the
+    temporary path replaced by "the design". Raises TimeoutError after `timeout` s."""
+    _parse(source)                  # the input limits of the page
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "design.cadl"
+        path.write_text(source, encoding="utf-8")
+        command = [sys.executable, "-c", "import sys; from cadl.cli import main; sys.exit(main())",
+                   args[0], str(path), *args[1:]]
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, timeout=timeout, cwd=tmp)
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f"`cadl {args[0]}` did not finish within {timeout:g} s") from None
+        return (done.returncode, done.stdout.replace(str(path), "the design"),
+                done.stderr.replace(str(path), "the design"))
+
+
+def norms_indices(source: str) -> dict:
+    """The derived indices of grounding 0.1 (Appendix J, J.4), as `cadl norms-indices`
+    reports them: α̂, β̂ and χ per contract, and the indices of the SoS for two or
+    more contracts. {"report": the JSON of the command, "text": its text}.
+
+    Raises ValueError for a design without grounding 0.1 and norms 0.1, or with
+    type-check errors.
+    """
+    from cadl.grounding import GroundingError, format_report_text, report
+    from cadl.type_checker import type_check
+
+    sos = _parse(source)
+    try:
+        result = report(sos)
+    except GroundingError as e:
+        raise ValueError(str(e)) from None
+    check = type_check(sos)
+    if not check.ok:
+        raise ValueError(f"The indices are not computed while the design has "
+                         f"{len(check.errors)} type-check error(s).")
+    result = {"file": "the design", **result}
+    return {"report": result, "text": format_report_text(result)}
+
+
+GAME_CHECK_TIMEOUT = 120.0
+
+
+def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_TIMEOUT) -> dict:
+    """The equilibrium checks of a strategic model (games 0.1, Appendix I, I.8) and,
+    with `certify`, its equilibrium maps (I.9), as `cadl game-check [--certify]`
+    reports them. {"status": exit status, "text": the report, "errors": stderr}.
+
+    Exit status 0: every requested result was computed; 1: a map did not reach its
+    resolution or a query was not evaluated; 2: nothing can be claimed. Raises
+    TimeoutError after `timeout` seconds (nothing is claimed then).
+    """
+    status, out, err = _cadl_cli(["game-check"] + (["--certify"] if certify else []),
+                                 source, timeout)
+    return {"status": status, "text": out.rstrip(), "errors": err.strip()}
+
+
+NORMS_CHECK_TIMEOUT = 60.0
+
+
+def prism_available() -> bool:
+    """Whether PRISM, which `cadl norms-check` runs, is on PATH (it is not on
+    Streamlit Community Cloud)."""
+    try:
+        from cadl.norms_check import find_checker
+    except ImportError:         # a cadl before 0.3.25
+        return False
+    return find_checker() is not None
+
+
+def norms_contracts(source: str) -> List[str]:
+    """The contracts with norms (norms 0.1) that `cadl norms-check` can be asked about."""
+    if "norms" not in extensions_in_effect(source):
+        return []
+    return [c.id for c in _parse(source).contracts if getattr(c, "norms", None)]
+
+
+def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
+                members: Optional[List[str]] = None, step: Optional[str] = None,
+                horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT) -> dict:
+    """`cadl norms-check` (Appendix F, F.12): the norms of one contract instance,
+    translated into a model for PRISM and checked over every behaviour up to the
+    horizon. `bindings` and `members` are "name=n" texts, as on the command line.
+
+    Returns {"report": the JSON of the command, "text": its text report, "files":
+    {name: text} of the model, the property files and the witnesses (`--export`)}.
+    When PRISM is not on PATH, `report["checked"]` is False and nothing was checked.
+    Raises ValueError for a design that cannot be checked (also when PRISM exceeds
+    `timeout` seconds, which bounds all its runs together, as `--timeout` does).
+    """
+    from cadl.norms_check import build_model, check, export, format_text
+    from cadl.norms_eval import NormsEvalError, load_version
+
+    _parse(source)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "design.cadl"
+        path.write_text(source, encoding="utf-8")
+        try:
+            sos = load_version(path)
+            model = build_model(sos, contract, bindings or [], members or [], step, horizon)
+            report = check(model, None, timeout)
+        except NormsEvalError as e:
+            raise ValueError(str(e).replace(str(path), "the design")) from None
+        report["file"] = "the design"
+        text = format_text(report)
+        out = Path(tmp) / "export"
+        export(model, copy.deepcopy(report), out)
+        files = {p.name: p.read_text(encoding="utf-8") for p in sorted(out.iterdir()) if p.is_file()}
+    return {"report": report, "text": text, "files": files}
+
+
+def norms_monitor_notes(source: str, target: str) -> dict:
+    """The norms monitors that the OPA or Solidity target generates for a design
+    with norms 0.1 (Appendix D, D.5; cadl 0.3.25), and what `cadl codegen` warns
+    about them: {"files": [monitor files], "warnings": [texts]}. Empty for other
+    targets and designs."""
+    out: dict = {"files": [], "warnings": []}
+    try:
+        from cadl.codegen import norms_monitors
+        monitors = norms_monitors(_parse(source), target)
+    except Exception:           # an older cadl, or a design that does not generate
+        return out
+    for m in monitors:
+        cid, name = m["contract"], m["file"]
+        if m["text"] is None:
+            out["warnings"].append(
+                f"Contract {cid}: no norms monitor is generated for this target, so its norms, "
+                f"counts-as rules and items are not monitored ({'; '.join(m['reasons'])}); the "
+                f"Python target monitors them (norms_monitor.py).")
+            continue
+        out["files"].append(name)
+        for norm in m.get("gas", []):
+            out["warnings"].append(
+                f"Contract {cid}, norm {norm}: its content has a temporal operator; in {name} "
+                f"each observation inside an open window of it costs about 4 x 10^4 gas on every "
+                f"later observation until the window closes.")
+        for key, pos, text, reason in m["left_out"]:
+            out["warnings"].append(
+                f"The {key} item {pos} of contract {cid} is not monitored by {name} ({reason}): "
+                f"`{text}`.")
+    return out
 
 
 def export_codegen_zip(source: str, target: str) -> bytes:

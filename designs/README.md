@@ -9,11 +9,11 @@ kept identical to them. `sos_dsl_robot_delivery.cadl`,
 synchronised with `cadl` master after ertlnagoya/cadl#26 and #27, which
 declare every message of the examples in their interfaces (#26 also adds the
 protocol `DeliveryOrder`); `supply_chain.cadl` has not changed upstream
-since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.22. Any `*.cadl` file
+since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.25. Any `*.cadl` file
 placed here appears in the list.
 
 Three examples of the extensions added in `cadl-lang` 0.3.19 and 0.3.20 are
-copies of the upstream files of 0.3.22:
+copies of the upstream files of 0.3.22 (unchanged in 0.3.25):
 
 - `norms_robot_delivery.cadl` (norms 0.1, Appendix F): obligations with a
   contrary-to-duty obligation, a prohibition, a permission, a power and a
@@ -28,6 +28,25 @@ copies of the upstream files of 0.3.22:
   (Rego and Cedar). The Designer's **Checks** warn that the SoS has no type.
 - `stochastic_robot_delivery.cadl` (stochastic 0.1, Appendix H): a `model:`
   block with two designs. **Export** writes it as PRISM files.
+
+Four examples of the extensions added in `cadl-lang` 0.3.23 to 0.3.25 are
+copies of the upstream files of 0.3.25:
+
+- `games_grounding_robot_delivery.cadl` (games 0.1 and grounding 0.1,
+  Appendices I and J): a strategic model whose sanction comes from a norm.
+  **Read-back** states the players, profiles, payoffs and equilibrium
+  queries; **Checks** runs `cadl game-check` (with the equilibrium maps on
+  request) and `cadl norms-indices`.
+- `grounding_robot_delivery.cadl` (grounding 0.1, Appendix J): information
+  items, `shares:` and magnitudes. **Read-back** states the derived indices
+  (α̂ = 5/8, β̂ = 1/2, χ = 1/3); the **Checks** keep cadl's warning J-7 that
+  the declared β differs from its index.
+- `norms_no_double_assignment.cadl` (norms 0.1, F.5): a prohibition with
+  quantifiers. Under **Export**, the OPA and Solidity targets warn that this
+  contract gets no norms monitor.
+- `norms_check_conflict.cadl` (norms 0.1, F.12): norms in conflict, a
+  reparation that cannot be kept and a power that is never exercised, which
+  `cadl norms-check` under **Checks** finds where PRISM is installed.
 
 They are upstream examples of the extensions, so they keep their findings
 on the **Structure** and **Control structure** views (for example, no
