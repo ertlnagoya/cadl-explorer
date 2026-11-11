@@ -1656,7 +1656,8 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
             except subprocess.TimeoutExpired:
                 timed_out = True
                 _kill(proc)
-            if timed_out or (proc.returncode or 0) < 0:
+            if timed_out or proc.returncode != 0:
+                # also after a crash of cadl, which can leave PRISM running
                 _kill_recorded(pids)
         name = f"`cadl {args[0]}`"
         result = {"status": proc.returncode, "stdout": "", "stderr": "", "failure": None,
@@ -1705,7 +1706,20 @@ def _kill_recorded(pids: Path) -> None:
         recorded = [int(x) for x in pids.read_text().split() if x.isdigit()]
     except OSError:
         return
+    own_group = os.getpgid(0) if os.name == "posix" else None
     for pid in recorded:
+        if pid == os.getpid():
+            continue
+        if os.name == "posix":
+            # cadl starts PRISM in its own session, so a recorded process that is
+            # still ours leads its own group; a reused pid of an unrelated process
+            # (or of this app's group) is left alone
+            try:
+                group = os.getpgid(pid)
+            except (ProcessLookupError, PermissionError, OSError):
+                continue
+            if group != pid or group == own_group:
+                continue
         for kill in ((os.killpg, os.kill) if os.name == "posix" else (os.kill,)):
             try:
                 kill(pid, 9)
