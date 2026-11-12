@@ -449,3 +449,44 @@ def test_the_processes_that_cadl_starts_raise_the_soft_limits(tmp_path, monkeypa
     ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=10)
     soft_v, hard_v, soft_t, hard_t = limits.read_text().split()
     assert soft_v == hard_v and soft_t == hard_t
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_the_memory_watchdog_stops_the_cadl_process(monkeypatch):
+    monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 100 << 20)
+    monkeypatch.setattr(ds, "_CHILD", 'import time\nx = b"x" * (400 << 20)\ntime.sleep(30)\n')
+    start = time.monotonic()
+    run = ds.game_check(GAMES, timeout=30)
+    assert time.monotonic() - start < 10
+    assert run["failure"] == ("`cadl game-check` was stopped at the memory limit of this app "
+                              "(100 MB); nothing is claimed.")
+    assert run["transient"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_the_memory_watchdog_counts_prism(tmp_path, monkeypatch):
+    # a fake prism, started by cadl in a session of its own, takes 400 MB
+    import sys
+    pid_file = tmp_path / "prism.pid"
+    fake = tmp_path / "bin" / "prism"
+    fake.parent.mkdir()
+    fake.write_text(f"#!{sys.executable}\nimport os, time\n"
+                    f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+                    f"x = b'x' * (400 << 20)\ntime.sleep(30)\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 300 << 20)
+    start = time.monotonic()
+    result = ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=30)
+    assert time.monotonic() - start < 20
+    assert "was stopped at the memory limit of this app" in result["failure"]
+    pid = int(pid_file.read_text())
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        pytest.fail("the fake PRISM survived the memory limit")

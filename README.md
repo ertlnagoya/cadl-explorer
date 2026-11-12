@@ -181,9 +181,12 @@ The app has four pages:
   it says that nothing was checked, as on Streamlit Community Cloud). These
   two run in a subprocess that is stopped after a time limit (120 s for
   game-check; for norms-check its timeout, which bounds building the model
-  and PRISM, and 30 s more)
-  and, on POSIX, at limits of CPU time, file size and, without PRISM, memory
-  (1 GiB); PRISM is stopped with it. At most two such runs take place at once
+  and PRISM, and 30 s more). On POSIX the cadl process also has limits of
+  CPU time, file size and address space (1 GiB, where the system enforces it;
+  macOS does not), PRISM is bounded by its Java heap (1 GB, or
+  `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run whose processes,
+  PRISM included, take more than 1.5 GiB of memory together. PRISM is
+  stopped with its run. At most two such runs take place at once
   on one server; a further one is refused with a request to try again. The
   timeout of norms-check is at most 120 s. A crash of cadl is reported as
   such, and nothing is claimed then. The model and witnesses of norms-check

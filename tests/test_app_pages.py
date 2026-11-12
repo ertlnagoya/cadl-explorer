@@ -1,5 +1,6 @@
 """Smoke tests: every Streamlit page renders without exceptions."""
 import os
+import sys
 
 import pytest
 
@@ -552,7 +553,9 @@ class _Runs:
         self.count, real = 0, ds.subprocess.Popen
 
         def popen(*args, **kwargs):
-            self.count += 1
+            command = args[0] if args else kwargs.get("args")
+            if isinstance(command, list) and command[:2] == [sys.executable, "-c"]:
+                self.count += 1         # a run of cadl, not the `ps` of the memory watchdog
             return real(*args, **kwargs)
         monkeypatch.setattr(ds.subprocess, "Popen", popen)
 

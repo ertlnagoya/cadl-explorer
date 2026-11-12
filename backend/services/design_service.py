@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -1565,6 +1566,8 @@ CADL_FILE_LIMIT = 100 << 20         # largest file the command may write, bytes
 MAX_OUTPUT_BYTES = 5 << 20          # largest report read back
 MAX_EXPORT_BYTES = 10 << 20         # largest model and witnesses offered for download
 BUILD_BUDGET = 30.0                 # seconds for norms-check besides its --timeout
+MEMORY_WATCH_LIMIT = 3 << 29       # resident memory of a run, all its processes (1.5 GiB)
+WATCH_INTERVAL = 0.5                # seconds between two looks of the memory watchdog
 PRISM_JAVA_HEAP = "1g"              # CADL_PRISM_JAVAMAXMEM, unless the environment sets it
 
 _CHILD = """import os
@@ -1649,7 +1652,8 @@ def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] 
     threads); PRISM gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a
     session of its own, so the child records the pid of every process it starts,
     and each of their process groups is killed with the child's when the child does
-    not end by itself.
+    not end by itself. A watchdog kills them all when their resident memory exceeds
+    MEMORY_WATCH_LIMIT (POSIX; see _watch).
     At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
 
     Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
@@ -1682,12 +1686,7 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
             env.setdefault("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
             proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp, env=env,
                                     start_new_session=(os.name == "posix"))
-            try:
-                proc.wait(timeout=wall)
-                timed_out = False
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _kill(proc)
+            timed_out, over_memory = _watch(proc, pids, wall)
             if timed_out or proc.returncode != 0:
                 # also after a crash of cadl, which can leave PRISM running
                 _kill_recorded(pids)
@@ -1699,6 +1698,10 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
             stderr = stderr.replace(workdir, "")
         if timed_out:
             result["failure"] = f"{name} did not finish within {wall:g} s; nothing is claimed."
+            result["transient"] = True
+        elif over_memory:
+            result["failure"] = (f"{name} was stopped at the memory limit of this app "
+                                 f"({MEMORY_WATCH_LIMIT >> 20} MB); nothing is claimed.")
             result["transient"] = True
         elif proc.returncode is not None and proc.returncode < 0:
             result["failure"] = (f"{name} was stopped at a limit of CPU time, memory or file size "
@@ -1719,6 +1722,64 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
         return result
 
 
+def _watch(proc: subprocess.Popen, pids: Path, wall: float) -> tuple:
+    """Wait for the child for at most `wall` seconds; every WATCH_INTERVAL seconds
+    (POSIX) add up the resident memory of its process group and of the groups of
+    the processes it recorded, and kill the child above MEMORY_WATCH_LIMIT: macOS
+    does not take RLIMIT_AS, and PRISM runs without it. (timed out, over memory)."""
+    deadline = time.monotonic() + wall
+    while True:
+        left = deadline - time.monotonic()
+        try:
+            proc.wait(timeout=max(0.0, min(WATCH_INTERVAL, left)))
+            return False, False
+        except subprocess.TimeoutExpired:
+            pass
+        if time.monotonic() >= deadline:
+            _kill(proc)
+            return True, False
+        if os.name == "posix" and _groups_rss({proc.pid} | _recorded(pids)) > MEMORY_WATCH_LIMIT:
+            _kill(proc)
+            return False, True
+
+
+def _recorded(pids: Path) -> set:
+    try:
+        return {int(x) for x in pids.read_text().split() if x.isdigit()}
+    except OSError:
+        return set()
+
+
+def _groups_rss(groups: set) -> int:
+    """Resident memory, in bytes, of the processes in the process groups `groups`:
+    from /proc where it exists (Linux), else from one run of `ps` (macOS)."""
+    total = 0
+    proc_dir = Path("/proc")
+    if (proc_dir / "self" / "stat").exists():
+        page = os.sysconf("SC_PAGE_SIZE")
+        for entry in proc_dir.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text()
+            except OSError:
+                continue
+            fields = stat[stat.rfind(")") + 2:].split()     # after "pid (comm) "
+            if len(fields) > 21 and int(fields[2]) in groups:
+                total += int(fields[21]) * page
+        return total
+    try:
+        listing = subprocess.run(["ps", "-A", "-o", "pid=,pgid=,rss="], capture_output=True,
+                                 text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    for line in listing.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit() and int(parts[1]) in groups:
+            total += int(parts[2]) * 1024           # kilobytes
+    return total
+
+
 def _kill(proc: subprocess.Popen) -> None:
     """Kill the child and its process group (the processes it starts in its own
     session, such as PRISM, are killed by _kill_recorded)."""
@@ -1734,10 +1795,7 @@ def _kill(proc: subprocess.Popen) -> None:
 
 def _kill_recorded(pids: Path) -> None:
     """Kill the process group of every process that the child recorded."""
-    try:
-        recorded = [int(x) for x in pids.read_text().split() if x.isdigit()]
-    except OSError:
-        return
+    recorded = sorted(_recorded(pids))
     own_group = os.getpgid(0) if os.name == "posix" else None
     for pid in recorded:
         if pid == os.getpid():
