@@ -1,0 +1,34 @@
+# A small contract for the tests of norms-check with several instances and
+# with an amendment: one obligation and one prohibition per robot.
+sos:
+  name: "SmallReporting"
+  type: Acknowledged
+  extensions:
+    - norms: 0.1
+  actors:
+    - id: DISPATCHER
+      role: "coordinator"
+      interface:
+        input:  [report]
+        output: [request, quiet]
+    - id: "ROBOT[1..2]"
+      role: "robot"
+      interface:
+        input:  [request, quiet]
+        output: [report]
+  contracts:
+    - id: REPORTING
+      parties: [DISPATCHER, "ROBOT[*]"]
+      norms:
+        - id: answer
+          kind: obligation
+          bearer: "ROBOT[i]"
+          counterparty: DISPATCHER
+          trigger: "DISPATCHER -> ROBOT[i] : request"
+          content: "ROBOT[i] -> DISPATCHER : report"
+          deadline: 2s
+        - id: keep_quiet
+          kind: prohibition
+          bearer: "ROBOT[i]"
+          trigger: "DISPATCHER -> ROBOT[i] : quiet"
+          content: "ROBOT[i] -> DISPATCHER : report"

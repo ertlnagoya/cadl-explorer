@@ -135,14 +135,16 @@ def test_a_crash_of_cadl_is_not_a_result(monkeypatch):
         assert "someone" not in str(check) and "Traceback" not in str(check)
 
 
-@pytest.mark.skipif(not hasattr(__import__("sys"), "set_int_max_str_digits"),
-                    reason="this Python has no limit on the digits of an integer")
-def test_the_crash_reproducer_of_game_check():
-    # cadl 0.3.25 raises in games_eval on this file (more than 4300 digits)
-    crash = ds.game_check((DATA / "game_check_crash.cadl").read_text(encoding="utf-8"))
-    assert crash["failure"] == ("`cadl game-check` failed with an internal error; "
-                                "nothing is claimed.")
-    assert crash["text"] == "" and crash["errors"] == ""     # no traceback, no path
+def test_the_long_model_of_game_check_is_exact():
+    # cadl 0.3.25 stopped on this file (an exact result of more than 4300 digits);
+    # 0.3.26 writes such numbers, so it finishes, or meets the time limit cleanly
+    long = ds.game_check((DATA / "game_check_crash.cadl").read_text(encoding="utf-8"))
+    if long["failure"] is not None:
+        assert long["failure"].startswith("`cadl game-check` did not finish within")
+        return
+    assert long["status"] == 0
+    assert "status: not_equilibrium; deviators: R" in long["text"]
+    assert "Traceback" not in long["errors"]
 
 
 # ── Quantifiers and wildcard references in norms ────────────────────
@@ -218,27 +220,28 @@ def test_norms_check_answers_conflicts_and_witnesses():
     # the options of the command line
     small = ds.norms_check(CONFLICT, bindings=["i=2"], members=["ROBOT=2"], step="1s", horizon=4)
     assert small["report"]["instance"]["horizon"] == 4
-    assert small["report"]["instance"]["bindings"] == {"i": 2}
+    assert small["report"]["instance"]["bindings"] == {"N": 2, "i": 2}   # N bound (0.3.26)
 
 
 @needs_prism
 def test_norms_check_respects_the_timeout():
     result = ds.norms_check(CONFLICT, timeout=0.01)
     assert result["report"] is None
-    assert "the model checker did not finish within --timeout" in result["failure"]
+    # cadl 0.3.26 bounds building the model by --timeout too
+    assert "did not finish within --timeout" in result["failure"]
     assert result["failure"].endswith("nothing is claimed.")
 
 
 def test_norms_check_of_a_heavy_design_is_bounded():
-    # building the model of this design takes minutes and hundreds of MB, which
-    # --timeout does not bound; the subprocess is stopped after timeout + budget
+    # building the model of this design took minutes and hundreds of MB in cadl 0.3.25;
+    # 0.3.26 stops it at --timeout, and the subprocess is stopped after timeout + budget
     heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
     start = time.monotonic()
     result = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=1, budget=4)
     assert time.monotonic() - start < 15
     assert result["report"] is None and result["zip"] is None
-    assert result["failure"].startswith("`cadl norms-check` did not finish within 5 s; "
-                                        "nothing is claimed.")
+    assert "did not finish within" in result["failure"]
+    assert result["failure"].endswith("nothing is claimed.") or "run `cadl norms-check`" in result["failure"]
 
 
 def test_norms_check_does_not_offer_a_large_export(monkeypatch):
@@ -259,10 +262,11 @@ def test_norms_check_without_prism_checks_nothing(monkeypatch):
 
 
 def test_norms_check_refusals():
-    # a quantified predicate is not translated; the norm is reported with the reason
-    report = ds.norms_check(QUANTIFIED)["report"]
-    assert any(n["id"] == "no_double_assignment" and n["status"] == "untranslated"
-               and "quantifier" in n["reason"] for n in report["norms"])
+    # arithmetic without a domain is not translated (cadl 0.3.26); the reason names --domain
+    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
+    report = ds.norms_check(arithmetic, members=["ROBOT=2"])["report"]
+    assert any(n["id"] == "over_capacity" and n["status"] == "untranslated"
+               and "--domain" in n["reason"] for n in report["norms"])
     assert ds.norms_check(CONFLICT, contract="NOPE")["failure"] == (
         "no contract 'NOPE' in the file; nothing is claimed.")
     assert "does not declare 'norms: 0.1'" in ds.norms_check(ds.load_example("supply chain"))["failure"]
@@ -291,6 +295,72 @@ def test_norms_monitors_in_the_opa_and_solidity_code():
     # other targets and designs without norms have none
     assert ds.norms_monitor_notes(CONFLICT, "python") == {"files": [], "warnings": []}
     assert ds.norms_monitor_notes(ds.load_example("supply chain"), "opa") == {"files": [], "warnings": []}
+
+
+# ── norms-check of cadl 0.3.26: domains, instances, amendments ──────
+
+SMALL = (DATA / "norms_check_small.cadl").read_text(encoding="utf-8")
+
+
+@needs_prism
+def test_norms_check_with_a_domain():
+    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
+    result = ds.norms_check(arithmetic, members=["ROBOT=2"],
+                            domains=["ROBOT[*].load=0..3", "DEPOT.capacity=2..4"])
+    assert result["failure"] is None and result["report"]["checked"]
+    assert any(n.startswith("DEPOT.capacity takes the integers 2..4 of --domain")
+               for n in result["report"]["notes"])
+    assert all(n["status"] == "model" for n in result["report"]["norms"])
+
+
+@needs_prism
+@pytest.mark.parametrize("instances", [2, ["i=1", "i=2"]])
+def test_norms_check_of_several_instances(instances):
+    result = ds.norms_check(SMALL, instances=instances)
+    report = result["report"]
+    assert result["failure"] is None
+    assert [n["id"] for n in report["norms"]] == ["answer@1", "keep_quiet@1", "answer@2",
+                                                  "keep_quiet@2"]
+    assert "answer@2 and keep_quiet@2 are in conflict" in report["findings"]
+    assert any("instances start together" in n for n in report["notes"])
+
+
+@needs_prism
+def test_norms_check_with_an_amendment():
+    later = SMALL.replace("deadline: 2s", "deadline: 4s")
+    result = ds.norms_check(SMALL, bindings=["i=1"], versions=[("v2 (later)", later)])
+    assert result["failure"] is None
+    assert "answer and keep_quiet are in conflict" in result["report"]["findings"]
+    traces = [line for c in result["report"]["conflicts"] for w in c["witnesses"]
+              for line in w["trace"]]
+    assert any('"amend": "v1_v2_later.cadl"' in line for line in traces)
+    # the download holds the version that its witnesses name
+    archive = zipfile.ZipFile(io.BytesIO(result["zip"]))
+    assert "v1_v2_later.cadl" in archive.namelist()
+    witness = next(n for n in archive.namelist() if n.startswith("witness_conflict_"))
+    assert '"amend": "v1_v2_later.cadl"' in archive.read(witness).decode()
+    assert "amend" in result["text"]
+
+
+def test_read_back_keeps_a_numeric_deadline_exact():
+    exact = NORMS.replace("deadline: 5s", "deadline: 0.0005", 1)
+    assert exact != NORMS
+    assert any("within 0.0005 s." in x for x in rb.describe_design(exact)["DELIVERY_SLA"])
+    assert any("within 5 s." in x for x in rb.describe_design(NORMS)["DELIVERY_SLA"])
+
+
+def test_norms_check_too_many_instances_is_refused():
+    result = ds.norms_check(SMALL, instances=5)
+    assert result["report"] is None and result["failure"].endswith("nothing is claimed.")
+
+
+def test_norms_check_internal_error_is_status_4(monkeypatch):
+    monkeypatch.setattr(ds, "_CHILD", 'import sys\nsys.stderr.write("Internal error of '
+                                      'norms-check (KeyError: x)\\n")\nsys.exit(4)\n')
+    result = ds.norms_check(SMALL)
+    assert result["failure"] == ("`cadl norms-check` failed with an internal error; "
+                                 "nothing is claimed.")
+    assert not result["transient"]
 
 
 # ── Bounds of the commands on a shared server ───────────────────────

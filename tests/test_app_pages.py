@@ -667,3 +667,29 @@ def test_designer_does_not_keep_a_busy_server(monkeypatch):
     at = _click(at, "Run game-check")           # pressing again retries: nothing was cached
     assert not at.error and runs.count == 1
     assert any("Equilibrium check 'comply_nash'" in c.value for c in at.code)
+
+
+def test_designer_norms_check_with_instances_and_a_saved_version():
+    pytest.importorskip("cadl.norms_check")
+    from backend.services import design_service as ds
+    import streamlit as st
+    st.cache_data.clear()
+    small = open(os.path.join(ROOT, "tests", "data", "norms_check_small.cadl"), encoding="utf-8").read()
+    at = _view(_set_design(_designer(), small), "Checks")
+    assert not at.exception
+    assert at.text_input(key="design_nc_domains") and at.text_input(key="design_nc_instances")
+    assert any("this session has none other than the current design" in c.value for c in at.caption)
+    # a saved version is offered for --version
+    at = _view(at, "Versions")
+    at.text_input(key="design_version_name").set_value("later").run()
+    at = _click(at, "Save as a version")
+    at = _view(_set_design(at, small.replace("deadline: 2s", "deadline: 4s")), "Checks")
+    assert at.multiselect(key="design_nc_versions").options == ["later"]
+    if not ds.prism_available():
+        return
+    at.text_input(key="design_nc_instances").set_value("i=1; i=2").run()
+    at = _click(at, "Run norms-check")
+    assert not at.exception
+    norms = next(d.value for d in at.dataframe if "violable" in d.value.columns)
+    assert list(norms["norm"]) == ["answer@1", "keep_quiet@1", "answer@2", "keep_quiet@2"]
+    assert any("instances start together" in c.value for c in at.caption)

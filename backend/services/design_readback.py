@@ -214,7 +214,9 @@ def _norm_sentence(n: dict) -> str:
         text += f", towards {n['counterparty']}"
     if n.get("trigger"):
         text += f", after `{n['trigger']}`"
-    if n.get("deadline_ms") is not None:
+    if n.get("deadline_text"):           # a numeric deadline, exact (cadl 0.3.26)
+        text += f", within {n['deadline_text']} s"
+    elif n.get("deadline_ms") is not None:
         text += f", within {n['deadline_ms'] / 1000:g} s"
     text += "."
     if n.get("until"):
@@ -262,15 +264,31 @@ def _responsibilities(source: str) -> Dict[str, Dict[str, List[str]]]:
     return out
 
 
+def _exact_deadlines(source: str) -> Dict[tuple, str]:
+    """{(contract id, norm id): text} of the numeric deadlines in seconds, which cadl
+    0.3.26 keeps exact (`0.0005`); the IR has them in whole milliseconds."""
+    try:
+        sos = ds._parse(source)
+    except Exception:
+        return {}
+    return {(str(c.id), str(n.id)): str(n.deadline_text)
+            for c in sos.contracts for n in getattr(c, "norms", None) or []
+            if getattr(n, "deadline_text", None)}
+
+
 def describe_design(source: str) -> Dict[str, List[str]]:
     """Every contract of a design in plain sentences, keyed by contract id."""
     analysis = ds.analyze(source)
     if not analysis.parsed:
         raise ValueError(analysis.findings[0].message)
     duties = _responsibilities(source)
+    exact = _exact_deadlines(source)
     described = {}
     for c in _contracts(analysis):
         cid = str(c.get("id"))
+        if any(key[0] == cid for key in exact):
+            c = dict(c, norms=[dict(n, deadline_text=exact.get((cid, str(n.get("id")))))
+                               if isinstance(n, dict) else n for n in c.get("norms") or []])
         lines = describe_contract(c)
         for actor, items in duties.get(cid, {}).items():
             lines.insert(2, f"{actor} is specifically responsible for: {_join(items)}.")
