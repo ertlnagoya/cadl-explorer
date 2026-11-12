@@ -593,9 +593,8 @@ def _norms_check(at):
 
 def test_designer_runs_norms_check(monkeypatch):
     pytest.importorskip("cadl.norms_check")
-    from backend.services import design_service as ds
-    if not ds.prism_available():
-        pytest.skip("PRISM (prism) is not on PATH")
+    from tests.conftest import prism_or_skip
+    prism_or_skip()
     import streamlit as st
     st.cache_data.clear()
     at = _norms_check(_designer())
@@ -692,7 +691,8 @@ def test_designer_norms_check_with_instances_and_a_saved_version():
     at = _click(at, "Save as a version")
     at = _view(_set_design(at, small.replace("deadline: 2s", "deadline: 4s")), "Checks")
     assert at.multiselect(key="design_nc_versions").options == ["later"]
-    if not ds.prism_available():
+    from tests.conftest import REQUIRE_PRISM
+    if not ds.prism_available() and not REQUIRE_PRISM:
         return
     at.text_input(key="design_nc_instances").set_value("i=1; i=2").run()
     at = _click(at, "Run norms-check")

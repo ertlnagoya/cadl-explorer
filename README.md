@@ -185,8 +185,12 @@ The app has four pages:
   CPU time, file size and address space (1 GiB, where the system enforces it;
   macOS does not), PRISM is bounded by its Java heap (1 GB, or
   `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run whose processes,
-  PRISM included, take more than 1.5 GiB of memory together. PRISM is
-  stopped with its run. At most two such runs take place at once
+  PRISM included, take more than 1.5 GiB of memory together. The watchdog
+  looks every 0.5 s and reads the resident memory that `ps` reports, which on
+  macOS can be less than what a process uses (compressed or shared pages), so
+  there it is a coarse bound. A process that cadl starts is recorded just
+  after it is created, so for a moment it is neither watched nor killed with
+  its run. PRISM is stopped with its run. At most two such runs take place at once
   on one server; a further one is refused with a request to try again. The
   timeout of norms-check is at most 120 s. A crash of cadl is reported as
   such, and nothing is claimed then. The model and witnesses of norms-check
@@ -336,8 +340,10 @@ and later. `tests/conftest.py` works around a bug of that release's
 upload files skip where `streamlit.testing` has no `file_uploader`. The tests
 of `cadl norms-check` that need PRISM skip without `prism` on PATH.
 
-`.github/workflows/tests.yml` runs the tests on Python 3.9, 3.12 and 3.14,
-and once more on Python 3.12 with PRISM 4.11 installed.
+`.github/workflows/tests.yml` runs the tests on Python 3.9, 3.12 and 3.14
+(on 3.12 with `requirements-mcp.txt`, so that the tests of the MCP server run),
+and once more on Python 3.12 with PRISM 4.11 installed and `REQUIRE_PRISM=1`,
+which makes a test that needs PRISM fail instead of skip.
 
 ## Core Execution Flow
 

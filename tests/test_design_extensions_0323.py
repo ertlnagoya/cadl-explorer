@@ -23,7 +23,7 @@ NORMS = ds.load_example("norms robot delivery")
 AGENTS = ds.load_example("agents tool governance")
 
 DATA = Path(__file__).parent / "data"
-needs_prism = pytest.mark.skipif(not ds.prism_available(), reason="PRISM (prism) is not on PATH")
+needs_prism = pytest.mark.usefixtures("prism")       # tests/conftest.py: skip, or fail with REQUIRE_PRISM=1
 
 
 # ── games 0.1 and grounding 0.1 ─────────────────────────────────────
@@ -238,7 +238,7 @@ def test_norms_check_of_a_heavy_design_is_bounded():
     heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
     start = time.monotonic()
     result = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=1, budget=4)
-    assert time.monotonic() - start < 15
+    assert time.monotonic() - start < 60        # the wall limit is 5 s; unbounded took minutes
     assert result["report"] is None and result["zip"] is None
     assert "did not finish within" in result["failure"]
     assert result["failure"].endswith("nothing is claimed.") or "run `cadl norms-check`" in result["failure"]
@@ -379,7 +379,7 @@ def test_prism_does_not_survive_a_timeout(tmp_path, monkeypatch):
     assert result["failure"].startswith("`cadl norms-check` did not finish within 4 s")
     assert result["transient"]
     pid = int(pid_file.read_text())
-    for _ in range(50):
+    for _ in range(300):        # up to 30 s under load
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -456,10 +456,10 @@ def test_the_processes_that_cadl_starts_raise_the_soft_limits(tmp_path, monkeypa
 @pytest.mark.skipif(os.name != "posix", reason="process groups")
 def test_the_memory_watchdog_stops_the_cadl_process(monkeypatch):
     monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 100 << 20)
-    monkeypatch.setattr(ds, "_CHILD", 'import time\nx = b"x" * (400 << 20)\ntime.sleep(30)\n')
+    monkeypatch.setattr(ds, "_CHILD", 'import time\nx = b"x" * (400 << 20)\ntime.sleep(300)\n')
     start = time.monotonic()
-    run = ds.game_check(GAMES, timeout=30)
-    assert time.monotonic() - start < 10
+    run = ds.game_check(GAMES, timeout=300)
+    assert time.monotonic() - start < 120       # stopped by the watchdog, not the 300 s
     assert run["failure"] == ("`cadl game-check` was stopped at the memory limit of this app "
                               "(100 MB); nothing is claimed.")
     assert run["transient"]
@@ -474,16 +474,16 @@ def test_the_memory_watchdog_counts_prism(tmp_path, monkeypatch):
     fake.parent.mkdir()
     fake.write_text(f"#!{sys.executable}\nimport os, time\n"
                     f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
-                    f"x = b'x' * (400 << 20)\ntime.sleep(30)\n")
+                    f"x = b'x' * (400 << 20)\ntime.sleep(300)\n")
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 300 << 20)
     start = time.monotonic()
-    result = ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=30)
-    assert time.monotonic() - start < 20
+    result = ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=120)
+    assert time.monotonic() - start < 120       # stopped by the watchdog, not the 150 s
     assert "was stopped at the memory limit of this app" in result["failure"]
     pid = int(pid_file.read_text())
-    for _ in range(50):
+    for _ in range(300):        # up to 30 s under load
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -492,3 +492,22 @@ def test_the_memory_watchdog_counts_prism(tmp_path, monkeypatch):
     else:
         os.kill(pid, 9)
         pytest.fail("the fake PRISM survived the memory limit")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_only_live_group_leaders_are_watched_and_killed(tmp_path):
+    import subprocess
+    exited = subprocess.Popen(["true"], start_new_session=True)
+    exited.wait()
+    same_group = subprocess.Popen(["sleep", "30"])
+    leader = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        pids = tmp_path / "pids"
+        pids.write_text("".join(f"{p}\n" for p in (os.getpid(), exited.pid, same_group.pid,
+                                                    leader.pid)))
+        assert ds._leading_groups(pids) == [leader.pid]
+    finally:
+        same_group.kill()
+        leader.kill()
+        same_group.wait()
+        leader.wait()

@@ -1738,7 +1738,8 @@ def _watch(proc: subprocess.Popen, pids: Path, wall: float) -> tuple:
         if time.monotonic() >= deadline:
             _kill(proc)
             return True, False
-        if os.name == "posix" and _groups_rss({proc.pid} | _recorded(pids)) > MEMORY_WATCH_LIMIT:
+        if os.name == "posix" and \
+                _groups_rss({proc.pid} | set(_leading_groups(pids))) > MEMORY_WATCH_LIMIT:
             _kill(proc)
             return False, True
 
@@ -1793,23 +1794,30 @@ def _kill(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
-def _kill_recorded(pids: Path) -> None:
-    """Kill the process group of every process that the child recorded."""
-    recorded = sorted(_recorded(pids))
+def _leading_groups(pids: Path) -> List[int]:
+    """The recorded processes that are alive and still lead their own process group.
+    cadl starts PRISM in a session of its own, so a recorded process that is still
+    ours leads its group; an exited one, or a reused pid of an unrelated process (or
+    of this app's group), is left out."""
+    out = []
     own_group = os.getpgid(0) if os.name == "posix" else None
-    for pid in recorded:
+    for pid in sorted(_recorded(pids)):
         if pid == os.getpid():
             continue
         if os.name == "posix":
-            # cadl starts PRISM in its own session, so a recorded process that is
-            # still ours leads its own group; a reused pid of an unrelated process
-            # (or of this app's group) is left alone
             try:
                 group = os.getpgid(pid)
             except (ProcessLookupError, PermissionError, OSError):
                 continue
             if group != pid or group == own_group:
                 continue
+        out.append(pid)
+    return out
+
+
+def _kill_recorded(pids: Path) -> None:
+    """Kill the process group of every recorded process that still leads one."""
+    for pid in _leading_groups(pids):
         for kill in ((os.killpg, os.kill) if os.name == "posix" else (os.kill,)):
             try:
                 kill(pid, 9)
