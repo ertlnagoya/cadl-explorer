@@ -1,0 +1,85 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the oldest Python of the web app (Streamlit 1.50); 3.12 and 3.14
+        # cover the current releases. The tests of norms-check that need PRISM
+        # skip here; the job "prism" runs them.
+        python-version: ["3.9", "3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run the tests
+        run: python -m pytest -q
+
+  prism:
+    name: Test with PRISM (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # The release archive of the PRISM project, pinned by its SHA-256, as in
+      # the CI of cadl; it runs on the Java of the runner.
+      - name: Install PRISM
+        env:
+          PRISM_VERSION: "4.11"
+          PRISM_SHA256: "6d4677b6ab64daa16a8bb5ad05f79c46313ad67835cb8445ee770e7f57f611c8"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/prism.tar.gz" \
+            "https://github.com/prismmodelchecker/prism/releases/download/v${PRISM_VERSION}/prism-${PRISM_VERSION}-linux64-x86.tar.gz"
+          echo "${PRISM_SHA256}  $RUNNER_TEMP/prism.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/prism"
+          tar -xzf "$RUNNER_TEMP/prism.tar.gz" -C "$HOME/.local/prism" --strip-components=1
+          (cd "$HOME/.local/prism" && ./install.sh silent)
+          echo "$HOME/.local/prism/bin" >> "$GITHUB_PATH"
+          java -version
+          "$HOME/.local/prism/bin/prism" -version
+
+      - name: Run the tests
+        run: python -m pytest -q

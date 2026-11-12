@@ -407,9 +407,11 @@ def test_at_most_two_commands_run_at_once():
 
 
 def test_norms_check_timeout_is_at_most_120_s():
-    # the wall-clock limit is the (capped) timeout and the budget
-    late = ds.norms_check(CONFLICT, timeout=10_000, budget=-119.5)
-    assert late["failure"].startswith("`cadl norms-check` did not finish within 0.5 s")
+    # the wall-clock limit is the (capped) timeout and the budget; the heavy design
+    # takes longer than 1 s on any machine
+    heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
+    late = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=10_000, budget=-119)
+    assert late["failure"].startswith("`cadl norms-check` did not finish within 1 s")
 
 
 def test_a_usage_error_is_one_line():

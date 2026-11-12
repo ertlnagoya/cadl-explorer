@@ -330,9 +330,14 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Run the tests with Python 3.10 or later. The app itself runs on Python 3.9
-(with Streamlit 1.50), but the page tests use `streamlit.testing`, which
-cannot read some of the Designer's elements in that Streamlit version.
+The tests run on Python 3.9 (with Streamlit 1.50, the last release for it)
+and later. `tests/conftest.py` works around a bug of that release's
+`streamlit.testing` (a segmented control's value), and the two tests that
+upload files skip where `streamlit.testing` has no `file_uploader`. The tests
+of `cadl norms-check` that need PRISM skip without `prism` on PATH.
+
+`.github/workflows/tests.yml` runs the tests on Python 3.9, 3.12 and 3.14,
+and once more on Python 3.12 with PRISM 4.11 installed.
 
 ## Core Execution Flow
 
