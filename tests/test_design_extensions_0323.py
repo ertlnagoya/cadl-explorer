@@ -415,3 +415,37 @@ def test_norms_check_timeout_is_at_most_120_s():
 def test_a_usage_error_is_one_line():
     failure = ds.norms_check(CONFLICT, members=["NOBODY=2"])["failure"]
     assert failure == "--members NOBODY: NOBODY is not a declared set of actors; nothing is claimed."
+
+
+# ── Memory: the cadl process and the processes it starts ────────────
+
+@pytest.mark.skipif(os.name != "posix", reason="resource limits")
+def test_the_cadl_process_has_a_soft_memory_limit(monkeypatch):
+    probe = ds._CHILD.replace(
+        "from cadl.cli import main\nsys.exit(main())",
+        "print(resource.getrlimit(resource.RLIMIT_AS)[0], resource.getrlimit(resource.RLIMIT_CPU)[0])"
+        "\nsys.exit(0)")
+    assert probe != ds._CHILD
+    monkeypatch.setattr(ds, "_CHILD", probe)
+    soft_as, soft_cpu = map(int, ds.game_check(GAMES, timeout=30)["text"].split())
+    import resource
+    import sys
+    hard_as = resource.getrlimit(resource.RLIMIT_AS)[1]
+    if sys.platform.startswith("linux"):    # macOS does not take RLIMIT_AS (the watchdog does)
+        assert soft_as == (ds.CADL_MEMORY_LIMIT if hard_as == resource.RLIM_INFINITY
+                           else min(ds.CADL_MEMORY_LIMIT, hard_as))
+    assert 0 < soft_cpu <= 31
+
+
+@pytest.mark.skipif(os.name != "posix", reason="resource limits")
+def test_the_processes_that_cadl_starts_raise_the_soft_limits(tmp_path, monkeypatch):
+    # a fake prism writes its soft and hard limits of address space and CPU time
+    limits = tmp_path / "limits"
+    fake = tmp_path / "bin" / "prism"
+    fake.parent.mkdir()
+    fake.write_text(f"#!/bin/sh\n(ulimit -S -v; ulimit -H -v; ulimit -S -t; ulimit -H -t) > {limits}\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=10)
+    soft_v, hard_v, soft_t, hard_t = limits.read_text().split()
+    assert soft_v == hard_v and soft_t == hard_t

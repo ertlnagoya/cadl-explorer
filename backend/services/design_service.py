@@ -1560,16 +1560,21 @@ def prism_files(source: str) -> Dict[str, str]:
 
 # Limits of a cadl command run for the page (game-check, norms-check): the
 # commands run in a subprocess, so a heavy design cannot hold the server.
-CADL_MEMORY_LIMIT = 1 << 30         # address space, bytes (POSIX; not with PRISM, see _run_cadl)
+CADL_MEMORY_LIMIT = 1 << 30         # address space of the cadl process, bytes (POSIX)
 CADL_FILE_LIMIT = 100 << 20         # largest file the command may write, bytes
 MAX_OUTPUT_BYTES = 5 << 20          # largest report read back
 MAX_EXPORT_BYTES = 10 << 20         # largest model and witnesses offered for download
 BUILD_BUDGET = 30.0                 # seconds for norms-check besides its --timeout
 PRISM_JAVA_HEAP = "1g"              # CADL_PRISM_JAVAMAXMEM, unless the environment sets it
 
-_CHILD = """import sys
+_CHILD = """import os
+import sys
 try:
     import resource
+except ImportError:
+    resource = None
+if resource is not None:
+    # soft limits only: the processes that cadl starts raise them again (_unbounded)
     for name, value in (("RLIMIT_CPU", {cpu}), ("RLIMIT_AS", {memory}), ("RLIMIT_FSIZE", {fsize})):
         limit = getattr(resource, name, None)
         if limit is None or not value:
@@ -1581,8 +1586,23 @@ try:
             resource.setrlimit(limit, (value, hard))
         except (ValueError, OSError):
             pass
-except ImportError:
-    pass
+
+
+def _unbounded():
+    # in a process that cadl starts (PRISM): its Java VM reserves more address space
+    # and spends CPU time in several threads; the heap (CADL_PRISM_JAVAMAXMEM), the
+    # wall clock and the memory watchdog of the page bound it
+    for name in ("RLIMIT_AS", "RLIMIT_CPU"):
+        limit = getattr(resource, name, None)
+        if limit is None:
+            continue
+        try:
+            soft, hard = resource.getrlimit(limit)
+            resource.setrlimit(limit, (hard, hard))
+        except (ValueError, OSError):
+            pass
+
+
 import subprocess
 _Popen = subprocess.Popen
 
@@ -1590,6 +1610,14 @@ _Popen = subprocess.Popen
 class _Recorded(_Popen):
     # cadl starts PRISM in a session of its own; the page kills its group too
     def __init__(self, *args, **kwargs):
+        if resource is not None and os.name == "posix":
+            inner = kwargs.get("preexec_fn")
+
+            def preexec():
+                _unbounded()
+                if inner is not None:
+                    inner()
+            kwargs["preexec_fn"] = preexec
         super().__init__(*args, **kwargs)
         try:
             with open({pids!r}, "a") as f:
@@ -1610,18 +1638,18 @@ _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 BUSY = "The server is running other checks; try again shortly. Nothing is claimed."
 
 
-def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
-              workdir: Optional[str] = None) -> dict:
+def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] = None) -> dict:
     """Run `cadl ARGS[0] design.cadl ARGS[1:]` in a subprocess with the design in a
     temporary file and with bounds: `wall` seconds of wall-clock time (the process
-    group is killed after it), files of at most CADL_FILE_LIMIT bytes and, with
-    `memory`, as many seconds of CPU time and CADL_MEMORY_LIMIT bytes of address
-    space (POSIX). The limits are inherited by PRISM, which norms-check starts; the
-    Java VM reserves more address space than CADL_MEMORY_LIMIT and uses CPU time in
-    several threads, so norms-check sets neither when PRISM is on PATH, and PRISM
-    gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a session of its
-    own, so the child records the pid of every process it starts, and each of their
-    process groups is killed with the child's when the child does not end by itself.
+    group is killed after it), files of at most CADL_FILE_LIMIT bytes, and as soft
+    limits of the cadl process (POSIX), as many seconds of CPU time and
+    CADL_MEMORY_LIMIT bytes of address space. The processes that cadl starts, such
+    as PRISM, raise the soft limits of CPU time and address space to the hard ones
+    (a Java VM reserves more address space and spends CPU time in several
+    threads); PRISM gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a
+    session of its own, so the child records the pid of every process it starts,
+    and each of their process groups is killed with the child's when the child does
+    not end by itself.
     At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
 
     Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
@@ -1634,23 +1662,17 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
     if not _RUN_SLOTS.acquire(timeout=1):
         return {"status": None, "stdout": "", "stderr": "", "failure": BUSY, "transient": True}
     try:
-        return _run_cadl_slot(args, source, wall, memory, workdir)
+        return _run_cadl_slot(args, source, wall, workdir)
     finally:
         _RUN_SLOTS.release()
 
 
-def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
-                   workdir: Optional[str]) -> dict:
+def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[str]) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "design.cadl"
         path.write_text(source, encoding="utf-8")
         pids = Path(tmp) / "pids"
-        # Without PRISM the child alone runs: CPU time and address space are bounded.
-        # PRISM inherits the limits, and its Java VM reserves more address space and
-        # spends CPU time in several threads, so with PRISM only the wall clock, the
-        # heap (PRISM_JAVA_HEAP) and the file size bound it.
-        code = _CHILD.format(cpu=int(wall) + 1 if memory else 0,
-                             memory=CADL_MEMORY_LIMIT if memory else 0,
+        code = _CHILD.format(cpu=int(wall) + 1, memory=CADL_MEMORY_LIMIT,
                              fsize=CADL_FILE_LIMIT, pids=str(pids))
         command = [sys.executable, "-c", code, args[0], str(path), *args[1:]]
         out_path, err_path = Path(tmp) / "stdout", Path(tmp) / "stderr"
@@ -1874,7 +1896,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             version = export_dir / f"v{k}_{stem}.cadl"
             version.write_text(text, encoding="utf-8")
             args += ["--version", str(version)]
-        run = _run_cadl(args, source, timeout + budget, memory=not prism_available(),
+        run = _run_cadl(args, source, timeout + budget,
                         workdir=tmp)
         if run["failure"]:
             out["failure"], out["transient"] = run["failure"], run["transient"]
