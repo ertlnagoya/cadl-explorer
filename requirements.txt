@@ -3,7 +3,7 @@
 # (as in v0.5.0, which renamed the templates in backend/services/cadl_service.py,
 # v0.5.1, which changed the profile validation in the same module, and v0.5.2,
 # which changed backend/services/design_service.py; v0.5.4 changed it again;
-# v0.5.5 to v0.5.14 changed backend/version.py, which every page imports):
+# v0.5.5 to v0.5.15 changed backend/version.py, which every page imports):
 # the running process otherwise keeps the old module beside the new pages.
 streamlit>=1.50.0
 plotly>=5.18.0
@@ -26,7 +26,10 @@ pandas>=2.0.0
 # grounding extensions (game-check, norms-indices), quantified and wildcard
 # predicates in norms, norms-check and the norms monitors of the OPA and
 # Solidity targets; the Designer's read-back, checks and export use them.
-cadl-lang>=0.3.25
+# 0.3.26 adds the options --domain, --instance(s) and --version of norms-check,
+# its exit status 4 and its timeout on building the model, which the Designer
+# passes, and writes exact results of any size in game-check.
+cadl-lang>=0.3.26
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.
