@@ -1564,7 +1564,8 @@ CADL_MEMORY_LIMIT = 1 << 30         # address space, bytes (POSIX; not with PRIS
 CADL_FILE_LIMIT = 100 << 20         # largest file the command may write, bytes
 MAX_OUTPUT_BYTES = 5 << 20          # largest report read back
 MAX_EXPORT_BYTES = 10 << 20         # largest model and witnesses offered for download
-BUILD_BUDGET = 30.0                 # seconds for norms-check besides the runs of PRISM
+BUILD_BUDGET = 30.0                 # seconds for norms-check besides its --timeout
+PRISM_JAVA_HEAP = "1g"              # CADL_PRISM_JAVAMAXMEM, unless the environment sets it
 
 _CHILD = """import sys
 try:
@@ -1613,11 +1614,12 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
               workdir: Optional[str] = None) -> dict:
     """Run `cadl ARGS[0] design.cadl ARGS[1:]` in a subprocess with the design in a
     temporary file and with bounds: `wall` seconds of wall-clock time (the process
-    group is killed after it), as many seconds of CPU time per process, files of at
-    most CADL_FILE_LIMIT bytes and, with `memory`, CADL_MEMORY_LIMIT bytes of address
+    group is killed after it), files of at most CADL_FILE_LIMIT bytes and, with
+    `memory`, as many seconds of CPU time and CADL_MEMORY_LIMIT bytes of address
     space (POSIX). The limits are inherited by PRISM, which norms-check starts; the
-    Java VM reserves more address space than CADL_MEMORY_LIMIT, so norms-check sets
-    no memory limit when PRISM is on PATH. cadl starts PRISM in a session of its
+    Java VM reserves more address space than CADL_MEMORY_LIMIT and uses CPU time in
+    several threads, so norms-check sets neither when PRISM is on PATH, and PRISM
+    gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a session of its
     own, so the child records the pid of every process it starts, and each of their
     process groups is killed with the child's when the child does not end by itself.
     At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
@@ -1643,12 +1645,20 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
         path = Path(tmp) / "design.cadl"
         path.write_text(source, encoding="utf-8")
         pids = Path(tmp) / "pids"
-        code = _CHILD.format(cpu=int(wall) + 1, memory=CADL_MEMORY_LIMIT if memory else 0,
+        # Without PRISM the child alone runs: CPU time and address space are bounded.
+        # PRISM inherits the limits, and its Java VM reserves more address space and
+        # spends CPU time in several threads, so with PRISM only the wall clock, the
+        # heap (PRISM_JAVA_HEAP) and the file size bound it.
+        code = _CHILD.format(cpu=int(wall) + 1 if memory else 0,
+                             memory=CADL_MEMORY_LIMIT if memory else 0,
                              fsize=CADL_FILE_LIMIT, pids=str(pids))
         command = [sys.executable, "-c", code, args[0], str(path), *args[1:]]
         out_path, err_path = Path(tmp) / "stdout", Path(tmp) / "stderr"
         with open(out_path, "wb") as out, open(err_path, "wb") as err:
-            proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp,
+            env = dict(os.environ)
+            # cadl 0.3.26 gives PRISM a Java heap of 4g (or half the memory); less here
+            env.setdefault("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
+            proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp, env=env,
                                     start_new_session=(os.name == "posix"))
             try:
                 proc.wait(timeout=wall)
@@ -1807,15 +1817,18 @@ def norms_contracts(source: str) -> List[str]:
 def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
                 members: Optional[List[str]] = None, step: Optional[str] = None,
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
-                budget: float = BUILD_BUDGET) -> dict:
+                budget: float = BUILD_BUDGET, domains: Optional[List[str]] = None,
+                instances: Any = None, versions: Optional[List[tuple]] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance, translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
-    the command line; `timeout` bounds the runs of PRISM together (`--timeout`;
-    at most MAX_NORMS_CHECK_TIMEOUT).
+    the command line; `timeout` bounds building the model and the runs of PRISM
+    (`--timeout`; at most MAX_NORMS_CHECK_TIMEOUT). cadl 0.3.26 adds `domains`
+    ("Q=lo..hi" texts, `--domain`), `instances` (a number, `--instances N`, or a
+    list of "i=n,..." texts, one `--instance` each; at most 4) and `versions`
+    ([(name, source)], later versions to amend to, `--version FILE` each, F.6).
     The command runs in a subprocess (see _run_cadl) that is stopped after
-    `timeout + budget` seconds, since building the model is not bounded by
-    `--timeout`.
+    `timeout + budget` seconds.
 
     Returns {"report", "text", "zip", "files", "notice", "failure"}: the JSON
     report of the command and its text, the model, property files and witnesses
@@ -1845,20 +1858,39 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             args += ["--step", step]
         if horizon:
             args += ["--horizon", str(int(horizon))]
+        for value in domains or []:
+            args += ["--domain", value]
+        if isinstance(instances, int) and instances:
+            args += ["--instances", str(instances)]
+        elif isinstance(instances, (list, tuple)):
+            for value in instances:
+                args += ["--instance", value]
+        for k, (name, text) in enumerate(versions or [], 1):
+            _parse(text)            # the input limits of the page
+            stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("._") or "version"
+            # in the export directory, so that the exported witnesses, which name a
+            # version by its path relative to it, and the zip hold it
+            export_dir.mkdir(exist_ok=True)
+            version = export_dir / f"v{k}_{stem}.cadl"
+            version.write_text(text, encoding="utf-8")
+            args += ["--version", str(version)]
         run = _run_cadl(args, source, timeout + budget, memory=not prism_available(),
                         workdir=tmp)
         if run["failure"]:
             out["failure"], out["transient"] = run["failure"], run["transient"]
             if "did not finish" in run["failure"]:
-                out["failure"] += (f" The limit is the timeout of PRISM and {budget:g} s to build "
-                                   "the model; a coarser step, a smaller horizon or fewer members "
-                                   "make the model smaller, or run `cadl norms-check` on your "
-                                   "machine.")
+                out["failure"] += (f" The limit is the timeout and {budget:g} s more; a coarser "
+                                   "step, a smaller horizon, fewer members or instances make the "
+                                   "model smaller, or run `cadl norms-check` on your machine.")
+            return out
+        if run["status"] == 4:      # cadl 0.3.26: an internal error of norms-check
+            out["failure"] = "`cadl norms-check` failed with an internal error; nothing is claimed."
             return out
         if run["status"] == 2 or not run["stdout"].strip():
             errors = [line[len("Error: "):] if line.startswith("Error: ") else line
                       for line in _usage_error(run["stderr"]).splitlines()]
-            message = " ".join(errors).replace(str(export_dir) + os.sep, "").strip()
+            message = " ".join(errors).replace(str(export_dir) + os.sep, "")
+            message = message.replace(str(tmp) + os.sep, "").strip()
             out["failure"] = (message or "`cadl norms-check` gave no report") + "; nothing is claimed."
             return out
         report = json.loads(run["stdout"])
@@ -1872,8 +1904,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 w.pop("file", None)     # the text shows the choices, not a temporary path
         out["report"] = report
         out["text"] = format_text(report)
-        files = sorted(p for p in export_dir.iterdir() if p.is_file()) if export_dir.is_dir() else []
-        out["files"] = [p.name for p in files]
+        files = sorted(p for p in export_dir.rglob("*") if p.is_file()) if export_dir.is_dir() else []
+        out["files"] = [p.relative_to(export_dir).as_posix() for p in files]
         size = sum(p.stat().st_size for p in files)
         if size > MAX_EXPORT_BYTES:
             out["notice"] = (f"The model, property files and witnesses take {size / (1 << 20):.0f} MB, "
@@ -1883,14 +1915,14 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for p in files:
-                    zf.write(p, p.name)
+                    zf.write(p, p.relative_to(export_dir).as_posix())
             out["zip"] = buffer.getvalue()
     return out
 
 
 def norms_monitor_notes(source: str, target: str) -> dict:
     """The norms monitors that the OPA or Solidity target generates for a design
-    with norms 0.1 (Appendix D, D.5; cadl 0.3.25), and what `cadl codegen` warns
+    with norms 0.1 (Appendix D, D.5; cadl 0.3.25 and 0.3.26), and what `cadl codegen` warns
     about them: {"files": [monitor files], "warnings": [texts]}. Empty for other
     targets and designs."""
     out: dict = {"files": [], "warnings": []}
@@ -1908,11 +1940,6 @@ def norms_monitor_notes(source: str, target: str) -> dict:
                 f"Python target monitors them (norms_monitor.py).")
             continue
         out["files"].append(name)
-        for norm in m.get("gas", []):
-            out["warnings"].append(
-                f"Contract {cid}, norm {norm}: its content has a temporal operator; in {name} "
-                f"each observation inside an open window of it costs about 4 x 10^4 gas on every "
-                f"later observation until the window closes.")
         for key, pos, text, reason in m["left_out"]:
             out["warnings"].append(
                 f"The {key} item {pos} of contract {cid} is not monitored by {name} ({reason}): "
