@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -1560,16 +1561,23 @@ def prism_files(source: str) -> Dict[str, str]:
 
 # Limits of a cadl command run for the page (game-check, norms-check): the
 # commands run in a subprocess, so a heavy design cannot hold the server.
-CADL_MEMORY_LIMIT = 1 << 30         # address space, bytes (POSIX; not with PRISM, see _run_cadl)
+CADL_MEMORY_LIMIT = 1 << 30         # address space of the cadl process, bytes (POSIX)
 CADL_FILE_LIMIT = 100 << 20         # largest file the command may write, bytes
 MAX_OUTPUT_BYTES = 5 << 20          # largest report read back
 MAX_EXPORT_BYTES = 10 << 20         # largest model and witnesses offered for download
 BUILD_BUDGET = 30.0                 # seconds for norms-check besides its --timeout
+MEMORY_WATCH_LIMIT = 3 << 29       # resident memory of a run, all its processes (1.5 GiB)
+WATCH_INTERVAL = 0.5                # seconds between two looks of the memory watchdog
 PRISM_JAVA_HEAP = "1g"              # CADL_PRISM_JAVAMAXMEM, unless the environment sets it
 
-_CHILD = """import sys
+_CHILD = """import os
+import sys
 try:
     import resource
+except ImportError:
+    resource = None
+if resource is not None:
+    # soft limits only: the processes that cadl starts raise them again (_unbounded)
     for name, value in (("RLIMIT_CPU", {cpu}), ("RLIMIT_AS", {memory}), ("RLIMIT_FSIZE", {fsize})):
         limit = getattr(resource, name, None)
         if limit is None or not value:
@@ -1581,8 +1589,23 @@ try:
             resource.setrlimit(limit, (value, hard))
         except (ValueError, OSError):
             pass
-except ImportError:
-    pass
+
+
+def _unbounded():
+    # in a process that cadl starts (PRISM): its Java VM reserves more address space
+    # and spends CPU time in several threads; the heap (CADL_PRISM_JAVAMAXMEM), the
+    # wall clock and the memory watchdog of the page bound it
+    for name in ("RLIMIT_AS", "RLIMIT_CPU"):
+        limit = getattr(resource, name, None)
+        if limit is None:
+            continue
+        try:
+            soft, hard = resource.getrlimit(limit)
+            resource.setrlimit(limit, (hard, hard))
+        except (ValueError, OSError):
+            pass
+
+
 import subprocess
 _Popen = subprocess.Popen
 
@@ -1590,6 +1613,14 @@ _Popen = subprocess.Popen
 class _Recorded(_Popen):
     # cadl starts PRISM in a session of its own; the page kills its group too
     def __init__(self, *args, **kwargs):
+        if resource is not None and os.name == "posix":
+            inner = kwargs.get("preexec_fn")
+
+            def preexec():
+                _unbounded()
+                if inner is not None:
+                    inner()
+            kwargs["preexec_fn"] = preexec
         super().__init__(*args, **kwargs)
         try:
             with open({pids!r}, "a") as f:
@@ -1610,18 +1641,19 @@ _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 BUSY = "The server is running other checks; try again shortly. Nothing is claimed."
 
 
-def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
-              workdir: Optional[str] = None) -> dict:
+def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] = None) -> dict:
     """Run `cadl ARGS[0] design.cadl ARGS[1:]` in a subprocess with the design in a
     temporary file and with bounds: `wall` seconds of wall-clock time (the process
-    group is killed after it), files of at most CADL_FILE_LIMIT bytes and, with
-    `memory`, as many seconds of CPU time and CADL_MEMORY_LIMIT bytes of address
-    space (POSIX). The limits are inherited by PRISM, which norms-check starts; the
-    Java VM reserves more address space than CADL_MEMORY_LIMIT and uses CPU time in
-    several threads, so norms-check sets neither when PRISM is on PATH, and PRISM
-    gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a session of its
-    own, so the child records the pid of every process it starts, and each of their
-    process groups is killed with the child's when the child does not end by itself.
+    group is killed after it), files of at most CADL_FILE_LIMIT bytes, and as soft
+    limits of the cadl process (POSIX), as many seconds of CPU time and
+    CADL_MEMORY_LIMIT bytes of address space. The processes that cadl starts, such
+    as PRISM, raise the soft limits of CPU time and address space to the hard ones
+    (a Java VM reserves more address space and spends CPU time in several
+    threads); PRISM gets a Java heap of PRISM_JAVA_HEAP. cadl starts PRISM in a
+    session of its own, so the child records the pid of every process it starts,
+    and each of their process groups is killed with the child's when the child does
+    not end by itself. A watchdog kills them all when their resident memory exceeds
+    MEMORY_WATCH_LIMIT (POSIX; see _watch).
     At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
 
     Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
@@ -1634,23 +1666,17 @@ def _run_cadl(args: List[str], source: str, wall: float, memory: bool = True,
     if not _RUN_SLOTS.acquire(timeout=1):
         return {"status": None, "stdout": "", "stderr": "", "failure": BUSY, "transient": True}
     try:
-        return _run_cadl_slot(args, source, wall, memory, workdir)
+        return _run_cadl_slot(args, source, wall, workdir)
     finally:
         _RUN_SLOTS.release()
 
 
-def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
-                   workdir: Optional[str]) -> dict:
+def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[str]) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "design.cadl"
         path.write_text(source, encoding="utf-8")
         pids = Path(tmp) / "pids"
-        # Without PRISM the child alone runs: CPU time and address space are bounded.
-        # PRISM inherits the limits, and its Java VM reserves more address space and
-        # spends CPU time in several threads, so with PRISM only the wall clock, the
-        # heap (PRISM_JAVA_HEAP) and the file size bound it.
-        code = _CHILD.format(cpu=int(wall) + 1 if memory else 0,
-                             memory=CADL_MEMORY_LIMIT if memory else 0,
+        code = _CHILD.format(cpu=int(wall) + 1, memory=CADL_MEMORY_LIMIT,
                              fsize=CADL_FILE_LIMIT, pids=str(pids))
         command = [sys.executable, "-c", code, args[0], str(path), *args[1:]]
         out_path, err_path = Path(tmp) / "stdout", Path(tmp) / "stderr"
@@ -1660,12 +1686,7 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
             env.setdefault("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
             proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp, env=env,
                                     start_new_session=(os.name == "posix"))
-            try:
-                proc.wait(timeout=wall)
-                timed_out = False
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _kill(proc)
+            timed_out, over_memory = _watch(proc, pids, wall)
             if timed_out or proc.returncode != 0:
                 # also after a crash of cadl, which can leave PRISM running
                 _kill_recorded(pids)
@@ -1677,6 +1698,10 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
             stderr = stderr.replace(workdir, "")
         if timed_out:
             result["failure"] = f"{name} did not finish within {wall:g} s; nothing is claimed."
+            result["transient"] = True
+        elif over_memory:
+            result["failure"] = (f"{name} was stopped at the memory limit of this app "
+                                 f"({MEMORY_WATCH_LIMIT >> 20} MB); nothing is claimed.")
             result["transient"] = True
         elif proc.returncode is not None and proc.returncode < 0:
             result["failure"] = (f"{name} was stopped at a limit of CPU time, memory or file size "
@@ -1697,6 +1722,65 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, memory: bool,
         return result
 
 
+def _watch(proc: subprocess.Popen, pids: Path, wall: float) -> tuple:
+    """Wait for the child for at most `wall` seconds; every WATCH_INTERVAL seconds
+    (POSIX) add up the resident memory of its process group and of the groups of
+    the processes it recorded, and kill the child above MEMORY_WATCH_LIMIT: macOS
+    does not take RLIMIT_AS, and PRISM runs without it. (timed out, over memory)."""
+    deadline = time.monotonic() + wall
+    while True:
+        left = deadline - time.monotonic()
+        try:
+            proc.wait(timeout=max(0.0, min(WATCH_INTERVAL, left)))
+            return False, False
+        except subprocess.TimeoutExpired:
+            pass
+        if time.monotonic() >= deadline:
+            _kill(proc)
+            return True, False
+        if os.name == "posix" and \
+                _groups_rss({proc.pid} | set(_leading_groups(pids))) > MEMORY_WATCH_LIMIT:
+            _kill(proc)
+            return False, True
+
+
+def _recorded(pids: Path) -> set:
+    try:
+        return {int(x) for x in pids.read_text().split() if x.isdigit()}
+    except OSError:
+        return set()
+
+
+def _groups_rss(groups: set) -> int:
+    """Resident memory, in bytes, of the processes in the process groups `groups`:
+    from /proc where it exists (Linux), else from one run of `ps` (macOS)."""
+    total = 0
+    proc_dir = Path("/proc")
+    if (proc_dir / "self" / "stat").exists():
+        page = os.sysconf("SC_PAGE_SIZE")
+        for entry in proc_dir.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text()
+            except OSError:
+                continue
+            fields = stat[stat.rfind(")") + 2:].split()     # after "pid (comm) "
+            if len(fields) > 21 and int(fields[2]) in groups:
+                total += int(fields[21]) * page
+        return total
+    try:
+        listing = subprocess.run(["ps", "-A", "-o", "pid=,pgid=,rss="], capture_output=True,
+                                 text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    for line in listing.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit() and int(parts[1]) in groups:
+            total += int(parts[2]) * 1024           # kilobytes
+    return total
+
+
 def _kill(proc: subprocess.Popen) -> None:
     """Kill the child and its process group (the processes it starts in its own
     session, such as PRISM, are killed by _kill_recorded)."""
@@ -1710,26 +1794,30 @@ def _kill(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
-def _kill_recorded(pids: Path) -> None:
-    """Kill the process group of every process that the child recorded."""
-    try:
-        recorded = [int(x) for x in pids.read_text().split() if x.isdigit()]
-    except OSError:
-        return
+def _leading_groups(pids: Path) -> List[int]:
+    """The recorded processes that are alive and still lead their own process group.
+    cadl starts PRISM in a session of its own, so a recorded process that is still
+    ours leads its group; an exited one, or a reused pid of an unrelated process (or
+    of this app's group), is left out."""
+    out = []
     own_group = os.getpgid(0) if os.name == "posix" else None
-    for pid in recorded:
+    for pid in sorted(_recorded(pids)):
         if pid == os.getpid():
             continue
         if os.name == "posix":
-            # cadl starts PRISM in its own session, so a recorded process that is
-            # still ours leads its own group; a reused pid of an unrelated process
-            # (or of this app's group) is left alone
             try:
                 group = os.getpgid(pid)
             except (ProcessLookupError, PermissionError, OSError):
                 continue
             if group != pid or group == own_group:
                 continue
+        out.append(pid)
+    return out
+
+
+def _kill_recorded(pids: Path) -> None:
+    """Kill the process group of every recorded process that still leads one."""
+    for pid in _leading_groups(pids):
         for kill in ((os.killpg, os.kill) if os.name == "posix" else (os.kill,)):
             try:
                 kill(pid, 9)
@@ -1874,7 +1962,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             version = export_dir / f"v{k}_{stem}.cadl"
             version.write_text(text, encoding="utf-8")
             args += ["--version", str(version)]
-        run = _run_cadl(args, source, timeout + budget, memory=not prism_available(),
+        run = _run_cadl(args, source, timeout + budget,
                         workdir=tmp)
         if run["failure"]:
             out["failure"], out["transient"] = run["failure"], run["transient"]

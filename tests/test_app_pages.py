@@ -1,10 +1,13 @@
 """Smoke tests: every Streamlit page renders without exceptions."""
 import os
+import sys
 
 import pytest
 
 pytest.importorskip("streamlit.testing.v1")
 from streamlit.testing.v1 import AppTest
+
+from tests.conftest import needs_file_uploader
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -451,6 +454,7 @@ def test_designer_amendment_respects_the_constitution():
     assert "layer" not in at.dataframe[0].value.columns
 
 
+@needs_file_uploader
 def test_designer_adds_a_run_as_versions():
     # Course D writes runs/<name>/v1.cadl, v2.cadl, ...: add them at once, in order
     from backend.services import design_amend as amend
@@ -477,6 +481,7 @@ def test_designer_adds_a_run_as_versions():
     assert any("before its step was changed" in c.value for c in at.caption)
 
 
+@needs_file_uploader
 def test_designer_reports_versions_pushed_out_and_shows_a_run_over_another_design():
     from backend.services import design_amend as amend
     from backend.services import design_service as ds
@@ -548,7 +553,9 @@ class _Runs:
         self.count, real = 0, ds.subprocess.Popen
 
         def popen(*args, **kwargs):
-            self.count += 1
+            command = args[0] if args else kwargs.get("args")
+            if isinstance(command, list) and command[:2] == [sys.executable, "-c"]:
+                self.count += 1         # a run of cadl, not the `ps` of the memory watchdog
             return real(*args, **kwargs)
         monkeypatch.setattr(ds.subprocess, "Popen", popen)
 
@@ -586,9 +593,8 @@ def _norms_check(at):
 
 def test_designer_runs_norms_check(monkeypatch):
     pytest.importorskip("cadl.norms_check")
-    from backend.services import design_service as ds
-    if not ds.prism_available():
-        pytest.skip("PRISM (prism) is not on PATH")
+    from tests.conftest import prism_or_skip
+    prism_or_skip()
     import streamlit as st
     st.cache_data.clear()
     at = _norms_check(_designer())
@@ -685,7 +691,8 @@ def test_designer_norms_check_with_instances_and_a_saved_version():
     at = _click(at, "Save as a version")
     at = _view(_set_design(at, small.replace("deadline: 2s", "deadline: 4s")), "Checks")
     assert at.multiselect(key="design_nc_versions").options == ["later"]
-    if not ds.prism_available():
+    from tests.conftest import REQUIRE_PRISM
+    if not ds.prism_available() and not REQUIRE_PRISM:
         return
     at.text_input(key="design_nc_instances").set_value("i=1; i=2").run()
     at = _click(at, "Run norms-check")

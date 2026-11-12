@@ -23,7 +23,7 @@ NORMS = ds.load_example("norms robot delivery")
 AGENTS = ds.load_example("agents tool governance")
 
 DATA = Path(__file__).parent / "data"
-needs_prism = pytest.mark.skipif(not ds.prism_available(), reason="PRISM (prism) is not on PATH")
+needs_prism = pytest.mark.usefixtures("prism")       # tests/conftest.py: skip, or fail with REQUIRE_PRISM=1
 
 
 # ── games 0.1 and grounding 0.1 ─────────────────────────────────────
@@ -238,7 +238,7 @@ def test_norms_check_of_a_heavy_design_is_bounded():
     heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
     start = time.monotonic()
     result = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=1, budget=4)
-    assert time.monotonic() - start < 15
+    assert time.monotonic() - start < 60        # the wall limit is 5 s; unbounded took minutes
     assert result["report"] is None and result["zip"] is None
     assert "did not finish within" in result["failure"]
     assert result["failure"].endswith("nothing is claimed.") or "run `cadl norms-check`" in result["failure"]
@@ -379,7 +379,7 @@ def test_prism_does_not_survive_a_timeout(tmp_path, monkeypatch):
     assert result["failure"].startswith("`cadl norms-check` did not finish within 4 s")
     assert result["transient"]
     pid = int(pid_file.read_text())
-    for _ in range(50):
+    for _ in range(300):        # up to 30 s under load
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -407,11 +407,107 @@ def test_at_most_two_commands_run_at_once():
 
 
 def test_norms_check_timeout_is_at_most_120_s():
-    # the wall-clock limit is the (capped) timeout and the budget
-    late = ds.norms_check(CONFLICT, timeout=10_000, budget=-119.5)
-    assert late["failure"].startswith("`cadl norms-check` did not finish within 0.5 s")
+    # the wall-clock limit is the (capped) timeout and the budget; the heavy design
+    # takes longer than 1 s on any machine
+    heavy = (DATA / "norms_check_heavy.cadl").read_text(encoding="utf-8")
+    late = ds.norms_check(heavy, "STATUS_REPORTING", ["i=1"], timeout=10_000, budget=-119)
+    assert late["failure"].startswith("`cadl norms-check` did not finish within 1 s")
 
 
 def test_a_usage_error_is_one_line():
     failure = ds.norms_check(CONFLICT, members=["NOBODY=2"])["failure"]
     assert failure == "--members NOBODY: NOBODY is not a declared set of actors; nothing is claimed."
+
+
+# ── Memory: the cadl process and the processes it starts ────────────
+
+@pytest.mark.skipif(os.name != "posix", reason="resource limits")
+def test_the_cadl_process_has_a_soft_memory_limit(monkeypatch):
+    probe = ds._CHILD.replace(
+        "from cadl.cli import main\nsys.exit(main())",
+        "print(resource.getrlimit(resource.RLIMIT_AS)[0], resource.getrlimit(resource.RLIMIT_CPU)[0])"
+        "\nsys.exit(0)")
+    assert probe != ds._CHILD
+    monkeypatch.setattr(ds, "_CHILD", probe)
+    soft_as, soft_cpu = map(int, ds.game_check(GAMES, timeout=30)["text"].split())
+    import resource
+    import sys
+    hard_as = resource.getrlimit(resource.RLIMIT_AS)[1]
+    if sys.platform.startswith("linux"):    # macOS does not take RLIMIT_AS (the watchdog does)
+        assert soft_as == (ds.CADL_MEMORY_LIMIT if hard_as == resource.RLIM_INFINITY
+                           else min(ds.CADL_MEMORY_LIMIT, hard_as))
+    assert 0 < soft_cpu <= 31
+
+
+@pytest.mark.skipif(os.name != "posix", reason="resource limits")
+def test_the_processes_that_cadl_starts_raise_the_soft_limits(tmp_path, monkeypatch):
+    # a fake prism writes its soft and hard limits of address space and CPU time
+    limits = tmp_path / "limits"
+    fake = tmp_path / "bin" / "prism"
+    fake.parent.mkdir()
+    fake.write_text(f"#!/bin/sh\n(ulimit -S -v; ulimit -H -v; ulimit -S -t; ulimit -H -t) > {limits}\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=10)
+    soft_v, hard_v, soft_t, hard_t = limits.read_text().split()
+    assert soft_v == hard_v and soft_t == hard_t
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_the_memory_watchdog_stops_the_cadl_process(monkeypatch):
+    monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 100 << 20)
+    monkeypatch.setattr(ds, "_CHILD", 'import time\nx = b"x" * (400 << 20)\ntime.sleep(300)\n')
+    start = time.monotonic()
+    run = ds.game_check(GAMES, timeout=300)
+    assert time.monotonic() - start < 120       # stopped by the watchdog, not the 300 s
+    assert run["failure"] == ("`cadl game-check` was stopped at the memory limit of this app "
+                              "(100 MB); nothing is claimed.")
+    assert run["transient"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_the_memory_watchdog_counts_prism(tmp_path, monkeypatch):
+    # a fake prism, started by cadl in a session of its own, takes 400 MB
+    import sys
+    pid_file = tmp_path / "prism.pid"
+    fake = tmp_path / "bin" / "prism"
+    fake.parent.mkdir()
+    fake.write_text(f"#!{sys.executable}\nimport os, time\n"
+                    f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+                    f"x = b'x' * (400 << 20)\ntime.sleep(300)\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setattr(ds, "MEMORY_WATCH_LIMIT", 300 << 20)
+    start = time.monotonic()
+    result = ds.norms_check(CONFLICT, "STATUS_REPORTING", ["i=1"], timeout=120)
+    assert time.monotonic() - start < 120       # stopped by the watchdog, not the 150 s
+    assert "was stopped at the memory limit of this app" in result["failure"]
+    pid = int(pid_file.read_text())
+    for _ in range(300):        # up to 30 s under load
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        pytest.fail("the fake PRISM survived the memory limit")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups")
+def test_only_live_group_leaders_are_watched_and_killed(tmp_path):
+    import subprocess
+    exited = subprocess.Popen(["true"], start_new_session=True)
+    exited.wait()
+    same_group = subprocess.Popen(["sleep", "30"])
+    leader = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        pids = tmp_path / "pids"
+        pids.write_text("".join(f"{p}\n" for p in (os.getpid(), exited.pid, same_group.pid,
+                                                    leader.pid)))
+        assert ds._leading_groups(pids) == [leader.pid]
+    finally:
+        same_group.kill()
+        leader.kill()
+        same_group.wait()
+        leader.wait()

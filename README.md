@@ -181,9 +181,16 @@ The app has four pages:
   it says that nothing was checked, as on Streamlit Community Cloud). These
   two run in a subprocess that is stopped after a time limit (120 s for
   game-check; for norms-check its timeout, which bounds building the model
-  and PRISM, and 30 s more)
-  and, on POSIX, at limits of CPU time, file size and, without PRISM, memory
-  (1 GiB); PRISM is stopped with it. At most two such runs take place at once
+  and PRISM, and 30 s more). On POSIX the cadl process also has limits of
+  CPU time, file size and address space (1 GiB, where the system enforces it;
+  macOS does not), PRISM is bounded by its Java heap (1 GB, or
+  `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run whose processes,
+  PRISM included, take more than 1.5 GiB of memory together. The watchdog
+  looks every 0.5 s and reads the resident memory that `ps` reports, which on
+  macOS can be less than what a process uses (compressed or shared pages), so
+  there it is a coarse bound. A process that cadl starts is recorded just
+  after it is created, so for a moment it is neither watched nor killed with
+  its run. PRISM is stopped with its run. At most two such runs take place at once
   on one server; a further one is refused with a request to try again. The
   timeout of norms-check is at most 120 s. A crash of cadl is reported as
   such, and nothing is claimed then. The model and witnesses of norms-check
@@ -327,9 +334,16 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Run the tests with Python 3.10 or later. The app itself runs on Python 3.9
-(with Streamlit 1.50), but the page tests use `streamlit.testing`, which
-cannot read some of the Designer's elements in that Streamlit version.
+The tests run on Python 3.9 (with Streamlit 1.50, the last release for it)
+and later. `tests/conftest.py` works around a bug of that release's
+`streamlit.testing` (a segmented control's value), and the two tests that
+upload files skip where `streamlit.testing` has no `file_uploader`. The tests
+of `cadl norms-check` that need PRISM skip without `prism` on PATH.
+
+`.github/workflows/tests.yml` runs the tests on Python 3.9, 3.12 and 3.14
+(on 3.12 with `requirements-mcp.txt`, so that the tests of the MCP server run),
+and once more on Python 3.12 with PRISM 4.11 installed and `REQUIRE_PRISM=1`,
+which makes a test that needs PRISM fail instead of skip.
 
 ## Core Execution Flow
 
