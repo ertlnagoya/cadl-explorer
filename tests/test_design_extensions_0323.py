@@ -4,6 +4,7 @@ norms monitors of the OPA and Solidity targets."""
 import copy
 import io
 import os
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -511,3 +512,20 @@ def test_only_live_group_leaders_are_watched_and_killed(tmp_path):
         leader.kill()
         same_group.wait()
         leader.wait()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the physical footprint is read on macOS only")
+def test_footprint_counts_a_large_allocation_on_macos():
+    import subprocess as sp
+    child = sp.Popen([sys.executable, "-c",
+                      "x = bytearray(200 * 1024 * 1024); import time; time.sleep(20)"],
+                     start_new_session=True)
+    try:
+        deadline = time.time() + 15
+        while time.time() < deadline and ds._footprint(child.pid) < 150 * 2 ** 20:
+            time.sleep(0.2)
+        assert ds._footprint(child.pid) >= 150 * 2 ** 20
+        assert ds._groups_rss({child.pid}) >= 150 * 2 ** 20
+    finally:
+        child.kill()
+        child.wait()

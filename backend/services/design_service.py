@@ -1777,8 +1777,31 @@ def _groups_rss(groups: set) -> int:
     for line in listing.splitlines():
         parts = line.split()
         if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit() and int(parts[1]) in groups:
-            total += int(parts[2]) * 1024           # kilobytes
+            rss = int(parts[2]) * 1024              # kilobytes
+            # The resident size leaves out compressed memory on macOS; the
+            # physical footprint counts it, so take the larger of the two.
+            total += max(rss, _footprint(int(parts[0])))
     return total
+
+
+_RUSAGE_INFO_V2 = 2
+_FOOTPRINT_OFFSET = 16 + 7 * 8      # ri_uuid[16], then ri_phys_footprint is the 8th uint64
+
+
+def _footprint(pid: int) -> int:
+    """The physical footprint of a process on macOS (proc_pid_rusage,
+    RUSAGE_INFO_V2), in bytes; 0 where it cannot be read."""
+    if sys.platform != "darwin":
+        return 0
+    try:
+        import ctypes
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        buf = ctypes.create_string_buffer(512)
+        if libc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(_RUSAGE_INFO_V2), buf) != 0:
+            return 0
+        return int.from_bytes(buf.raw[_FOOTPRINT_OFFSET:_FOOTPRINT_OFFSET + 8], "little")
+    except (OSError, AttributeError, ValueError):
+        return 0
 
 
 def _kill(proc: subprocess.Popen) -> None:

@@ -186,9 +186,9 @@ The app has four pages:
   macOS does not), PRISM is bounded by its Java heap (1 GB, or
   `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run whose processes,
   PRISM included, take more than 1.5 GiB of memory together. The watchdog
-  looks every 0.5 s and reads the resident memory that `ps` reports, which on
-  macOS can be less than what a process uses (compressed or shared pages), so
-  there it is a coarse bound. A process that cadl starts is recorded just
+  looks every 0.5 s and reads the resident memory (on Linux from `/proc`; on
+  macOS the larger of the resident size and the physical footprint, which
+  also counts compressed memory, through `proc_pid_rusage`). A process that cadl starts is recorded just
   after it is created, so for a moment it is neither watched nor killed with
   its run. PRISM is stopped with its run. At most two such runs take place at once
   on one server; a further one is refused with a request to try again. The
