@@ -6,6 +6,8 @@ import pytest
 pytest.importorskip("streamlit.testing.v1")
 from streamlit.testing.v1 import AppTest
 
+from tests.conftest import needs_file_uploader
+
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
@@ -451,6 +453,7 @@ def test_designer_amendment_respects_the_constitution():
     assert "layer" not in at.dataframe[0].value.columns
 
 
+@needs_file_uploader
 def test_designer_adds_a_run_as_versions():
     # Course D writes runs/<name>/v1.cadl, v2.cadl, ...: add them at once, in order
     from backend.services import design_amend as amend
@@ -477,6 +480,7 @@ def test_designer_adds_a_run_as_versions():
     assert any("before its step was changed" in c.value for c in at.caption)
 
 
+@needs_file_uploader
 def test_designer_reports_versions_pushed_out_and_shows_a_run_over_another_design():
     from backend.services import design_amend as amend
     from backend.services import design_service as ds
