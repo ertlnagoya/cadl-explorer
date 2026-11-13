@@ -9,11 +9,11 @@ kept identical to them. `sos_dsl_robot_delivery.cadl`,
 synchronised with `cadl` master after ertlnagoya/cadl#26 and #27, which
 declare every message of the examples in their interfaces (#26 also adds the
 protocol `DeliveryOrder`); `supply_chain.cadl` has not changed upstream
-since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.28. Any `*.cadl` file
+since `cadl-lang` 0.3.14. All four are identical to `cadl-lang` 0.3.29. Any `*.cadl` file
 placed here appears in the list.
 
 Three examples of the extensions added in `cadl-lang` 0.3.19 and 0.3.20 are
-copies of the upstream files of 0.3.22 (unchanged in 0.3.28):
+copies of the upstream files of 0.3.22 (unchanged in 0.3.29):
 
 - `norms_robot_delivery.cadl` (norms 0.1, Appendix F): obligations with a
   contrary-to-duty obligation, a prohibition, a permission, a power and a
@@ -30,7 +30,7 @@ copies of the upstream files of 0.3.22 (unchanged in 0.3.28):
   block with two designs. **Export** writes it as PRISM files.
 
 Four examples of the extensions added in `cadl-lang` 0.3.23 to 0.3.25 are
-copies of the upstream files of 0.3.25 (unchanged in 0.3.28):
+copies of the upstream files of 0.3.25 (unchanged in 0.3.29):
 
 - `games_grounding_robot_delivery.cadl` (games 0.1 and grounding 0.1,
   Appendices I and J): a strategic model whose sanction comes from a norm.
@@ -49,7 +49,7 @@ copies of the upstream files of 0.3.25 (unchanged in 0.3.28):
   `cadl norms-check` under **Checks** finds where PRISM is installed.
 
 Two examples added in `cadl-lang` 0.3.28 are copies of its upstream
-files:
+files (unchanged in 0.3.29):
 
 - `norms_check_linear.cadl` (norms 0.1, F.12): linear arithmetic, `sum` and
   `avg` without a domain, and a product of two quantities in `no_oversize`,

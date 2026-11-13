@@ -1745,11 +1745,13 @@ with col_view:
                          "follows the norms observation by observation (Appendix D, D.5); a "
                          "contract with a quantifier, an aggregate, a wildcard or range reference "
                          "in a norm, a counts-as rule or an `assume:` item gets none. The "
-                         "Solidity monitor also refuses a content with two temporal operators, "
-                         "`NOT until(...)` or a temporal operator inside a comparison, and a "
-                         "monitor whose code exceeds the size limit of EIP-170; the Rego monitor "
-                         "refuses `/`. The warnings below say which. Unity C# leaves out the items "
-                         "with `within`, `throughout` or `until`.")
+                         "Solidity monitor also refuses `*`, `/`, literals with more than six "
+                         "decimals, a content with five or more temporal operators, and a temporal "
+                         "operator inside another one, except `within` and `throughout` inside "
+                         "each other over an operand without a temporal operator (cadl 0.3.29), "
+                         "and a monitor whose code exceeds the size limits of the EVM; the Rego "
+                         "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
+                         "the items with `within`, `throughout` or `until`.")
         if "agents" in extensions:
             notes.append("The agent policies (agents 0.1) decide the messages at the enforcement "
                          "point; the Cedar policies cover the statically decidable norms only. "

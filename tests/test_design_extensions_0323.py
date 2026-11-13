@@ -611,3 +611,18 @@ def test_footprint_counts_a_large_allocation_on_macos():
     finally:
         child.kill()
         child.wait()
+
+
+def test_the_solidity_monitor_of_cadl_0329():
+    # four temporal operators in one content, and within / throughout nested over an
+    # operand without one, get a monitor; five operators and until in a nesting get none
+    base = 'content: "ROBOT[i] -> DISPATCHER : apology"'
+    assert base in CONFLICT
+    ops = [f"within({k}s, ROBOT[i].battery > {k})" for k in range(1, 6)]
+    for content, monitored in [
+            ("within(5s, throughout(2s, ROBOT[i].battery > 5))", True),
+            (" AND ".join(ops[:4]), True),
+            (" AND ".join(ops), False),
+            ("within(5s, until(ROBOT[i].battery > 5, ROBOT[i].battery > 9, 2s))", False)]:
+        notes = ds.norms_monitor_notes(CONFLICT.replace(base, f'content: "{content}"'), "solidity")
+        assert bool(notes["files"]) is monitored, content
