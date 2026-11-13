@@ -1925,6 +1925,13 @@ def norms_contracts(source: str) -> List[str]:
     return [c.id for c in _parse(source).contracts if getattr(c, "norms", None)]
 
 
+def several_instances(instances: Any) -> bool:
+    """Whether the `instances` of norms_check ask for more than one instance."""
+    if isinstance(instances, int):
+        return instances > 1
+    return isinstance(instances, (list, tuple)) and len(instances) > 1
+
+
 def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
                 members: Optional[List[str]] = None, step: Optional[str] = None,
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
@@ -1982,7 +1989,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
         elif isinstance(instances, (list, tuple)):
             for value in instances:
                 args += ["--instance", value]
-        if starts and instances:
+        if starts and several_instances(instances):
             args += ["--starts", starts]
         for k, (name, text) in enumerate(versions or [], 1):
             _parse(text)            # the input limits of the page
@@ -2023,7 +2030,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 w.pop("file", None)     # the text shows the choices, not a temporary path
                 if isinstance(w.get("files"), dict):
                     # cadl 0.3.28: the version file of an instance that starts after an
-                    # amendment, named as in the download
+                    # amendment; cadl names it by its file name, kept here as a guard
                     w["files"] = {k: Path(v).name for k, v in w["files"].items()}
         out["report"] = report
         out["text"] = format_text(report)

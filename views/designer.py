@@ -236,6 +236,13 @@ def _md(text: str) -> str:
     return str(text).replace("[*]", "[\\*]")
 
 
+def _plain(text: str) -> str:
+    """Text of cadl (notes, findings, reasons) with every asterisk literal, such as
+    `a * b > c * d` in a note of norms-check; code spans are left as they are."""
+    parts = str(text).split("`")
+    return "`".join(p if k % 2 else p.replace("*", "\\*") for k, p in enumerate(parts))
+
+
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
@@ -777,8 +784,9 @@ def _norms_check_section(source: str):
             "prohibitions are in conflict, and whether powers and reparations are used. Every "
             "answer \"possible\" comes with a witness trace that the norms engine confirms "
             "(Appendix F, F.12). Linear arithmetic, `sum` and `avg` are checked exactly; "
-            "for nonlinear arithmetic without a domain, cadl assumes one from the literals "
-            "and marks the answers that hold only under it with *. Up to four instances of "
+            "for arithmetic that is not linear and has no domain, cadl assumes one from the "
+            "literals, and the answers that hold only under it are marked with `*`. Up to "
+            "four instances of "
             "the contract are checked together, also with amendments to later versions. The "
             "timeout bounds building the model and the runs of PRISM; the command is stopped "
             f"{ds.BUILD_BUDGET:g} s after it.")
@@ -843,7 +851,8 @@ def _norms_check_section(source: str):
                            tuple(x.strip() for x in count.split(";") if x.strip()) or None)
         options = (source, contract, tuple(ds.split_list(bindings)), tuple(ds.split_list(members)),
                    step.strip(), int(horizon), float(timeout), tuple(ds.split_list(domains)),
-                   instance_option, versions, starts if instance_option else "any")
+                   instance_option, versions,
+                   starts if ds.several_instances(instance_option) else "any")
         if st.button("Run norms-check", key="design_nc_run"):
             ss.design_nc_options = options
         if ss.get("design_nc_options") != options:
@@ -872,15 +881,15 @@ def _norms_check_report(result: dict):
         st.warning(f"Nothing was checked: {report.get('skipped')}")
     elif report.get("unconfirmed"):
         st.error("A witness is not confirmed by the norms engine (an error of norms-check): "
-                 + "; ".join(map(str, report["unconfirmed"])))
+                 + _plain("; ".join(map(str, report["unconfirmed"]))))
     if report.get("checked") and report.get("findings"):
-        st.warning("Findings:\n" + "\n".join(f"- {f}" for f in report["findings"]))
+        st.warning("Findings:\n" + "\n".join(f"- {_plain(f)}" for f in report["findings"]))
     elif report.get("checked") and report.get("runs") and not report.get("unconfirmed"):
         st.success("No finding.")
     elif report.get("checked") and not report.get("runs"):
         st.info("Nothing to ask the model checker: no norm is translated.")
     for note in report.get("notes") or []:
-        st.caption(_md(f"Note: {note}."))
+        st.caption(_plain(f"Note: {note}."))
     if not report.get("excuse_known", True):
         st.caption("An assumption is not translated, so a violation may be excused in a run.")
     if report.get("checked") and report.get("runs"):
@@ -897,26 +906,32 @@ def _norms_check_report(result: dict):
                    "instance that runs to the horizon; -: the question does not apply.")
         assumed = (report.get("instance") or {}).get("assumed_domains") or {}
         if assumed:
-            st.caption("\\* The answers hold only for traces whose numbers for "
-                           + ", ".join(f"`{k}` are integers in {v[0]}..{v[1]}"
-                                       for k, v in assumed.items())
-                           + ", domains that cadl assumed from the literals of nonlinear "
-                             "arithmetic. Give a domain to choose another one.")
+            ranges = [f"`{k}` are integers in {v[0]}..{v[1]}" for k, v in assumed.items()]
+            joined = ranges[0] if len(ranges) == 1 else ", ".join(ranges[:-1]) + " and " + ranges[-1]
+            st.caption("\\* The answers hold only for traces whose numbers for " + joined
+                       + ": cadl assumed these domains from the literals of arithmetic that "
+                         "is not linear. Give a domain to choose another one.")
         if report["conflicts"]:
             st.markdown("*Conflicts*")
         for c in report["conflicts"]:
-            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}: after {c.get('prefix', '?')} "
-                        "observation(s), keeping one violates the other.")
+            marked = "\\*" if c.get("assumed_domains") else ""
+            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}{marked}: after "
+                        f"{c.get('prefix', '?')} observation(s), keeping one violates the other.")
             for w in c.get("witnesses", []):
-                st.markdown(_md(f"    - keep {w['keeps']}: {w['claim']}"
-                                f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
-                                f"norms-eval): " + "; ".join(
-                                    f"#{k} `{x}`" for k, x in enumerate(w["choices"]))))
+                # cadl 0.3.28: an instance that starts after an amendment is an
+                # instance of that version, whose file the download holds
+                versions = "".join(f" Instance {k} is an instance of `{v}`."
+                                   for k, v in sorted((w.get("files") or {}).items()))
+                st.markdown(_plain(f"    - keep {w['keeps']}: {w['claim']}"
+                                   f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
+                                   f"norms-eval): " + "; ".join(
+                                       f"#{k} `{x}`" for k, x in enumerate(w["choices"])))
+                            + versions)
     untranslated = [n for n in report["norms"] if n["status"] != "model"]
     if untranslated:
         st.markdown("*Not translated*")
         for n in untranslated:
-            st.markdown(_md(f"- {n['id']}: {n['reason']}"))
+            st.markdown(_plain(f"- {n['id']}: {n['reason']}"))
     with st.expander("The report of norms-check, with every witness"):
         st.code(result["text"], language="text")
     if result.get("notice"):

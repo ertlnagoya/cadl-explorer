@@ -52,9 +52,10 @@ Two examples added in `cadl-lang` 0.3.28 are copies of its upstream
 files:
 
 - `norms_check_linear.cadl` (norms 0.1, F.12): linear arithmetic, `sum` and
-  `avg` without a domain, and a product of two quantities, whose answers
-  hold only under the domain that cadl assumes from the literals. Under
-  **Checks**, give the members `ROBOT=2`; the table marks that norm with `*`.
+  `avg` without a domain, and a product of two quantities in `no_oversize`,
+  whose answers hold only under the domain that cadl assumes from the
+  literals. Under **Checks**, give the members `ROBOT=2`; the table marks
+  `no_oversize` with `*`.
 - `norms_check_starts.cadl` (norms 0.1, F.12): a conflict that needs two
   instances starting at different observations. Under **Checks**, give the
   members `ROBOT=2` and 2 instances; with the starts `together` the

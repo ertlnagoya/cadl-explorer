@@ -30,8 +30,8 @@ pandas>=2.0.0
 # its exit status 4 and its timeout on building the model, which the Designer
 # passes, and writes exact results of any size in game-check. 0.3.28 translates
 # arithmetic without --domain (linear exactly, nonlinear under an assumed
-# domain), lets several instances start apart (--starts) and amends several
-# instances, which the Designer shows and passes.
+# domain), lets several instances start at different observations (--starts)
+# and amends several instances, which the Designer shows and passes.
 cadl-lang>=0.3.28
 
 # Code editor with line numbers and YAML highlighting on the Designer page.

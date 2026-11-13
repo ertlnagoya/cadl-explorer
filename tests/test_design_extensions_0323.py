@@ -3,6 +3,7 @@ quantified and wildcard predicates in norms, `cadl norms-check` and the
 norms monitors of the OPA and Solidity targets."""
 import copy
 import io
+import json
 import os
 import sys
 import time
@@ -297,6 +298,12 @@ def test_norms_monitors_in_the_opa_and_solidity_code():
 # ── norms-check of cadl 0.3.26: domains, instances, amendments ──────
 
 
+def test_several_instances():
+    assert not ds.several_instances(None) and not ds.several_instances(1)
+    assert not ds.several_instances(("i=1",)) and ds.several_instances(2)
+    assert ds.several_instances(("i=1", "i=2"))
+
+
 def test_norms_check_arithmetic_without_a_domain():
     # cadl 0.3.28: linear arithmetic, sum and avg without --domain are translated
     # exactly; nonlinear arithmetic gets a domain assumed from the literals
@@ -358,23 +365,34 @@ def test_norms_check_instances_that_start_apart():
 def test_norms_check_answers_under_an_assumed_domain():
     report = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"])["report"]
     assert report["checked"]
+    oversize = next(n for n in report["norms"] if n["id"] == "no_oversize")
+    assert oversize["assumed_domains"] and "violable" in oversize
     under = report["findings_under_assumed_domains"]
     assert all("only under the assumed domain" in f for f in under)
     assert set(under) <= set(report["findings"])
+    assert all(f in under for f in report["findings"] if f.startswith("no_oversize"))
 
 
 @needs_prism
 def test_norms_check_amends_several_instances():
-    # cadl 0.3.28: an amendment applies to every instance that runs then
-    later = SMALL.replace("deadline: 2s", "deadline: 4s")
-    result = ds.norms_check(SMALL, instances=2, versions=[("v2 (later)", later)])
-    assert result["failure"] is None and result["report"]["checked"]
-    files = [w.get("files") for n in result["report"]["norms"] for e in n.values()
-             if isinstance(e, dict) for w in [e.get("witness")] if isinstance(w, dict)]
-    files += [w.get("files") for c in result["report"]["conflicts"] for w in c["witnesses"]]
-    # the version an instance starts in is named as in the download, not by a temporary path
-    named = [v for f in files if f for v in f.values()]
-    assert all(v == "v1_v2_later.cadl" for v in named)
+    # cadl 0.3.28: one amendment applies to every instance that runs then
+    # (tests/data/norms_check_amend_v*.cadl: the upstream examples of 0.3.28)
+    v1 = (DATA / "norms_check_amend_v1.cadl").read_text(encoding="utf-8")
+    v2 = (DATA / "norms_check_amend_v2.cadl").read_text(encoding="utf-8")
+    result = ds.norms_check(v1, members=["ROBOT=2"], instances=2, versions=[("v2", v2)])
+    report = result["report"]
+    assert result["failure"] is None and report["checked"] and report["unconfirmed"] == []
+    pairs = {tuple(c["norms"]) for c in report["conflicts"]}
+    assert {("serve@1", "curfew@2"), ("curfew@1", "serve@2")} <= pairs
+    witnesses = [w for c in report["conflicts"] for w in c["witnesses"]]
+    assert witnesses and all(w["confirmed"] for w in witnesses)
+    amends = {json.loads(line).get("amend") for w in witnesses
+              for lines in w["traces"].values() for line in lines} - {None}
+    assert amends == {"v1_v2.cadl"}
+    # the version an instance starts in is named by its file in the download
+    named = [v for w in witnesses for v in (w.get("files") or {}).values()]
+    assert all(v == "v1_v2.cadl" for v in named)
+    assert "v1_v2.cadl" in zipfile.ZipFile(io.BytesIO(result["zip"])).namelist()
 
 
 @needs_prism
