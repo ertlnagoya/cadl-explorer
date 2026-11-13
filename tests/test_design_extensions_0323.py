@@ -24,6 +24,7 @@ NORMS = ds.load_example("norms robot delivery")
 AGENTS = ds.load_example("agents tool governance")
 
 DATA = Path(__file__).parent / "data"
+SMALL = (DATA / "norms_check_small.cadl").read_text(encoding="utf-8")
 needs_prism = pytest.mark.usefixtures("prism")       # tests/conftest.py: skip, or fail with REQUIRE_PRISM=1
 
 
@@ -263,11 +264,6 @@ def test_norms_check_without_prism_checks_nothing(monkeypatch):
 
 
 def test_norms_check_refusals():
-    # arithmetic without a domain is not translated (cadl 0.3.26); the reason names --domain
-    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
-    report = ds.norms_check(arithmetic, members=["ROBOT=2"])["report"]
-    assert any(n["id"] == "over_capacity" and n["status"] == "untranslated"
-               and "--domain" in n["reason"] for n in report["norms"])
     assert ds.norms_check(CONFLICT, contract="NOPE")["failure"] == (
         "no contract 'NOPE' in the file; nothing is claimed.")
     assert "does not declare 'norms: 0.1'" in ds.norms_check(ds.load_example("supply chain"))["failure"]
@@ -300,7 +296,23 @@ def test_norms_monitors_in_the_opa_and_solidity_code():
 
 # ── norms-check of cadl 0.3.26: domains, instances, amendments ──────
 
-SMALL = (DATA / "norms_check_small.cadl").read_text(encoding="utf-8")
+
+def test_norms_check_arithmetic_without_a_domain():
+    # cadl 0.3.28: linear arithmetic, sum and avg without --domain are translated
+    # exactly; nonlinear arithmetic gets a domain assumed from the literals
+    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
+    report = ds.norms_check(arithmetic, members=["ROBOT=2"])["report"]
+    assert all(n["status"] == "model" and not n.get("assumed_domains") for n in report["norms"])
+    assert report["instance"]["assumed_domains"] == {}
+    report = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"])["report"]
+    assert [n["id"] for n in report["norms"] if n.get("assumed_domains")] == ["no_oversize"]
+    assert report["instance"]["assumed_domains"] == {"ROBOT[1].length": [-1, 7],
+                                                     "ROBOT[1].width": [-1, 7]}
+    # a domain given replaces the assumed one
+    given = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"],
+                           domains=["ROBOT[1].length=0..3", "ROBOT[1].width=0..3"])["report"]
+    assert given["instance"]["assumed_domains"] == {}
+    assert not any(n.get("assumed_domains") for n in given["norms"])
 
 
 @needs_prism
@@ -323,7 +335,46 @@ def test_norms_check_of_several_instances(instances):
     assert [n["id"] for n in report["norms"]] == ["answer@1", "keep_quiet@1", "answer@2",
                                                   "keep_quiet@2"]
     assert "answer@2 and keep_quiet@2 are in conflict" in report["findings"]
-    assert any("instances start together" in n for n in report["notes"])
+    # cadl 0.3.28: by default each instance starts at an observation of its own
+    assert report["instance"]["starts"] == "any"
+    assert any("start at observations that the environment chooses" in n for n in report["notes"])
+
+
+@needs_prism
+def test_norms_check_instances_that_start_apart():
+    # the conflict of the example needs instances that start at different observations
+    starts = ds.load_example("norms check starts")
+    apart = ds.norms_check(starts, members=["ROBOT=2"], instances=2)["report"]
+    together = ds.norms_check(starts, members=["ROBOT=2"], instances=2, starts="together")["report"]
+    assert apart["instance"]["starts"] == "any" and together["instance"]["starts"] == "together"
+    assert any("in conflict" in f for f in apart["findings"])
+    assert not any("in conflict" in f for f in together["findings"])
+    assert any("instances start together" in n for n in together["notes"])
+    # without several instances the option is not passed
+    assert ds.norms_check(starts, starts="together")["report"]["instance"]["starts"] is None
+
+
+@needs_prism
+def test_norms_check_answers_under_an_assumed_domain():
+    report = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"])["report"]
+    assert report["checked"]
+    under = report["findings_under_assumed_domains"]
+    assert all("only under the assumed domain" in f for f in under)
+    assert set(under) <= set(report["findings"])
+
+
+@needs_prism
+def test_norms_check_amends_several_instances():
+    # cadl 0.3.28: an amendment applies to every instance that runs then
+    later = SMALL.replace("deadline: 2s", "deadline: 4s")
+    result = ds.norms_check(SMALL, instances=2, versions=[("v2 (later)", later)])
+    assert result["failure"] is None and result["report"]["checked"]
+    files = [w.get("files") for n in result["report"]["norms"] for e in n.values()
+             if isinstance(e, dict) for w in [e.get("witness")] if isinstance(w, dict)]
+    files += [w.get("files") for c in result["report"]["conflicts"] for w in c["witnesses"]]
+    # the version an instance starts in is named as in the download, not by a temporary path
+    named = [v for f in files if f for v in f.values()]
+    assert all(v == "v1_v2_later.cadl" for v in named)
 
 
 @needs_prism

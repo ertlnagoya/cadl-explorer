@@ -1929,7 +1929,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 members: Optional[List[str]] = None, step: Optional[str] = None,
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
                 budget: float = BUILD_BUDGET, domains: Optional[List[str]] = None,
-                instances: Any = None, versions: Optional[List[tuple]] = None) -> dict:
+                instances: Any = None, versions: Optional[List[tuple]] = None,
+                starts: Optional[str] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance, translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
@@ -1938,6 +1939,11 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     ("Q=lo..hi" texts, `--domain`), `instances` (a number, `--instances N`, or a
     list of "i=n,..." texts, one `--instance` each; at most 4) and `versions`
     ([(name, source)], later versions to amend to, `--version FILE` each, F.6).
+    cadl 0.3.28 translates linear arithmetic without a domain, and nonlinear
+    arithmetic under a domain assumed from the literals (`assumed_domains` in the
+    report); with several instances, `starts` is "any" (each instance starts at an
+    observation the environment chooses, the default of cadl) or "together"
+    (`--starts`), and amendments apply to every instance.
     The command runs in a subprocess (see _run_cadl) that is stopped after
     `timeout + budget` seconds.
 
@@ -1976,6 +1982,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
         elif isinstance(instances, (list, tuple)):
             for value in instances:
                 args += ["--instance", value]
+        if starts and instances:
+            args += ["--starts", starts]
         for k, (name, text) in enumerate(versions or [], 1):
             _parse(text)            # the input limits of the page
             stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("._") or "version"
@@ -2013,6 +2021,10 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             w = item.get("witness", item)
             if isinstance(w, dict):
                 w.pop("file", None)     # the text shows the choices, not a temporary path
+                if isinstance(w.get("files"), dict):
+                    # cadl 0.3.28: the version file of an instance that starts after an
+                    # amendment, named as in the download
+                    w["files"] = {k: Path(v).name for k, v in w["files"].items()}
         out["report"] = report
         out["text"] = format_text(report)
         files = sorted(p for p in export_dir.rglob("*") if p.is_file()) if export_dir.is_dir() else []

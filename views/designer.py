@@ -695,11 +695,11 @@ def _cached_game_check(source: str, certify: bool) -> dict:
 @st.cache_data(show_spinner=False, max_entries=8)
 def _cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
                         step: str, horizon: int, timeout: float, domains: tuple = (),
-                        instances=None, versions: tuple = ()) -> dict:
+                        instances=None, versions: tuple = (), starts: str = "any") -> dict:
     return _uncached(ds.norms_check(source, contract or None, list(bindings), list(members),
                                     step or None, horizon or None, timeout,
                                     domains=list(domains), instances=instances,
-                                    versions=list(versions)))
+                                    versions=list(versions), starts=starts))
 
 
 def cached_game_check(source: str, certify: bool = False) -> dict:
@@ -776,10 +776,12 @@ def _norms_check_section(source: str):
             "violated and fulfilled, whether every activation can be kept, which obligations and "
             "prohibitions are in conflict, and whether powers and reparations are used. Every "
             "answer \"possible\" comes with a witness trace that the norms engine confirms "
-            "(Appendix F, F.12). Arithmetic, `sum` and `avg` are translated for quantities "
-            "with a domain; several instances are checked together, and amendments to later "
-            "versions. The timeout bounds building the model and the runs of PRISM; the "
-            f"command is stopped {ds.BUILD_BUDGET:g} s after it.")
+            "(Appendix F, F.12). Linear arithmetic, `sum` and `avg` are checked exactly; "
+            "for nonlinear arithmetic without a domain, cadl assumes one from the literals "
+            "and marks the answers that hold only under it with *. Up to four instances of "
+            "the contract are checked together, also with amendments to later versions. The "
+            "timeout bounds building the model and the runs of PRISM; the command is stopped "
+            f"{ds.BUILD_BUDGET:g} s after it.")
         if not contracts:
             st.caption("No contract has norms.")
             return
@@ -805,16 +807,23 @@ def _norms_check_section(source: str):
                                   value=int(ds.NORMS_CHECK_TIMEOUT), step=10,
                                   key="design_nc_timeout",
                                   help="Time for all runs of PRISM together (--timeout).")
-        c7, c8 = st.columns(2)
+        c7, c8, c9 = st.columns(3)
         domains = c7.text_input("Domains (Q=lo..hi, ...)", key="design_nc_domains",
                                 placeholder="ROBOT[*].load=0..3",
                                 help="Integer domain of a quantity used in arithmetic, sum or avg "
                                      "(--domain); the answers then hold for traces whose numbers "
-                                     "for it are such integers.")
+                                     "for it are such integers. Not needed for linear arithmetic; "
+                                     "for nonlinear arithmetic it replaces the domain that cadl "
+                                     "assumes from the literals.")
         instances = c8.text_input("Instances (N, or i=1; i=2)", key="design_nc_instances",
                                   help="Several instances checked together, at most 4: a number "
                                        "(--instances N) or the bindings of each instance "
                                        "separated by `;` (--instance).")
+        starts = c9.selectbox("Starts of the instances", ["any", "together"],
+                              key="design_nc_starts",
+                              help="With several instances (--starts): each starts at an "
+                                   "observation the environment chooses (any), or all start "
+                                   "at the first observation (together, fewer commands).")
         saved = [v for v in ss.get("design_versions", []) if v["source"] != source]
         if saved:
             names = st.multiselect(
@@ -834,7 +843,7 @@ def _norms_check_section(source: str):
                            tuple(x.strip() for x in count.split(";") if x.strip()) or None)
         options = (source, contract, tuple(ds.split_list(bindings)), tuple(ds.split_list(members)),
                    step.strip(), int(horizon), float(timeout), tuple(ds.split_list(domains)),
-                   instance_option, versions)
+                   instance_option, versions, starts if instance_option else "any")
         if st.button("Run norms-check", key="design_nc_run"):
             ss.design_nc_options = options
         if ss.get("design_nc_options") != options:
@@ -880,9 +889,19 @@ def _norms_check_report(result: dict):
                  "kept": _yes(n.get("keepable")), "unavoidable": _yes(n.get("unavoidable")),
                  "exercised": _yes(n.get("exercisable")), "reparation": _yes(n.get("reparation"))}
                 for n in report["norms"] if n["status"] == "model"]
+        for row, n in zip(rows, [n for n in report["norms"] if n["status"] == "model"]):
+            if n.get("assumed_domains"):
+                row["norm"] += "*"
         st.dataframe(rows, hide_index=True, width="stretch")
         st.caption("*kept*: every activation can be kept; *unavoidable*: violated in every "
                    "instance that runs to the horizon; -: the question does not apply.")
+        assumed = (report.get("instance") or {}).get("assumed_domains") or {}
+        if assumed:
+            st.caption("\\* The answers hold only for traces whose numbers for "
+                           + ", ".join(f"`{k}` are integers in {v[0]}..{v[1]}"
+                                       for k, v in assumed.items())
+                           + ", domains that cadl assumed from the literals of nonlinear "
+                             "arithmetic. Give a domain to choose another one.")
         if report["conflicts"]:
             st.markdown("*Conflicts*")
         for c in report["conflicts"]:
