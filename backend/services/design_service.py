@@ -2018,6 +2018,13 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             message = " ".join(errors).replace(str(export_dir) + os.sep, "")
             message = message.replace(str(tmp) + os.sep, "").strip()
             out["failure"] = (message or "`cadl norms-check` gave no report") + "; nothing is claimed."
+            if "OutOfMemoryError" in message:
+                heap = os.environ.get("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
+                out["failure"] += (f" PRISM has a Java heap of {heap} here"
+                                   + ("; instances that start together (--starts together) "
+                                      "make the model smaller"
+                                      if several_instances(instances) and starts != "together"
+                                      else "") + ".")
             return out
         report = json.loads(run["stdout"])
         report["file"] = "the design"

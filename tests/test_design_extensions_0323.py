@@ -433,6 +433,19 @@ def test_norms_check_internal_error_is_status_4(monkeypatch):
     assert not result["transient"]
 
 
+
+def test_norms_check_out_of_java_heap_suggests_starts_together(monkeypatch):
+    monkeypatch.delenv("CADL_PRISM_JAVAMAXMEM", raising=False)
+    monkeypatch.setattr(ds, "_CHILD", 'import sys\nsys.stderr.write("Error: PRISM reported an '
+                                      'error: Exception in thread main java.lang.OutOfMemoryError: '
+                                      'Java heap space\\n")\nsys.exit(2)\n')
+    failure = ds.norms_check(SMALL, instances=2)["failure"]
+    assert failure.endswith("nothing is claimed. PRISM has a Java heap of 1g here; instances that "
+                            "start together (--starts together) make the model smaller.")
+    together = ds.norms_check(SMALL, instances=2, starts="together")["failure"]
+    assert together.endswith("PRISM has a Java heap of 1g here.")
+
+
 # ── Bounds of the commands on a shared server ───────────────────────
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups")
