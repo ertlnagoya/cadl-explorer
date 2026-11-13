@@ -3,6 +3,7 @@ quantified and wildcard predicates in norms, `cadl norms-check` and the
 norms monitors of the OPA and Solidity targets."""
 import copy
 import io
+import json
 import os
 import sys
 import time
@@ -24,6 +25,7 @@ NORMS = ds.load_example("norms robot delivery")
 AGENTS = ds.load_example("agents tool governance")
 
 DATA = Path(__file__).parent / "data"
+SMALL = (DATA / "norms_check_small.cadl").read_text(encoding="utf-8")
 needs_prism = pytest.mark.usefixtures("prism")       # tests/conftest.py: skip, or fail with REQUIRE_PRISM=1
 
 
@@ -263,11 +265,6 @@ def test_norms_check_without_prism_checks_nothing(monkeypatch):
 
 
 def test_norms_check_refusals():
-    # arithmetic without a domain is not translated (cadl 0.3.26); the reason names --domain
-    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
-    report = ds.norms_check(arithmetic, members=["ROBOT=2"])["report"]
-    assert any(n["id"] == "over_capacity" and n["status"] == "untranslated"
-               and "--domain" in n["reason"] for n in report["norms"])
     assert ds.norms_check(CONFLICT, contract="NOPE")["failure"] == (
         "no contract 'NOPE' in the file; nothing is claimed.")
     assert "does not declare 'norms: 0.1'" in ds.norms_check(ds.load_example("supply chain"))["failure"]
@@ -300,7 +297,29 @@ def test_norms_monitors_in_the_opa_and_solidity_code():
 
 # ── norms-check of cadl 0.3.26: domains, instances, amendments ──────
 
-SMALL = (DATA / "norms_check_small.cadl").read_text(encoding="utf-8")
+
+def test_several_instances():
+    assert not ds.several_instances(None) and not ds.several_instances(1)
+    assert not ds.several_instances(("i=1",)) and ds.several_instances(2)
+    assert ds.several_instances(("i=1", "i=2"))
+
+
+def test_norms_check_arithmetic_without_a_domain():
+    # cadl 0.3.28: linear arithmetic, sum and avg without --domain are translated
+    # exactly; nonlinear arithmetic gets a domain assumed from the literals
+    arithmetic = (DATA / "norms_check_arithmetic.cadl").read_text(encoding="utf-8")
+    report = ds.norms_check(arithmetic, members=["ROBOT=2"])["report"]
+    assert all(n["status"] == "model" and not n.get("assumed_domains") for n in report["norms"])
+    assert report["instance"]["assumed_domains"] == {}
+    report = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"])["report"]
+    assert [n["id"] for n in report["norms"] if n.get("assumed_domains")] == ["no_oversize"]
+    assert report["instance"]["assumed_domains"] == {"ROBOT[1].length": [-1, 7],
+                                                     "ROBOT[1].width": [-1, 7]}
+    # a domain given replaces the assumed one
+    given = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"],
+                           domains=["ROBOT[1].length=0..3", "ROBOT[1].width=0..3"])["report"]
+    assert given["instance"]["assumed_domains"] == {}
+    assert not any(n.get("assumed_domains") for n in given["norms"])
 
 
 @needs_prism
@@ -323,7 +342,57 @@ def test_norms_check_of_several_instances(instances):
     assert [n["id"] for n in report["norms"]] == ["answer@1", "keep_quiet@1", "answer@2",
                                                   "keep_quiet@2"]
     assert "answer@2 and keep_quiet@2 are in conflict" in report["findings"]
-    assert any("instances start together" in n for n in report["notes"])
+    # cadl 0.3.28: by default each instance starts at an observation of its own
+    assert report["instance"]["starts"] == "any"
+    assert any("start at observations that the environment chooses" in n for n in report["notes"])
+
+
+@needs_prism
+def test_norms_check_instances_that_start_apart():
+    # the conflict of the example needs instances that start at different observations
+    starts = ds.load_example("norms check starts")
+    apart = ds.norms_check(starts, members=["ROBOT=2"], instances=2)["report"]
+    together = ds.norms_check(starts, members=["ROBOT=2"], instances=2, starts="together")["report"]
+    assert apart["instance"]["starts"] == "any" and together["instance"]["starts"] == "together"
+    assert any("in conflict" in f for f in apart["findings"])
+    assert not any("in conflict" in f for f in together["findings"])
+    assert any("instances start together" in n for n in together["notes"])
+    # without several instances the option is not passed
+    assert ds.norms_check(starts, starts="together")["report"]["instance"]["starts"] is None
+
+
+@needs_prism
+def test_norms_check_answers_under_an_assumed_domain():
+    report = ds.norms_check(ds.load_example("norms check linear"), members=["ROBOT=2"])["report"]
+    assert report["checked"]
+    oversize = next(n for n in report["norms"] if n["id"] == "no_oversize")
+    assert oversize["assumed_domains"] and "violable" in oversize
+    under = report["findings_under_assumed_domains"]
+    assert all("only under the assumed domain" in f for f in under)
+    assert set(under) <= set(report["findings"])
+    assert all(f in under for f in report["findings"] if f.startswith("no_oversize"))
+
+
+@needs_prism
+def test_norms_check_amends_several_instances():
+    # cadl 0.3.28: one amendment applies to every instance that runs then
+    # (tests/data/norms_check_amend_v*.cadl: the upstream examples of 0.3.28)
+    v1 = (DATA / "norms_check_amend_v1.cadl").read_text(encoding="utf-8")
+    v2 = (DATA / "norms_check_amend_v2.cadl").read_text(encoding="utf-8")
+    result = ds.norms_check(v1, members=["ROBOT=2"], instances=2, versions=[("v2", v2)])
+    report = result["report"]
+    assert result["failure"] is None and report["checked"] and report["unconfirmed"] == []
+    pairs = {tuple(c["norms"]) for c in report["conflicts"]}
+    assert {("serve@1", "curfew@2"), ("curfew@1", "serve@2")} <= pairs
+    witnesses = [w for c in report["conflicts"] for w in c["witnesses"]]
+    assert witnesses and all(w["confirmed"] for w in witnesses)
+    amends = {json.loads(line).get("amend") for w in witnesses
+              for lines in w["traces"].values() for line in lines} - {None}
+    assert amends == {"v1_v2.cadl"}
+    # the version an instance starts in is named by its file in the download
+    named = [v for w in witnesses for v in (w.get("files") or {}).values()]
+    assert all(v == "v1_v2.cadl" for v in named)
+    assert "v1_v2.cadl" in zipfile.ZipFile(io.BytesIO(result["zip"])).namelist()
 
 
 @needs_prism
@@ -362,6 +431,19 @@ def test_norms_check_internal_error_is_status_4(monkeypatch):
     assert result["failure"] == ("`cadl norms-check` failed with an internal error; "
                                  "nothing is claimed.")
     assert not result["transient"]
+
+
+
+def test_norms_check_out_of_java_heap_suggests_starts_together(monkeypatch):
+    monkeypatch.delenv("CADL_PRISM_JAVAMAXMEM", raising=False)
+    monkeypatch.setattr(ds, "_CHILD", 'import sys\nsys.stderr.write("Error: PRISM reported an '
+                                      'error: Exception in thread main java.lang.OutOfMemoryError: '
+                                      'Java heap space\\n")\nsys.exit(2)\n')
+    failure = ds.norms_check(SMALL, instances=2)["failure"]
+    assert failure.endswith("nothing is claimed. PRISM has a Java heap of 1g here; instances that "
+                            "start together (--starts together) make the model smaller.")
+    together = ds.norms_check(SMALL, instances=2, starts="together")["failure"]
+    assert together.endswith("PRISM has a Java heap of 1g here.")
 
 
 # ── Bounds of the commands on a shared server ───────────────────────
@@ -529,3 +611,18 @@ def test_footprint_counts_a_large_allocation_on_macos():
     finally:
         child.kill()
         child.wait()
+
+
+def test_the_solidity_monitor_of_cadl_0329():
+    # four temporal operators in one content, and within / throughout nested over an
+    # operand without one, get a monitor; five operators and until in a nesting get none
+    base = 'content: "ROBOT[i] -> DISPATCHER : apology"'
+    assert base in CONFLICT
+    ops = [f"within({k}s, ROBOT[i].battery > {k})" for k in range(1, 6)]
+    for content, monitored in [
+            ("within(5s, throughout(2s, ROBOT[i].battery > 5))", True),
+            (" AND ".join(ops[:4]), True),
+            (" AND ".join(ops), False),
+            ("within(5s, until(ROBOT[i].battery > 5, ROBOT[i].battery > 9, 2s))", False)]:
+        notes = ds.norms_monitor_notes(CONFLICT.replace(base, f'content: "{content}"'), "solidity")
+        assert bool(notes["files"]) is monitored, content

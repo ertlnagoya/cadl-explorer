@@ -28,8 +28,13 @@ pandas>=2.0.0
 # Solidity targets; the Designer's read-back, checks and export use them.
 # 0.3.26 adds the options --domain, --instance(s) and --version of norms-check,
 # its exit status 4 and its timeout on building the model, which the Designer
-# passes, and writes exact results of any size in game-check.
-cadl-lang>=0.3.26
+# passes, and writes exact results of any size in game-check. 0.3.28 translates
+# arithmetic without --domain (linear exactly, nonlinear under an assumed
+# domain), lets several instances start at different observations (--starts)
+# and amends several instances, which the Designer shows and passes. 0.3.29
+# checks four quantities ordered against each other and lets the Solidity
+# norms monitor decide more temporal operators, which the Export view states.
+cadl-lang>=0.3.29
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.

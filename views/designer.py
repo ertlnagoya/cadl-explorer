@@ -236,6 +236,13 @@ def _md(text: str) -> str:
     return str(text).replace("[*]", "[\\*]")
 
 
+def _plain(text: str) -> str:
+    """Text of cadl (notes, findings, reasons) with every asterisk literal, such as
+    `a * b > c * d` in a note of norms-check; code spans are left as they are."""
+    parts = str(text).split("`")
+    return "`".join(p if k % 2 else p.replace("*", "\\*") for k, p in enumerate(parts))
+
+
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
@@ -695,11 +702,11 @@ def _cached_game_check(source: str, certify: bool) -> dict:
 @st.cache_data(show_spinner=False, max_entries=8)
 def _cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
                         step: str, horizon: int, timeout: float, domains: tuple = (),
-                        instances=None, versions: tuple = ()) -> dict:
+                        instances=None, versions: tuple = (), starts: str = "any") -> dict:
     return _uncached(ds.norms_check(source, contract or None, list(bindings), list(members),
                                     step or None, horizon or None, timeout,
                                     domains=list(domains), instances=instances,
-                                    versions=list(versions)))
+                                    versions=list(versions), starts=starts))
 
 
 def cached_game_check(source: str, certify: bool = False) -> dict:
@@ -776,10 +783,13 @@ def _norms_check_section(source: str):
             "violated and fulfilled, whether every activation can be kept, which obligations and "
             "prohibitions are in conflict, and whether powers and reparations are used. Every "
             "answer \"possible\" comes with a witness trace that the norms engine confirms "
-            "(Appendix F, F.12). Arithmetic, `sum` and `avg` are translated for quantities "
-            "with a domain; several instances are checked together, and amendments to later "
-            "versions. The timeout bounds building the model and the runs of PRISM; the "
-            f"command is stopped {ds.BUILD_BUDGET:g} s after it.")
+            "(Appendix F, F.12). Linear arithmetic, `sum` and `avg` are checked exactly; "
+            "for arithmetic that is not linear and has no domain, cadl assumes one from the "
+            "literals, and the answers that hold only under it are marked with `*`. Up to "
+            "four instances of "
+            "the contract are checked together, also with amendments to later versions. The "
+            "timeout bounds building the model and the runs of PRISM; the command is stopped "
+            f"{ds.BUILD_BUDGET:g} s after it.")
         if not contracts:
             st.caption("No contract has norms.")
             return
@@ -805,16 +815,23 @@ def _norms_check_section(source: str):
                                   value=int(ds.NORMS_CHECK_TIMEOUT), step=10,
                                   key="design_nc_timeout",
                                   help="Time for all runs of PRISM together (--timeout).")
-        c7, c8 = st.columns(2)
+        c7, c8, c9 = st.columns(3)
         domains = c7.text_input("Domains (Q=lo..hi, ...)", key="design_nc_domains",
                                 placeholder="ROBOT[*].load=0..3",
                                 help="Integer domain of a quantity used in arithmetic, sum or avg "
                                      "(--domain); the answers then hold for traces whose numbers "
-                                     "for it are such integers.")
+                                     "for it are such integers. Not needed for linear arithmetic; "
+                                     "for nonlinear arithmetic it replaces the domain that cadl "
+                                     "assumes from the literals.")
         instances = c8.text_input("Instances (N, or i=1; i=2)", key="design_nc_instances",
                                   help="Several instances checked together, at most 4: a number "
                                        "(--instances N) or the bindings of each instance "
                                        "separated by `;` (--instance).")
+        starts = c9.selectbox("Starts of the instances", ["any", "together"],
+                              key="design_nc_starts",
+                              help="With several instances (--starts): each starts at an "
+                                   "observation the environment chooses (any), or all start "
+                                   "at the first observation (together, fewer commands).")
         saved = [v for v in ss.get("design_versions", []) if v["source"] != source]
         if saved:
             names = st.multiselect(
@@ -834,7 +851,8 @@ def _norms_check_section(source: str):
                            tuple(x.strip() for x in count.split(";") if x.strip()) or None)
         options = (source, contract, tuple(ds.split_list(bindings)), tuple(ds.split_list(members)),
                    step.strip(), int(horizon), float(timeout), tuple(ds.split_list(domains)),
-                   instance_option, versions)
+                   instance_option, versions,
+                   starts if ds.several_instances(instance_option) else "any")
         if st.button("Run norms-check", key="design_nc_run"):
             ss.design_nc_options = options
         if ss.get("design_nc_options") != options:
@@ -863,15 +881,15 @@ def _norms_check_report(result: dict):
         st.warning(f"Nothing was checked: {report.get('skipped')}")
     elif report.get("unconfirmed"):
         st.error("A witness is not confirmed by the norms engine (an error of norms-check): "
-                 + "; ".join(map(str, report["unconfirmed"])))
+                 + _plain("; ".join(map(str, report["unconfirmed"]))))
     if report.get("checked") and report.get("findings"):
-        st.warning("Findings:\n" + "\n".join(f"- {f}" for f in report["findings"]))
+        st.warning("Findings:\n" + "\n".join(f"- {_plain(f)}" for f in report["findings"]))
     elif report.get("checked") and report.get("runs") and not report.get("unconfirmed"):
         st.success("No finding.")
     elif report.get("checked") and not report.get("runs"):
         st.info("Nothing to ask the model checker: no norm is translated.")
     for note in report.get("notes") or []:
-        st.caption(_md(f"Note: {note}."))
+        st.caption(_plain(f"Note: {note}."))
     if not report.get("excuse_known", True):
         st.caption("An assumption is not translated, so a violation may be excused in a run.")
     if report.get("checked") and report.get("runs"):
@@ -880,24 +898,40 @@ def _norms_check_report(result: dict):
                  "kept": _yes(n.get("keepable")), "unavoidable": _yes(n.get("unavoidable")),
                  "exercised": _yes(n.get("exercisable")), "reparation": _yes(n.get("reparation"))}
                 for n in report["norms"] if n["status"] == "model"]
+        for row, n in zip(rows, [n for n in report["norms"] if n["status"] == "model"]):
+            if n.get("assumed_domains"):
+                row["norm"] += "*"
         st.dataframe(rows, hide_index=True, width="stretch")
         st.caption("*kept*: every activation can be kept; *unavoidable*: violated in every "
                    "instance that runs to the horizon; -: the question does not apply.")
+        assumed = (report.get("instance") or {}).get("assumed_domains") or {}
+        if assumed:
+            ranges = [f"`{k}` are integers in {v[0]}..{v[1]}" for k, v in assumed.items()]
+            joined = ranges[0] if len(ranges) == 1 else ", ".join(ranges[:-1]) + " and " + ranges[-1]
+            st.caption("\\* The answers hold only for traces whose numbers for " + joined
+                       + ": cadl assumed these domains from the literals of arithmetic that "
+                         "is not linear. Give a domain to choose another one.")
         if report["conflicts"]:
             st.markdown("*Conflicts*")
         for c in report["conflicts"]:
-            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}: after {c.get('prefix', '?')} "
-                        "observation(s), keeping one violates the other.")
+            marked = "\\*" if c.get("assumed_domains") else ""
+            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}{marked}: after "
+                        f"{c.get('prefix', '?')} observation(s), keeping one violates the other.")
             for w in c.get("witnesses", []):
-                st.markdown(_md(f"    - keep {w['keeps']}: {w['claim']}"
-                                f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
-                                f"norms-eval): " + "; ".join(
-                                    f"#{k} `{x}`" for k, x in enumerate(w["choices"]))))
+                # cadl 0.3.28: an instance that starts after an amendment is an
+                # instance of that version, whose file the download holds
+                versions = "".join(f" Instance {k} is an instance of `{v}`."
+                                   for k, v in sorted((w.get("files") or {}).items()))
+                st.markdown(_plain(f"    - keep {w['keeps']}: {w['claim']}"
+                                   f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
+                                   f"norms-eval): " + "; ".join(
+                                       f"#{k} `{x}`" for k, x in enumerate(w["choices"])))
+                            + versions)
     untranslated = [n for n in report["norms"] if n["status"] != "model"]
     if untranslated:
         st.markdown("*Not translated*")
         for n in untranslated:
-            st.markdown(_md(f"- {n['id']}: {n['reason']}"))
+            st.markdown(_plain(f"- {n['id']}: {n['reason']}"))
     with st.expander("The report of norms-check, with every witness"):
         st.code(result["text"], language="text")
     if result.get("notice"):
@@ -1711,11 +1745,13 @@ with col_view:
                          "follows the norms observation by observation (Appendix D, D.5); a "
                          "contract with a quantifier, an aggregate, a wildcard or range reference "
                          "in a norm, a counts-as rule or an `assume:` item gets none. The "
-                         "Solidity monitor also refuses a content with two temporal operators, "
-                         "`NOT until(...)` or a temporal operator inside a comparison, and a "
-                         "monitor whose code exceeds the size limit of EIP-170; the Rego monitor "
-                         "refuses `/`. The warnings below say which. Unity C# leaves out the items "
-                         "with `within`, `throughout` or `until`.")
+                         "Solidity monitor also refuses `*`, `/`, literals with more than six "
+                         "decimals, a content with five or more temporal operators, and a temporal "
+                         "operator inside another one, except `within` and `throughout` inside "
+                         "each other over an operand without a temporal operator (cadl 0.3.29), "
+                         "and a monitor whose code exceeds the size limits of the EVM; the Rego "
+                         "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
+                         "the items with `within`, `throughout` or `until`.")
         if "agents" in extensions:
             notes.append("The agent policies (agents 0.1) decide the messages at the enforcement "
                          "point; the Cedar policies cover the statically decidable norms only. "

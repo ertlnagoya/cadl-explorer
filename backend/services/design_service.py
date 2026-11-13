@@ -1925,11 +1925,19 @@ def norms_contracts(source: str) -> List[str]:
     return [c.id for c in _parse(source).contracts if getattr(c, "norms", None)]
 
 
+def several_instances(instances: Any) -> bool:
+    """Whether the `instances` of norms_check ask for more than one instance."""
+    if isinstance(instances, int):
+        return instances > 1
+    return isinstance(instances, (list, tuple)) and len(instances) > 1
+
+
 def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
                 members: Optional[List[str]] = None, step: Optional[str] = None,
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
                 budget: float = BUILD_BUDGET, domains: Optional[List[str]] = None,
-                instances: Any = None, versions: Optional[List[tuple]] = None) -> dict:
+                instances: Any = None, versions: Optional[List[tuple]] = None,
+                starts: Optional[str] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance, translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
@@ -1938,6 +1946,11 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     ("Q=lo..hi" texts, `--domain`), `instances` (a number, `--instances N`, or a
     list of "i=n,..." texts, one `--instance` each; at most 4) and `versions`
     ([(name, source)], later versions to amend to, `--version FILE` each, F.6).
+    cadl 0.3.28 translates linear arithmetic without a domain, and nonlinear
+    arithmetic under a domain assumed from the literals (`assumed_domains` in the
+    report); with several instances, `starts` is "any" (each instance starts at an
+    observation the environment chooses, the default of cadl) or "together"
+    (`--starts`), and amendments apply to every instance.
     The command runs in a subprocess (see _run_cadl) that is stopped after
     `timeout + budget` seconds.
 
@@ -1976,6 +1989,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
         elif isinstance(instances, (list, tuple)):
             for value in instances:
                 args += ["--instance", value]
+        if starts and several_instances(instances):
+            args += ["--starts", starts]
         for k, (name, text) in enumerate(versions or [], 1):
             _parse(text)            # the input limits of the page
             stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("._") or "version"
@@ -2003,6 +2018,13 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             message = " ".join(errors).replace(str(export_dir) + os.sep, "")
             message = message.replace(str(tmp) + os.sep, "").strip()
             out["failure"] = (message or "`cadl norms-check` gave no report") + "; nothing is claimed."
+            if "OutOfMemoryError" in message:
+                heap = os.environ.get("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
+                out["failure"] += (f" PRISM has a Java heap of {heap} here"
+                                   + ("; instances that start together (--starts together) "
+                                      "make the model smaller"
+                                      if several_instances(instances) and starts != "together"
+                                      else "") + ".")
             return out
         report = json.loads(run["stdout"])
         report["file"] = "the design"
@@ -2013,6 +2035,10 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             w = item.get("witness", item)
             if isinstance(w, dict):
                 w.pop("file", None)     # the text shows the choices, not a temporary path
+                if isinstance(w.get("files"), dict):
+                    # cadl 0.3.28: the version file of an instance that starts after an
+                    # amendment; cadl names it by its file name, kept here as a guard
+                    w["files"] = {k: Path(v).name for k, v in w["files"].items()}
         out["report"] = report
         out["text"] = format_text(report)
         files = sorted(p for p in export_dir.rglob("*") if p.is_file()) if export_dir.is_dir() else []
