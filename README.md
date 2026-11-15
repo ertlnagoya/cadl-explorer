@@ -198,7 +198,13 @@ The app has four pages:
   also takes domains of quantities (`--domain`), several instances
   (`--instance`, `--instances`) and, from the versions saved under
   **Versions**, the later versions to amend to (`--version`), and the
-  read-back shows a numeric deadline exactly (`0.0005` s). **Export** lists the norms
+  read-back shows a numeric deadline exactly (`0.0005` s). With 0.3.28,
+  arithmetic needs no domain: linear arithmetic is checked exactly, and for
+  nonlinear arithmetic the norms whose answers hold only under the domain
+  that cadl assumes from the literals are marked with `*`, with the domains
+  below the table. Several instances start at observations that the
+  environment chooses by default; the form also offers `--starts together`,
+  and amendments are checked with several instances. **Export** lists the norms
   monitors of the OPA and Solidity code with their warnings, and, for agents
   0.1, names `cadl mcp-gateway`, `cadl a2a-gateway` and `cadl audit-verify`,
   which the Explorer does not run.

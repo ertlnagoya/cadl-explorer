@@ -699,4 +699,22 @@ def test_designer_norms_check_with_instances_and_a_saved_version():
     assert not at.exception
     norms = next(d.value for d in at.dataframe if "violable" in d.value.columns)
     assert list(norms["norm"]) == ["answer@1", "keep_quiet@1", "answer@2", "keep_quiet@2"]
+    assert any("start at observations that the environment chooses" in c.value for c in at.caption)
+    at.selectbox(key="design_nc_starts").set_value("together").run()
+    at = _click(at, "Run norms-check")
     assert any("instances start together" in c.value for c in at.caption)
+
+
+def test_designer_marks_answers_under_an_assumed_domain():
+    pytest.importorskip("cadl.norms_check")
+    from tests.conftest import prism_or_skip
+    prism_or_skip()
+    import streamlit as st
+    st.cache_data.clear()
+    at = _view(_set_design(_designer(), ds_example("norms check linear")), "Checks")
+    at.text_input(key="design_nc_members").set_value("ROBOT=2").run()
+    at = _click(at, "Run norms-check")
+    assert not at.exception
+    norms = next(d.value for d in at.dataframe if "violable" in d.value.columns)
+    assert list(norms["norm"]) == ["over_capacity", "spread", "exact_third", "no_oversize*"]
+    assert any("`ROBOT[1].length` are integers in -1..7" in c.value for c in at.caption)
