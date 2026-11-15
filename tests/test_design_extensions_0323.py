@@ -613,20 +613,21 @@ def test_footprint_counts_a_large_allocation_on_macos():
         child.wait()
 
 
-def test_the_solidity_monitor_of_cadl_0331():
+def test_the_solidity_monitor_of_cadl_0331_and_0332():
     # five temporal operators in one content, and within / throughout nested at any
     # depth, get a monitor; six operators, until in a nesting and a nested operator
-    # joined with other parts get none
+    # joined with other parts get none with cadl 0.3.31 and a monitor from 0.3.32 (D.5)
     base = 'content: "ROBOT[i] -> DISPATCHER : apology"'
     assert base in CONFLICT
+    later = ds.supports_max_states()        # cadl 0.3.32 or later
     ops = [f"within({k}s, ROBOT[i].battery > {k})" for k in range(1, 7)]
     for content, monitored in [
             ("within(5s, throughout(2s, ROBOT[i].battery > 5))", True),
             ("within(5s, throughout(3s, NOT within(1s, ROBOT[i].battery > 5)))", True),
             (" AND ".join(ops[:5]), True),
-            (" AND ".join(ops), False),
-            ("within(5s, until(ROBOT[i].battery > 5, ROBOT[i].battery > 9, 2s))", False),
-            ("within(5s, throughout(2s, ROBOT[i].battery > 5) AND ROBOT[i].battery > 1)", False)]:
+            (" AND ".join(ops), later),
+            ("within(5s, until(ROBOT[i].battery > 5, ROBOT[i].battery > 9, 2s))", later),
+            ("within(5s, throughout(2s, ROBOT[i].battery > 5) AND ROBOT[i].battery > 1)", later)]:
         notes = ds.norms_monitor_notes(CONFLICT.replace(base, f'content: "{content}"'), "solidity")
         assert bool(notes["files"]) is monitored, content
 

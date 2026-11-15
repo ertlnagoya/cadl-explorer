@@ -179,11 +179,10 @@ def export(c):
                      "contract with a quantifier, an aggregate, a wildcard or range reference "
                      "in a norm, a counts-as rule or an `assume:` item gets none. The "
                      "Solidity monitor also refuses `*`, `/`, literals with more than six "
-                     "decimals, a content with six or more temporal operators, `until` inside "
-                     "or around another temporal operator, an operand that joins a nested "
-                     "operator with other parts, and a monitor whose code exceeds the size "
-                     "limits of the EVM (cadl 0.3.31; `within` and `throughout` may be nested "
-                     "at any depth); the Rego "
+                     "decimals, and a monitor whose code exceeds the size limits of the EVM "
+                     "(cadl 0.3.32; temporal operators may be nested and combined in any "
+                     "number, but the gas of an observation can then grow with the "
+                     "observations inside a window, so a deployment should bound them); the Rego "
                      "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
                      "the items with `within`, `throughout` or `until`."))
     if "agents" in extensions:

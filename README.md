@@ -25,7 +25,7 @@ The Designer leads through five stages of the work, each with its views:
 | Write | Source, Forms | The CADL source in an editor with line numbers, problem marks, completion of the names of the design and snippets (contract, norm, lifecycle, monitor, protocol, stochastic model); forms that keep the comments and the lines they do not change |
 | Read | Architecture, Structure, Control structure, Lifecycle, Protocols, Regimes, Algorithms & metrics, Read-back | Diagrams whose boxes open the place in the source that writes them; tables; the design restated in sentences |
 | Verify | Summary, Checks, Traces, Agents | The latest result of every check of cadl with the design it ran on; `cadl norms-check` and `cadl game-check` in the background with a stop button; witnesses of norms-check as sequences of messages; `cadl norms-eval` on a recorded trace; `cadl agents-run` and `cadl audit-verify` for the agent boundary |
-| Change | Versions | Saved versions, amendments within the constitution, the comparison of two designs with its changes drawn on the architecture |
+| Change | Versions | Saved versions, amendments within the constitution or the declaration of amendment 0.1, the comparison of two designs with its changes drawn on the architecture |
 | Deliver | Export | The report (with the record of the checks), simulator configs checked by `cadl sim-validate`, runtime code with a look at each generated file, the design sent to the Explorer page |
 
 Side by side, the editor stays on the left. In one column (a tablet held
@@ -203,20 +203,26 @@ The app has four pages:
     each assumption and guarantee at run time. The read-back restates the
     extensions of cadl as well: norms (norms 0.1), strategic models (games
     0.1), information items and derived indices (grounding 0.1), and how cadl
-    reads a wildcard reference such as `ROBOT[*].battery > 10`.
+    reads a wildcard reference such as `ROBOT[*].battery > 10`. The *Regimes*
+    view lists what each regime binds (`regimes:`: parameter values and the
+    contracts in force or suspended) and the safety invariants of the
+    transitions.
   - *Verify.* **Checks** shows `cadl norms-indices` and runs `cadl game-check`
     (also `--certify`) and `cadl norms-check` in the background. norms-check
     needs PRISM on PATH; without it, it says that nothing was checked, as on
     Streamlit Community Cloud. Its form takes domains of quantities, several
-    instances (`--starts any` or `together`) and the saved versions to amend
-    to. Nonlinear arithmetic is marked where an answer holds only under the
+    instances (`--starts any` or `together`), the saved versions to amend
+    to and the limit on the states (`--max-states`). Nonlinear arithmetic is marked where an answer holds only under the
     domains that cadl assumes.
   - *Change.* Named versions (several CADL files, such as the `v1.cadl`,
     `v2.cadl`, ... of a Course D run, can be added at once) and amendable parameters (values marked `# @amend:`,
     checked against a constitution and amended in place, with how far and how
     often each moved across the versions; `backend/services/design_amend.py`).
     An amendment between two versions with norms is checked with
-    `cadl norms-diff`.
+    `cadl norms-diff`. A design that declares amendment 0.1 (Appendix K) lists
+    its amendable parameters, and the comparison of two versions runs
+    `cadl amend-diff`: each change against the declared range, steps and
+    largest change, and the changes that no parameter explains.
   - *Deliver.* The design is exported as CADL, simulator IR, simulator config
     or runtime code, agent policies (Rego, Cedar) for agents 0.1 and PRISM
     files for stochastic 0.1. **Export** lists the norms monitors of the OPA

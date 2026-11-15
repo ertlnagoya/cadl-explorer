@@ -66,6 +66,142 @@ def _source_label(name: str) -> str:
     return name
 
 
+def _quantity(value, unit) -> str:
+    """A value of the amendment IR (in its base unit) as one writes it."""
+    if value is None:
+        return "—"
+    if unit == "ms" and isinstance(value, (int, float)):
+        for size, suffix in ((3_600_000, "h"), (60_000, "min"), (1000, "s")):
+            if value and value % size == 0:
+                return f"{value / size:g}{suffix}"
+        return f"{value:g}ms"
+    text = f"{value:g}" if isinstance(value, float) else f"{value}"
+    return text + (f" {unit}" if unit else "")
+
+
+def _authority(p: dict) -> str:
+    who = p.get("decided_by") or "—"
+    if p.get("procedure") == "vote":
+        who += " " + (t("by vote, quorum {n}").format(n=p["quorum"]) if p.get("quorum")
+                      else t("by vote"))
+    return who
+
+
+def _authority_text(text) -> str:
+    """amend-diff's "COUNCIL by vote, quorum 2" in the reader's language."""
+    import re as _re
+    match = _re.fullmatch(r"(.+?) by vote(?:, quorum (\d+))?", text or "")
+    if not match:
+        return text or "—"
+    return _authority({"decided_by": match.group(1), "procedure": "vote",
+                       "quorum": int(match.group(2)) if match.group(2) else None})
+
+
+def _declared_section(ir) -> bool:
+    """The amendable parameters that the design declares (`amendment: 0.1`, Appendix K
+    of the specification, cadl 0.3.32). Returns whether there was anything to show."""
+    declared = (ir or {}).get("amendment")
+    if not isinstance(declared, dict):
+        return False
+    st.markdown(t("**Declared amendable parameters (amendment 0.1)**"))
+    head = [t("version {v}").format(v=declared["version"]) if declared.get("version") else None,
+            t("replaces {v}").format(v=declared["previous"]) if declared.get("previous") else None]
+    effective = declared.get("effective") or {}
+    if "period" in effective:
+        head.append(t("effective from period {p}").format(p=effective["period"]))
+    elif effective.get("at"):
+        head.append(t("effective at {at}").format(at=effective["at"]))
+    transitional = declared.get("transitional") or {}
+    if transitional.get("default"):
+        head.append(t("running instances: {rule}").format(rule=transitional["default"]))
+    if any(head):
+        st.markdown(" · ".join(h for h in head if h))
+    st.caption(t("The design names which values may be amended, by whom and in what steps. "
+                 "Comparing two versions below checks an amendment against this declaration "
+                 "(`cadl amend-diff`)."))
+    rows = [{"parameter": p["id"], "value": _quantity(p.get("value"), p.get("unit")),
+             "layer": p.get("layer") or "—", "decided by": _authority(p),
+             "range": f"{_quantity(p.get('min'), p.get('unit'))}–{_quantity(p.get('max'), p.get('unit'))}",
+             "step": _quantity(p.get("step"), p.get("unit")),
+             "at most": "—" if p.get("max_steps") is None else
+             t("{n} step" if p["max_steps"] == 1 else "{n} steps").format(n=p["max_steps"]),
+             "safety": t("yes") if p.get("safety") else "",
+             "where": ", ".join(p.get("at") or [])}
+            for p in declared.get("parameters") or []]
+    if rows:
+        st.dataframe(rows, width="stretch", hide_index=True,
+                     column_config=_labels("parameter", "value", "layer", "decided by", "range",
+                                           "step", "at most", "safety", "where"))
+    else:
+        st.markdown(t("The design declares the extension but no parameter."))
+    switching = [f"{c['contract']} ({c['rule']})" for c in transitional.get("contracts") or []]
+    if switching:
+        st.markdown(t("Transitional rules per contract: {list}").format(list=", ".join(switching)))
+    return True
+
+
+# Lines of amend-diff shown before the rest is folded: two unrelated designs give
+# one error per difference.
+_AMEND_LINES = 12
+
+
+def _amend_diff_section(source_a: str, source_b: str):
+    """`cadl amend-diff A B`: is B an amendment of A that its declaration allows?"""
+    try:
+        report = cached_amend_diff(source_a, source_b)
+    except Exception as e:
+        report = {"parameters": [], "contracts": [], "findings": [], "errors": [str(e)], "ok": False}
+    if report is None:
+        return
+    unreadable = bool(report.get("invalid_old"))
+    declared = "amendment" in ds.extensions_in_effect(source_a)
+    with st.expander(t("Amendment: A to B under the declaration of A (amendment 0.1)"),
+                     expanded=declared or unreadable):
+        if not (declared or unreadable):
+            st.info(t("A does not declare amendment 0.1, so it allows no change: every "
+                      "difference from A is reported. Choose the earlier version of B as A."))
+        st.caption(t("Each changed parameter is checked against the range, the steps and the "
+                     "largest change that A declares; a change of the rules that no parameter "
+                     "explains is an error (`cadl amend-diff`)."))
+        if report.get("invalid_old"):
+            for e in report["errors"]:
+                st.markdown(f"- {LEVEL_ICON['error']} {e}")
+            st.error(t("A cannot be read, so there is nothing to amend."))
+            return
+        changed = [p for p in report.get("parameters") or [] if p.get("changed")]
+        if changed:
+            st.dataframe([{"parameter": p["id"], "A": p.get("old"), "B": p.get("new"),
+                           "layer": p.get("layer"), "decided by": _authority_text(p.get("decided_by")),
+                           "safety": t("yes") if p.get("safety") else ""} for p in changed],
+                         width="stretch", hide_index=True,
+                         column_config=_labels("parameter", "A", "B", "layer", "decided by", "safety"))
+        elif report.get("parameters"):
+            st.markdown(t("No declared parameter changes."))
+        for c in report.get("contracts") or []:
+            rule = (c.get("transitional") or {}).get("rule")
+            status = t(c.get("status") or "")
+            st.markdown(f"**{c['id']}** — "
+                        + (t("{status} by {names}").format(status=status, names=", ".join(c["by"]))
+                           if c.get("by") else status)
+                        + (" · " + t("running instances: {rule}").format(rule=rule) if rule else ""))
+            for f in c.get("findings") or []:
+                st.markdown(f"- {LEVEL_ICON.get(f['level'], '')} {f['text']}")
+        # the errors are findings of level "error" as well; each line once, errors first
+        lines = [(f["level"], f["text"]) for f in report.get("findings") or []
+                 if f.get("kind") != "parameter_changed"]
+        texts = {text for _, text in lines}
+        lines += [("error", e) for e in report.get("errors") or [] if e not in texts]
+        lines.sort(key=lambda line: {"error": 0, "warning": 1}.get(line[0], 2))
+        for level, text in lines[:_AMEND_LINES]:
+            st.markdown(f"- {LEVEL_ICON.get(level, '')} {text}")
+        if len(lines) > _AMEND_LINES:
+            st.caption(t("… and {n} more.").format(n=len(lines) - _AMEND_LINES))
+        (st.success if report["ok"] else st.error)(
+            t("The changes respect the declared amendability.") if report["ok"] else
+            t("{n} error(s): the changes do not respect the declared amendability.")
+            .format(n=len(report.get("errors") or [])))
+
+
 def _amendments_section(source: str, versions: list):
     """The `# @amend:` values, checked against a constitution, amended in place, and their history."""
     params = amend.amendables(source)
@@ -257,6 +393,8 @@ def versions(c):
                         on_click=_delete_version, args=(i,))
 
     st.divider()
+    if _declared_section(c.ir if analysis.parsed else None):
+        st.divider()
     if amend.amendables(source):
         _amendments_section(source, versions)
         st.divider()
@@ -323,6 +461,7 @@ def versions(c):
                 with st.expander(f"{t(topic)} ({len(items)})", expanded=len(items) <= 8):
                     for item in items:
                         st.markdown(f"- {_diff_item(item)}")
+        _amend_diff_section(source_a, source_b)
         try:
             amendment = cached_norms_diff(source_a, source_b)
         except Exception as e:
