@@ -16,6 +16,36 @@ The simulator parameters α / β / λ mean autonomy level, centralization level
 and exploration probability, and differ from the per-contract α / β / λ of the
 CADL language specification.
 
+## The Designer of v1.0
+
+The Designer leads through five stages of the work, each with its views:
+
+| Stage | Views | What it is for |
+|---|---|---|
+| Write | Source, Forms | The CADL source in an editor with line numbers, problem marks, completion of the names of the design and snippets (contract, norm, lifecycle, monitor, protocol, stochastic model); forms that keep the comments and the lines they do not change |
+| Read | Architecture, Structure, Control structure, Lifecycle, Protocols, Regimes, Algorithms & metrics, Read-back | Diagrams whose boxes open the place in the source that writes them; tables; the design restated in sentences |
+| Verify | Summary, Checks, Traces, Agents | The latest result of every check of cadl with the design it ran on; `cadl norms-check` and `cadl game-check` in the background with a stop button; witnesses of norms-check as sequences of messages; `cadl norms-eval` on a recorded trace; `cadl agents-run` and `cadl audit-verify` for the agent boundary |
+| Change | Versions | Saved versions, amendments within the constitution, the comparison of two designs with its changes drawn on the architecture |
+| Deliver | Export | The report (with the record of the checks), simulator configs checked by `cadl sim-validate`, runtime code with a look at each generated file, the design sent to the Explorer page |
+
+Side by side, the editor stays on the left. In one column (a tablet held
+upright, a window narrower than 1100 px) each stage takes the whole width; the
+page starts in the layout that the width of the window suits, and the switch
+next to the stages changes it. The editor is a plain text area, so it works
+with the on-screen keyboard of a tablet and does not correct or capitalize
+what one types.
+
+The pages are in English or Japanese (the switch at the top of the sidebar; a
+browser that asks for Japanese gets Japanese). What cadl writes, such as the
+findings and the reports, stays in English.
+
+The sidebar saves the whole project as one zip (the design, the saved
+versions, the decision record, the constitution, the entries of the STPA table
+and the record of the checks) and opens it again. With Streamlit 1.51 or later
+the editor and the clickable diagrams are custom components; the diagrams load
+viz.js from jsDelivr. On Python 3.9 (Streamlit 1.50) the page uses the Ace
+editor and diagrams with a list of their elements instead.
+
 ## Research Purpose
 
 This tool enables researchers to **trace how institutional design choices
@@ -67,8 +97,22 @@ Example output (D-SoS, uniform, ρ=0 against D-SoS + motivation-sensitive, linea
 cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
-│   ├── designer.py                 # Author, check and export a full CADL design
+│   ├── designer.py                 # Author, check and export a full CADL design (the page and its stages)
+│   ├── _design/                    # The parts of the Designer
+│   │   ├── common.py               # State, jumps, versions and helpers shared by the parts
+│   │   ├── cache.py                # Cached calls of cadl
+│   │   ├── layout.py               # Stages, views, side by side or one column, the guide
+│   │   ├── edit.py                 # Source editor and forms
+│   │   ├── editor_component.py     # The CADL editor (custom component)
+│   │   ├── graph_component.py      # Diagrams whose boxes can be chosen (custom component, viz.js)
+│   │   ├── read.py                 # Diagrams, tables and sentences
+│   │   ├── verify.py               # Checks, norms-check and game-check in the background, the summary
+│   │   ├── trace.py                # norms-eval on a trace; agents-run and audit-verify
+│   │   ├── change.py               # Versions, amendments, comparison
+│   │   ├── deliver.py              # Export
+│   │   └── sidebar.py              # Workspace, files, projects, starting points
 │   ├── _designer_forms.py          # Form-based editing for the Designer
+│   ├── _i18n.py, _i18n_ja.py       # English and Japanese texts of the pages
 │   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
@@ -87,7 +131,11 @@ cadl-explorer/
 │   │   ├── design_stamp.py         # STAMP control structure (inferred) and the STPA table
 │   │   ├── design_contracts.py     # What watches each promise; dependencies between contracts
 │   │   ├── design_amend.py         # # @amend: values, the constitution's gate, in-place amendments
-│   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
+│   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant (optionally in git)
+│   │   ├── design_jobs.py          # Long checks of cadl in a background thread, with cancel
+│   │   ├── design_runtime.py       # norms-eval, agents-run, audit-verify, sim-validate; versions of cadl and PRISM
+│   │   ├── design_project.py       # A project as one zip
+│   │   ├── design_snippets.py      # Names and snippets offered by the editor
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
 │   │   ├── experiment_service.py   # Runner dispatch
@@ -105,7 +153,7 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
-├── designs/                        # Example CADL designs for the Designer
+├── designs/                        # Example CADL designs for the Designer (traces/: recorded runs of three of them)
 ├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
@@ -130,84 +178,69 @@ The app has four pages:
   (throughput, autonomy, fairness), then the causal chain stage by stage, a ρ
   sweep, and the IDs and files needed to reproduce the comparison. The
   selection is kept in the URL, so a comparison can be shared as a link.
-- **Designer** (`views/designer.py`) is an editor for full CADL designs: actors,
-  contracts with their lifecycles and monitors, protocols, algorithms, regime
-  transitions, metrics and verification directives. An existing `.cadl` file
-  can be opened and the edited design saved back as `.cadl`. The design can be
-  edited as source text or through forms (`views/_designer_forms.py`); each
-  change is parsed, type-checked and verified with the upstream `cadl-lang`
-  toolchain, and drawn as an architecture diagram, lifecycle state machines,
-  protocol sequence diagrams and a regime map. The *Structure* view
-  (`backend/services/design_graph.py`) shows who sends what to whom (from
-  protocol steps, lifecycle events and information sharing), the betweenness
-  and degree of each actor, an N² chart and a table of who decides, takes
-  part in or answers for each contract, and a graph of the dependencies
-  between contracts (shared parties, and an assumption one contract makes
-  that another guarantees; `backend/services/design_contracts.py`). The
-  *Control structure* view
-  (`backend/services/design_stamp.py`) infers a STAMP control structure from
-  authority — a contract's decision holder controls its other parties; its
-  messages to them are control actions, their messages back and the
-  contract's monitors are feedback — reports open loops, and gives the STPA
-  table of unsafe control actions with the deadlines and monitors the CADL
-  already has, and a coverage table of what watches each assumption and
-  guarantee at run time (a monitor, `violation.detect` or a deadline that
-  names the same quantity). On top of the upstream checks
-  the page reports malformed expressions, undeclared messages, lifecycle
-  structure problems and conflicts between sections, says what each check
-  covers, and links every problem to the form that fixes it. It also offers
-  undo / redo, named versions (several CADL files — the `v1.cadl`, `v2.cadl`,
-  ... of a Course D run — can be added at once), a step-through of a contract
-  lifecycle, amendable parameters (values marked `# @amend:`, checked against a
-  constitution and amended in place without losing the comments, with how far
-  and how often each moved across the versions in steps of the constitution,
-  as Exercise 12-1 of Course D tabulates; `backend/services/design_amend.py`),
-  contract templates and a printable HTML design report. Drafting a design
-  from a plain-language description is available when the app runs with the
-  `anthropic` package installed and `ANTHROPIC_API_KEY` set. Designs can be compared,
-  sent to the Explorer, and exported as CADL, simulator IR, simulator config
-  or generated runtime code. Example designs live in `designs/`. The
-  extensions of `cadl-lang` 0.3.19 to 0.3.22 are read as well: the norms of a
-  contract (norms 0.1) are stated in the read-back, count in the lifecycle
-  checks and coverage, and an amendment between two versions with norms is
-  checked with `cadl norms-diff`; a design with agents 0.1 can be exported as
-  agent policies (Rego, Cedar), and one with stochastic 0.1 as PRISM files.
-  The extensions of 0.3.23 to 0.3.25 are read too: the read-back states a strategic model
-  (games 0.1), the information items and derived indices of a contract
-  (grounding 0.1), and how cadl reads a wildcard reference such as
-  `ROBOT[*].battery > 10` in a norm, with the N-15 warnings. **Checks** shows
-  `cadl norms-indices` and runs, on a button, `cadl game-check` (also
-  `--certify`) and `cadl norms-check`, which needs PRISM on PATH (without it,
-  it says that nothing was checked, as on Streamlit Community Cloud). These
-  two run in a subprocess that is stopped after a time limit (120 s for
-  game-check; for norms-check its timeout, which bounds building the model
-  and PRISM, and 30 s more). On POSIX the cadl process also has limits of
-  CPU time, file size and address space (1 GiB, where the system enforces it;
-  macOS does not), PRISM is bounded by its Java heap (1 GB, or
-  `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run whose processes,
-  PRISM included, take more than 1.5 GiB of memory together. The watchdog
-  looks every 0.5 s and reads the resident memory (on Linux from `/proc`; on
-  macOS the larger of the resident size and the physical footprint, which
-  also counts compressed memory, through `proc_pid_rusage`). A process that cadl starts is recorded just
-  after it is created, so for a moment it is neither watched nor killed with
-  its run. PRISM is stopped with its run. At most two such runs take place at once
-  on one server; a further one is refused with a request to try again. The
-  timeout of norms-check is at most 120 s. A crash of cadl is reported as
-  such, and nothing is claimed then. The model and witnesses of norms-check
-  are offered for download up to 10 MB. With 0.3.26 the form of norms-check
-  also takes domains of quantities (`--domain`), several instances
-  (`--instance`, `--instances`) and, from the versions saved under
-  **Versions**, the later versions to amend to (`--version`), and the
-  read-back shows a numeric deadline exactly (`0.0005` s). With 0.3.28,
-  arithmetic needs no domain: linear arithmetic is checked exactly, and for
-  nonlinear arithmetic the norms whose answers hold only under the domain
-  that cadl assumes from the literals are marked with `*`, with the domains
-  below the table. Several instances start at observations that the
-  environment chooses by default; the form also offers `--starts together`,
-  and amendments are checked with several instances. **Export** lists the norms
-  monitors of the OPA and Solidity code with their warnings, and, for agents
-  0.1, names `cadl mcp-gateway`, `cadl a2a-gateway` and `cadl audit-verify`,
-  which the Explorer does not run.
+- **Designer** (`views/designer.py`, parts in `views/_design/`) is an editor
+  for full CADL designs: actors, contracts with their lifecycles and monitors,
+  protocols, algorithms, regime transitions, metrics and verification
+  directives. Its five stages are described in
+  [The Designer of v1.0](#the-designer-of-v10). Each change is parsed,
+  type-checked and verified with the upstream `cadl-lang` toolchain. What the
+  stages rest on:
+  - *Write.* Forms (`views/_designer_forms.py`) edit the source and keep its
+    comments. On top of the upstream checks the page reports malformed
+    expressions, undeclared messages, lifecycle structure problems and
+    conflicts between sections, says what each check covers, and links every
+    problem to its line and to the form that fixes it. Undo / redo, contract
+    templates and, with the `anthropic` package and `ANTHROPIC_API_KEY`, a
+    draft from a plain-language description are offered.
+  - *Read.* The *Structure* view (`backend/services/design_graph.py`) shows who
+    sends what to whom, the betweenness and degree of each actor, an N² chart,
+    a table of who decides, takes part in or answers for each contract, and the
+    dependencies between contracts (`backend/services/design_contracts.py`).
+    The *Lifecycle* view steps through a contract lifecycle event by event.
+    The *Control structure* view (`backend/services/design_stamp.py`) infers a
+    STAMP control structure from authority, reports open loops, and gives the
+    STPA table of unsafe control actions and a coverage table of what watches
+    each assumption and guarantee at run time. The read-back restates the
+    extensions of cadl as well: norms (norms 0.1), strategic models (games
+    0.1), information items and derived indices (grounding 0.1), and how cadl
+    reads a wildcard reference such as `ROBOT[*].battery > 10`.
+  - *Verify.* **Checks** shows `cadl norms-indices` and runs `cadl game-check`
+    (also `--certify`) and `cadl norms-check` in the background. norms-check
+    needs PRISM on PATH; without it, it says that nothing was checked, as on
+    Streamlit Community Cloud. Its form takes domains of quantities, several
+    instances (`--starts any` or `together`) and the saved versions to amend
+    to. Nonlinear arithmetic is marked where an answer holds only under the
+    domains that cadl assumes.
+  - *Change.* Named versions (several CADL files, such as the `v1.cadl`,
+    `v2.cadl`, ... of a Course D run, can be added at once) and amendable parameters (values marked `# @amend:`,
+    checked against a constitution and amended in place, with how far and how
+    often each moved across the versions; `backend/services/design_amend.py`).
+    An amendment between two versions with norms is checked with
+    `cadl norms-diff`.
+  - *Deliver.* The design is exported as CADL, simulator IR, simulator config
+    or runtime code, agent policies (Rego, Cedar) for agents 0.1 and PRISM
+    files for stochastic 0.1. **Export** lists the norms monitors of the OPA
+    and Solidity code with their warnings and names `cadl mcp-gateway`,
+    `cadl a2a-gateway` and `cadl audit-verify`, which the Explorer does not
+    run as gateways.
+
+  Example designs live in `designs/`.
+
+  **Limits of the checks.** game-check and norms-check run in a subprocess
+  that is stopped after a time limit (120 s for game-check; for norms-check
+  its timeout, at most 120 s, and 30 s more) or by the Stop button. On POSIX
+  the cadl process also has limits of CPU time, file size and address space
+  (1 GiB, where the system enforces it; macOS does not), PRISM is bounded by
+  its Java heap (1 GB, or `CADL_PRISM_JAVAMAXMEM`), and a watchdog stops a run
+  whose processes, PRISM included, take more than 1.5 GiB of memory together.
+  The watchdog looks every 0.5 s and reads the resident memory (on Linux from
+  `/proc`; on macOS the larger of the resident size and the physical
+  footprint, through `proc_pid_rusage`). A process that cadl starts is
+  recorded just after it is created, so for a moment it is neither watched nor
+  killed with its run. At most two such runs take place at once on one server;
+  a further one is refused with a request to try again. A crash of cadl is
+  reported as such, and nothing is claimed then. The model and witnesses of
+  norms-check are offered for download up to 10 MB.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
@@ -275,6 +308,11 @@ To see and confirm what the assistant did, run the app with the same folder:
 ```bash
 CADL_WORKSPACE=/path/to/my-designs streamlit run app.py
 ```
+
+With `CADL_WORKSPACE_GIT=1` (for the app and for the MCP server), the folder
+is a git repository and every change is committed: an edit saved from the
+Designer, an applied proposal with the person's reason, and an undo. The
+sidebar lists those commits.
 
 The Designer then shows the workspace in its sidebar, warns when the file
 changed underneath the editor, and lists every change the assistant applied
@@ -345,6 +383,8 @@ and later. `tests/conftest.py` works around a bug of that release's
 `streamlit.testing` (a segmented control's value), and the two tests that
 upload files skip where `streamlit.testing` has no `file_uploader`. The tests
 of `cadl norms-check` that need PRISM skip without `prism` on PATH.
+`tests/conftest.py` also sets `CADL_JOBS_SYNC=1`, which runs the background
+checks of the Designer in the same thread, so that a test sees their result.
 
 `.github/workflows/tests.yml` runs the tests on Python 3.9, 3.12 and 3.14
 (on 3.12 with `requirements-mcp.txt`, so that the tests of the MCP server run),

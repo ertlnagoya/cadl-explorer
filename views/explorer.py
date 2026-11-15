@@ -12,8 +12,7 @@ import streamlit as st
 import yaml
 
 from backend.services.cadl_service import (
-    make_config, config_to_yaml_str, parse_cadl_yaml,
-    TEMPLATES, MAX_SOURCE_CHARS,
+    parse_cadl_yaml, TEMPLATES, MAX_SOURCE_CHARS,
 )
 from backend.services.experiment_service import run_sweep
 from backend.services.pipeline import (
@@ -25,6 +24,7 @@ from backend.plotting.interactive import (
 )
 from backend.plotting.scenario import scenario_svg
 from views._guide import WHAT_YOU_CAN_DO, HOW_TO_USE, DEMOS
+from views._i18n import t
 
 NUM_SEEDS = 10
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
@@ -103,35 +103,35 @@ def _sync_url():
 def _design_controls(side: str, disabled: bool = False):
     """Template / profile / rho selectors for design `side` ("a" or "b")."""
     template = st.radio(
-        "Governance template", list(TEMPLATES), key=f"{side}_template",
-        format_func=TEMPLATE_LABELS.get, disabled=disabled,
+        t("Governance template"), list(TEMPLATES), key=f"{side}_template",
+        format_func=lambda v: t(TEMPLATE_LABELS[v]), disabled=disabled,
         help=(
-            "Preset of the simulator parameters α (autonomy level), "
+            t("Preset of the simulator parameters α (autonomy level), "
             "β (centralization level) and λ (exploration probability). "
-            "See **About & Glossary** for the values."
+            "See **About & Glossary** for the values.")
         ),
     )
     st.radio(
-        "Motivation profile", PROFILES, key=f"{side}_profile",
-        format_func=PROFILE_LABELS.get, disabled=disabled,
-        help="Distribution of motivation levels across the 5 agents.",
+        t("Motivation profile"), PROFILES, key=f"{side}_profile",
+        format_func=lambda v: t(PROFILE_LABELS[v]), disabled=disabled,
+        help=t("Distribution of motivation levels across the 5 agents."),
     )
     rho_applies = TEMPLATES[template]["motivation_model"] != "none"
     st.slider(
-        "ρ — motivation sensitivity", 0.0, 1.0, step=0.05, key=f"{side}_rho",
+        t("ρ — motivation sensitivity"), 0.0, 1.0, step=0.05, key=f"{side}_rho",
         disabled=disabled or not rho_applies,
-        help=(
+        help=t(
             "How strongly governance decisions respond to agent motivation: "
             "0 ignores it, 1 fully couples budget and wait decisions to it."
         ),
     )
     if not rho_applies:
         st.caption(
-            "ρ is not used: this template has no motivation model. "
-            "Pick *D-SoS + motivation-sensitive* to vary ρ."
+            t("ρ is not used: this template has no motivation model. "
+            "Pick *D-SoS + motivation-sensitive* to vary ρ.")
         )
     elif st.session_state[f"{side}_rho"] == 0.0:
-        st.caption("At ρ = 0 this template behaves exactly like plain D-SoS.")
+        st.caption(t("At ρ = 0 this template behaves exactly like plain D-SoS."))
 
 
 # ── Cached computation ──────────────────────────────────────────────
@@ -158,15 +158,15 @@ def _parse_custom(text):
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
         if mark is not None:
-            return None, (
-                f"YAML syntax error at line {mark.line + 1}, "
-                f"column {mark.column + 1}: {getattr(e, 'problem', str(e))}"
-            )
-        return None, f"YAML syntax error: {e}"
+            return None, t("YAML syntax error at line {line}, column {column}: {problem}").format(
+                line=mark.line + 1, column=mark.column + 1,
+                problem=getattr(e, 'problem', str(e)))
+        return None, t("YAML syntax error: {e}").format(e=e)
     except ValueError as e:
-        return None, f"Invalid CADL config: {e}"
+        return None, t("Invalid CADL config: {e}").format(e=e)
     except Exception as e:
-        return None, f"Could not build CADL config ({type(e).__name__}): {e}"
+        return None, t("Could not build CADL config ({kind}): {e}").format(
+            kind=type(e).__name__, e=e)
 
 
 def _is_dark() -> bool:
@@ -190,43 +190,45 @@ custom_config_a, custom_error_a = (
     _parse_custom(custom_text_a) if custom_text_a.strip() else (None, None))
 
 with st.sidebar:
-    st.header("Compare two designs")
+    st.header(t("Compare two designs"))
 
-    st.subheader("B — design under study")
+    st.subheader(t("B — design under study"))
     if custom_config is not None:
-        st.success(f"B is the custom CADL **{custom_config.name}** (see *Custom CADL* below).")
+        st.success(t("B is the custom CADL **{name}** (see *Custom CADL* below).")
+                   .format(name=custom_config.name))
     _design_controls("b", disabled=custom_config is not None)
 
-    with st.expander("A — baseline", expanded=custom_config_a is not None):
+    with st.expander(t("A — baseline"), expanded=custom_config_a is not None):
         if custom_config_a is not None:
-            st.success(f"A is the custom CADL **{custom_config_a.name}**.")
+            st.success(t("A is the custom CADL **{name}**.").format(name=custom_config_a.name))
         _design_controls("a", disabled=custom_config_a is not None)
 
     btn_save = st.button(
-        "Save this comparison", type="primary", width="stretch",
-        help="Adds the current A/B metrics to the saved comparisons at the bottom of the page.",
+        t("Save this comparison"), type="primary", width="stretch",
+        help=t("Adds the current A/B metrics to the saved comparisons at the bottom of the page."),
     )
 
     st.divider()
-    with st.expander("Examples"):
+    with st.expander(t("Examples")):
         for example in EXAMPLES:
-            st.button(example, on_click=_apply_example, args=(example,), width="stretch")
+            st.button(t(example), key=f"example_{example}", on_click=_apply_example, args=(example,),
+                      width="stretch")
 
-    with st.expander("Custom CADL", expanded=bool(custom_error or custom_error_a)):
+    with st.expander(t("Custom CADL"), expanded=bool(custom_error or custom_error_a)):
         st.caption(
-            "Paste a CADL motivation-config YAML to use instead of the selectors. "
+            t("Paste a CADL motivation-config YAML that replaces the selectors. "
             "The synthetic metrics depend only on `sos_type`, the agent "
             "`profile` and `rho`; other fields such as `alpha`, `beta` and "
             "`lambda` are carried into the generated IR and config but do "
             "not change the results. Only `directed` is modelled separately: "
             "any other `sos_type` is computed as collaborative. Profiles are "
             "`uniform`, `linear` and `polarized`; keys the format does not "
-            "know are ignored."
+            "know are ignored.")
         )
         st.text_area(
-            "Design B", height=160, max_chars=MAX_SOURCE_CHARS, key="custom_cadl",
+            t("Design B"), height=160, max_chars=MAX_SOURCE_CHARS, key="custom_cadl",
             placeholder=(
-                "name: my-custom-config\n"
+                t("name: my-custom-config\n"
                 "sos_type: directed\n"
                 "governance:\n"
                 "  alpha: 0.3\n"
@@ -237,12 +239,12 @@ with st.sidebar:
                 "    profile: linear\n"
                 "  governance:\n"
                 "    model: hybrid\n"
-                "    rho: 0.5\n"
+                "    rho: 0.5\n")
             ),
         )
         if custom_error:
             st.error(custom_error)
-        st.text_area("Design A (baseline)", height=120, max_chars=MAX_SOURCE_CHARS,
+        st.text_area(t("Design A (baseline)"), height=120, max_chars=MAX_SOURCE_CHARS,
                      key="custom_cadl_a")
         if custom_error_a:
             st.error(custom_error_a)
@@ -264,11 +266,12 @@ try:
 except Exception as e:
     import traceback
     st.error(
-        f"**Pipeline failed** ({type(e).__name__}): {e}\n\n"
-        "The synthetic model supports the uniform, linear and polarized "
-        "profiles with 5 agents. Adjust the design and try again."
+        t("**Pipeline failed** ({kind}): {e}\n\n"
+          "The synthetic model supports the uniform, linear and polarized "
+          "profiles with 5 agents. Adjust the design and try again.").format(
+            kind=type(e).__name__, e=e)
     )
-    with st.expander("Stack trace (for bug reports)"):
+    with st.expander(t("Stack trace (for bug reports)")):
         st.code(traceback.format_exc(), language="text")
     st.stop()
 
@@ -277,59 +280,64 @@ identical = pa.cadl_id == pb.cadl_id
 
 # ── Header ──────────────────────────────────────────────────────────
 
-st.title("CADL Explorer")
+st.title(t("CADL Explorer"))
+if st.session_state.get("explorer_from_designer") and st.session_state.get("custom_cadl"):
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.info(t("Design B is the design you sent from the Designer. Edit it there; this page "
+                  "runs the synthetic model on it."), icon=":material/compare_arrows:")
+        st.page_link("views/designer.py", label=t("Back to the Designer"), icon=":material/arrow_back:")
 st.markdown(
-    "Change a governance design and trace how the change propagates: "
+    t("Change a governance design and trace how the change propagates: "
     "**CADL** (institution) → **IR** (governance structure) → "
-    "**Config** (simulator settings) → **Result** (behaviour)."
+    "**Config** (simulator settings) → **Result** (behaviour).")
 )
 st.caption(
-    f":material/science: Results come from a **synthetic model**, not from "
-    f"measurements of a real system — {NUM_SEEDS} seeds per design. "
-    f"[CADL specification and hands-on]({SPEC_URL}) · "
-    "terms are explained in **About & Glossary**."
+    t(":material/science: Results come from a **synthetic model**, not from "
+      "measurements of a real system — {n} seeds per design. "
+      "[CADL specification and hands-on]({spec}) · "
+      "terms are explained in **About & Glossary**.").format(n=NUM_SEEDS, spec=SPEC_URL)
 )
 
 # Open on arrival, folded away once the page is being used.
-with st.expander("Getting started — what this tool does, how to use it, and a demo",
+with st.expander(t("Getting started — what this tool does, how to use it, and a demo"),
                  expanded=not ss.get("explorer_used")):
     col_what, col_how = st.columns(2, gap="large")
     with col_what:
-        st.markdown("##### What you can do")
-        st.markdown(WHAT_YOU_CAN_DO)
+        st.markdown(t("##### What you can do"))
+        st.markdown(t(WHAT_YOU_CAN_DO))
     with col_how:
-        st.markdown("##### How to use it")
-        st.markdown(HOW_TO_USE)
+        st.markdown(t("##### How to use it"))
+        st.markdown(t(HOW_TO_USE))
 
-    st.markdown("##### Demo — three comparisons to try")
+    st.markdown(t("##### Demo — three comparisons to try"))
     st.caption(
-        "Each button loads a ready-made A/B pair into the sidebar and "
-        "updates the page below."
+        t("Each button loads a ready-made A/B pair into the sidebar and "
+        "updates the page below.")
     )
     for col, (example, (compares, look_at)) in zip(st.columns(len(DEMOS)), DEMOS.items()):
         with col.container(border=True):
-            st.markdown(f"**{example}**")
-            st.markdown(compares)
-            st.markdown(f"*What to look at:* {look_at}")
+            st.markdown(f"**{t(example)}**")
+            st.markdown(t(compares))
+            st.markdown(t("*What to look at:* {text}").format(text=t(look_at)))
             st.button(
-                "Load this demo", key=f"demo_{example}", width="stretch",
+                t("Load this demo"), key=f"demo_{example}", width="stretch",
                 on_click=_apply_example, args=(example,),
             )
     st.caption(
-        "The Explorer runs a small synthetic model. To design a full SoS and its "
-        "contract architecture in CADL, open the **Designer** page."
+        t("The Explorer runs a small synthetic model. To design a full SoS and its "
+        "contract architecture in CADL, open the **Designer** page.")
     )
 ss.explorer_used = True
 
 # ── 1. Outcome ──────────────────────────────────────────────────────
 
-st.header("1. Outcome", divider="gray")
+st.header(t("1. Outcome"), divider="gray")
 st.markdown(f"**A** `{pa.name}`  →  **B** `{pb.name}`")
 
 if identical:
     st.info(
-        "A and B are the same design, so nothing changes. Pick a different "
-        "template, profile or ρ for B, or start from an example in the sidebar."
+        t("A and B are the same design, so nothing changes. Pick a different "
+        "template, profile or ρ for B, or start from an example in the sidebar.")
     )
 
 ea, eb = pa.evaluation, pb.evaluation
@@ -347,27 +355,27 @@ with col_m:
         delta = mb.mean - ma.mean
         pct = f" ({delta / ma.mean:+.1%})" if abs(ma.mean) > 1e-9 else ""
         st.metric(
-            f"{label} — B", f"{mb.mean:{fmt}} ± {mb.std:{fmt}}",
-            f"{delta:+{fmt}}{pct} vs A ({ma.mean:{fmt}})",
+            t("{metric} — B").format(metric=t(label)), f"{mb.mean:{fmt}} ± {mb.std:{fmt}}",
+            t("{delta} vs A ({a})").format(delta=f"{delta:+{fmt}}{pct}", a=f"{ma.mean:{fmt}}"),
             delta_color="off" if abs(delta) < 0.005 else "normal",
-            help=help_text,
+            help=t(help_text),
         )
 
     result_labels = comparison.result.labels
     if result_labels:
-        st.markdown("**In short**")
+        st.markdown(t("**In short**"))
         for lbl in result_labels:
             st.markdown(f"- {lbl.summary.replace('->', '→')}")
     elif not identical:
-        st.markdown("**In short** — no notable change in behaviour.")
+        st.markdown(t("**In short** — no notable change in behaviour."))
 
 with col_plot:
     references = {}
     used = {pa.cadl.get("sos_type", "").lower(), pb.cadl.get("sos_type", "").lower()}
     if "directed" not in used:
-        references["D-SoS reference"] = cached_pipeline("D-SoS", "uniform", 0.0).results
+        references[t("D-SoS reference")] = cached_pipeline("D-SoS", "uniform", 0.0).results
     if "collaborative" not in used:
-        references["C-SoS reference"] = cached_pipeline("C-SoS", "uniform", 0.0).results
+        references[t("C-SoS reference")] = cached_pipeline("C-SoS", "uniform", 0.0).results
     st.plotly_chart(
         scatter_ab(pa.results, pb.results, "A", "B", references),
         width="stretch",
@@ -376,17 +384,17 @@ with col_plot:
         compute_region(pa.results, "A"), compute_region(pb.results, "B"),
     )
     st.caption(
-        "Each point is one seed; the dashed outline is the region a design "
-        "reaches and the arrow joins the centres of A and B. "
-        f"From A to B: {region_cmp['summary']}."
+        t("Each point is one seed; the dashed outline is the region a design "
+          "reaches and the arrow joins the centres of A and B. "
+          "From A to B: {summary}.").format(summary=region_cmp['summary'])
     )
 
 # ── 2. Why: causal chain ────────────────────────────────────────────
 
-st.header("2. Why — the causal chain", divider="gray")
+st.header(t("2. Why — the causal chain"), divider="gray")
 st.caption(
-    "The same change seen at each stage of the pipeline. Interpreted "
-    "changes come first; the raw diff is available under each stage."
+    t("The same change seen at each stage of the pipeline. Interpreted "
+    "changes come first; the raw diff is available under each stage.")
 )
 
 STAGES = [
@@ -401,39 +409,42 @@ for i, (col, (short, title, _, sd, _)) in enumerate(zip(cols, STAGES), 1):
     n = len(sd.labels)
     with col.container(border=True):
         st.markdown(f"**{i}. {short}**" + ("  →" if i < len(STAGES) else ""))
-        st.caption(title)
-        st.markdown(f"**{n}** change{'s' if n != 1 else ''}" if n else "no change")
+        st.caption(t(title))
+        if n:
+            st.markdown(t("**{n}** change" if n == 1 else "**{n}** changes").format(n=n))
+        else:
+            st.markdown(t("no change"))
 
 for i, (short, title, blurb, sd, _) in enumerate(STAGES, 1):
     with st.container(border=True):
-        st.markdown(f"#### {i}. {short} — {title}")
-        st.caption(blurb)
+        st.markdown(f"#### {i}. {short} — {t(title)}")
+        st.caption(t(blurb))
         if not sd.labels:
-            st.markdown("*No change at this stage.*")
+            st.markdown(t("*No change at this stage.*"))
         else:
             main = [l for l in sd.labels if l.magnitude != "minimal"]
             minor = [l for l in sd.labels if l.magnitude == "minimal"]
             for lbl in main:
                 st.markdown(f"- **{lbl.category}** — {lbl.summary.replace('->', '→')}")
             if minor:
-                st.caption("Also changed: " + ", ".join(l.field for l in minor))
+                st.caption(t("Also changed: {fields}").format(fields=", ".join(l.field for l in minor)))
         raw = _raw_diff(sd)
         if raw:
-            with st.expander(f"Raw diff ({len(raw.splitlines())} lines)"):
+            with st.expander(t("Raw diff ({n} lines)").format(n=len(raw.splitlines()))):
                 st.code(raw, language="diff")
 
 # ── 3. Explore ──────────────────────────────────────────────────────
 
-st.header("3. Explore", divider="gray")
+st.header(t("3. Explore"), divider="gray")
 
 b_sos_type = pb.cadl.get("sos_type", "").lower()
-tab_rho, tab_robot, tab_scenario = st.tabs(["Effect of ρ", "Per-robot view", "Scenario"])
+tab_rho, tab_robot, tab_scenario = st.tabs([t("Effect of ρ"), t("Per-robot view"), t("Scenario")])
 
 with tab_rho:
     if b_sos_type != "directed":
         st.info(
-            "The ρ sweep is drawn for directed (D-SoS) designs only. The "
-            "C-SoS template has no motivation model, so ρ does not affect it."
+            t("The ρ sweep is drawn for directed (D-SoS) designs only. The "
+            "C-SoS template has no motivation model, so ρ does not affect it.")
         )
     else:
         sweep = []
@@ -444,18 +455,19 @@ with tab_rho:
             width="stretch",
         )
         st.caption(
-            f"Directed design swept over ρ (mean ± std over {NUM_SEEDS} seeds). "
-            f"The highlighted line is B's motivation profile ({pb.profile}); "
-            f"the dotted line marks B's effective ρ = {pb.rho:.2f}. "
-            "Grey lines are the other profiles."
+            t("Directed design swept over ρ (mean ± std over {n} seeds). "
+              "The highlighted line is B's motivation profile ({profile}); "
+              "the dotted line marks B's effective ρ = {rho}. "
+              "Grey lines are the other profiles.").format(
+                n=NUM_SEEDS, profile=pb.profile, rho=f"{pb.rho:.2f}")
         )
 
 with tab_robot:
     st.plotly_chart(per_robot_ab(pa.results, pb.results, "A", "B"), width="stretch")
     st.caption(
-        f"Mean ± std per robot over {NUM_SEEDS} seeds. Freedom is 1 − the "
-        "constrained share of a robot's behaviour. Hover a bar for the "
-        "robot's motivation value."
+        t("Mean ± std per robot over {n} seeds. Freedom is 1 − the "
+          "constrained share of a robot's behaviour. Hover a bar for the "
+          "robot's motivation value.").format(n=NUM_SEEDS)
     )
 
 with tab_scenario:
@@ -473,32 +485,32 @@ with tab_scenario:
                 unsafe_allow_html=True,
             )
     st.caption(
-        "Fixed 11-node road graph with 5 robots. Robots are shaded by "
+        t("Fixed 11-node road graph with 5 robots. Robots are shaded by "
         "motivation (darker is higher). Dashed lines show a central "
-        "authority directing the robots; a verifier-only arbitrator has none."
+        "authority directing the robots; a verifier-only arbitrator has none.")
     )
 
 # ── 4. Reproduce ────────────────────────────────────────────────────
 
-st.header("4. Reproduce & export", divider="gray")
+st.header(t("4. Reproduce & export"), divider="gray")
 
 st.dataframe(
     [
         {
-            "design": name, "name": pr.name, "cadl id": pr.cadl_id,
-            "ir id": pr.ir_id, "config id": pr.config_id,
-            "seeds": f"0–{len(pr.seeds) - 1}",
+            t("design"): name, t("name"): pr.name, t("cadl id"): pr.cadl_id,
+            t("ir id"): pr.ir_id, t("config id"): pr.config_id,
+            t("seeds"): f"0–{len(pr.seeds) - 1}",
         }
         for name, pr in [("A", pa), ("B", pb)]
     ],
     width="stretch", hide_index=True,
 )
 st.caption(
-    "IDs are content hashes of each stage. The same CADL id and seeds "
-    "always give the same results."
+    t("IDs are content hashes of each stage. The same CADL id and seeds "
+    "always give the same results.")
 )
 
-with st.expander("CADL source of A and B"):
+with st.expander(t("CADL source of A and B")):
     col_ya, col_yb = st.columns(2)
     for col, name, pr in [(col_ya, "A", pa), (col_yb, "B", pb)]:
         with col:
@@ -508,20 +520,20 @@ with st.expander("CADL source of A and B"):
 
 col_d1, col_d2, col_d3, col_d4 = st.columns(4)
 col_d1.download_button(
-    "B: CADL (YAML)", yaml.dump(pb.cadl, default_flow_style=False, sort_keys=False),
+    t("B: CADL (YAML)"), yaml.dump(pb.cadl, default_flow_style=False, sort_keys=False),
     file_name=f"{pb.name}.cadl.yaml", mime="text/yaml", width="stretch",
 )
 col_d2.download_button(
-    "B: IR (JSON)", json.dumps(pb.ir, indent=2),
+    t("B: IR (JSON)"), json.dumps(pb.ir, indent=2),
     file_name=f"{pb.name}.ir.json", mime="application/json", width="stretch",
 )
 col_d3.download_button(
-    "B: simulator config (JSON)", json.dumps(pb.config, indent=2),
+    t("B: simulator config (JSON)"), json.dumps(pb.config, indent=2),
     file_name=f"{pb.name}.cadl_config.json", mime="application/json",
     width="stretch",
 )
 col_d4.download_button(
-    "A vs B comparison (JSON)", json.dumps(comparison.to_dict(), indent=2),
+    t("A vs B comparison (JSON)"), json.dumps(comparison.to_dict(), indent=2),
     file_name="cadl_explorer_comparison.json", mime="application/json",
     width="stretch",
 )
@@ -546,30 +558,30 @@ if btn_save:
         "seeds": len(pb.seeds),
     })
     ss.run_history = ss.run_history[-20:]
-    st.toast("Comparison saved — see the bottom of the page.")
+    st.toast(t("Comparison saved — see the bottom of the page."))
 
-st.subheader("Saved comparisons")
+st.subheader(t("Saved comparisons"))
 history = ss.run_history
 if not history:
     st.caption(
-        "Nothing saved yet. **Save this comparison** in the sidebar keeps "
-        "the current A/B metrics here for this session (up to 20)."
+        t("Nothing saved yet. **Save this comparison** in the sidebar keeps "
+        "the current A/B metrics here for this session (up to 20).")
     )
 else:
     import pandas as pd
     df = pd.DataFrame(history)
-    st.dataframe(df, width="stretch", hide_index=True)
+    st.dataframe(df.rename(columns=t), width="stretch", hide_index=True)
     col_csv, col_json, col_clear = st.columns(3)
     col_csv.download_button(
-        "Download CSV", df.to_csv(index=False).encode("utf-8"),
+        t("Download CSV"), df.to_csv(index=False).encode("utf-8"),
         file_name="cadl_explorer_comparisons.csv", mime="text/csv",
         width="stretch",
     )
     col_json.download_button(
-        "Download JSON", json.dumps(history, indent=2).encode("utf-8"),
+        t("Download JSON"), json.dumps(history, indent=2).encode("utf-8"),
         file_name="cadl_explorer_comparisons.json", mime="application/json",
         width="stretch",
     )
-    if col_clear.button("Clear saved comparisons", width="stretch"):
+    if col_clear.button(t("Clear saved comparisons"), width="stretch"):
         ss.run_history = []
         st.rerun()

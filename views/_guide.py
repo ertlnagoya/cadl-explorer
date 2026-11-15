@@ -1,4 +1,8 @@
-"""In-app guide text shared by the Explorer and About pages."""
+"""In-app guide text shared by the Explorer and About pages.
+
+The English text is the key: the pages show each block through `t()`, and the
+Japanese of every block is in views/_i18n_ja.py.
+"""
 
 WHAT_YOU_CAN_DO = """\
 - **Compare two governance designs** for a 5-robot fleet: a baseline **A** and a design under study **B**.
@@ -15,12 +19,16 @@ OTHER_PAGES = """\
 """
 
 HOW_TO_DESIGN = """\
-1. Open **Designer**. **Open an existing CADL file** from the sidebar, or start from an example or **New design**.
-2. **Edit the design** as *Source* (an editor with line numbers; press **Apply** or Ctrl/⌘ + Enter), or switch to *Forms* and edit one section at a time: System, Actors, Contracts, Protocols, Algorithms, Regimes, Metrics and Verification. New contracts can start from a template (service-level agreement, safety, data sharing) and lifecycles from a preset. Both ways change the same design, and **Undo** takes back any change.
-3. **Read the checks** on the right: one badge per check, then the problems. **Open …** next to a problem takes you to the form that fixes it. *Checks* explains what each check covers and what is not checked.
-4. **Look at the views**: *Architecture* (actors, contracts, who decides; items with problems are outlined), *Structure* (who sends what to whom, which actors are most central, an N² chart, a table of who decides, takes part in or answers for each contract, and the dependencies between contracts), *Control structure* (a STAMP control structure inferred from who decides: control actions down, feedback up, open loops, an STPA table of unsafe control actions to fill in, and which monitor, `violation.detect` or deadline watches each assumption and guarantee), *Lifecycle* (each contract's state machine, which you can step through event by event or read as stories), *Protocols* (a sequence diagram per protocol), *Regimes*, *Algorithms & metrics*, and *Read-back* (each contract and each actor's obligations restated in plain sentences, to confirm the design says what you meant).
-5. **Keep versions** under *Versions*: save named versions or add several CADL files at once (the `v1.cadl`, `v2.cadl`, ... of a Course D run), compare any two designs, restore one, or send two to the Explorer. A design with values marked `# @amend:` (Robot Town) also gets *Amendable parameters*: check them against a constitution, amend one in place without losing the comments, and see how the values moved across the versions — how many amendments, how many steps in all, the largest move and the reversals.
-6. **Save** the design with **Save as .cadl** in the sidebar. *Export* also offers a design report (HTML, printable to PDF), the simulator IR, simulator configs and generated runtime code. The design is kept for this browser session only.
+1. **Open the Designer.** In the sidebar, open a `.cadl` file or a saved project, load an example, or start a **New design**. The page leads through five stages: **Write**, **Read**, **Verify**, **Change** and **Deliver**.
+2. **Write** the design as *Source* (an editor with line numbers; press **Apply** or Ctrl/⌘ + Enter) or with *Forms*, one section at a time. The editor completes the names of the design as you type, and **Insert…** puts a snippet (a contract, a norm, a lifecycle, a monitor, a protocol, a stochastic model) at the cursor. Every change is checked: each problem in the list has a **Line n** button that shows its line in the editor and an **Open form** button for the form that fixes it. **Undo** takes back any change.
+3. **Read** the design back: *Architecture*, *Structure*, *Control structure*, *Lifecycle*, *Protocols*, *Regimes*, *Algorithms & metrics* and *Read-back* (the design restated in sentences, to confirm it says what you meant). Click a box in a diagram to see where the source writes it.
+4. **Verify** it. *Summary* shows the latest result of every check and the design it ran on. *Checks* runs `cadl norms-check` and `cadl game-check` in the background, with a **Stop** button. *Traces* evaluates a recorded trace with `cadl norms-eval`. *Agents* runs `cadl agents-run` and `cadl audit-verify`.
+5. **Change** it under *Versions*: save versions, compare two designs (the change is drawn on the architecture), and amend the values marked `# @amend:` within the constitution.
+6. **Deliver** it under *Export*: the design report, simulator configs checked by `cadl sim-validate`, runtime code, and the design opened in the Explorer.
+
+**Layout.** The editor and the stages stand side by side, or the page has one column. Below 1100 px (a tablet held upright, a narrow window) the page starts in one column; the switch next to the stages changes it. **Language.** The switch at the top of the sidebar chooses English or 日本語.
+
+**Keeping your work.** The design lives in the browser session. Save the `.cadl` file, or the whole project as a `.zip` (versions, decisions, constitution, STPA entries and the record of the checks), from the sidebar, and open it there again later. With `CADL_WORKSPACE_GIT=1`, the shared workspace commits each change to git.
 """
 
 HOW_TO_USE = """\

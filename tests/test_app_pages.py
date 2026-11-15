@@ -327,10 +327,18 @@ def test_about_page_states_the_version():
     assert any(f"Version **{__version__}**" in m.value for m in at.markdown)
 
 
-def test_designer_forms_warn_about_amend_tags():
+def test_designer_forms_keep_the_amend_tags():
     from backend.services import design_service as ds
-    at = _section(_set_design(_designer(), ds.load_example("robot town")), "Contracts")
-    assert any("@amend" in w.value for w in at.warning)
+    source = ds.load_example("robot town")
+    at = _section(_set_design(_designer(), source), "Contracts")
+    assert any("@amend" in c.value and "keeps the comments" in c.value for c in at.caption)
+    # a change through the forms keeps every comment of the source
+    doc = ds.load_doc(source)
+    doc["sos"]["contracts"][0]["guarantee"].append("x_time <= 5s")
+    merged = ds.merge_doc(source, doc)
+    assert merged.count("# @amend:") == source.count("# @amend:")
+    assert [line for line in merged.splitlines() if line not in source.splitlines()] == [
+        "        - x_time <= 5s"]
 
 
 def test_designer_structure_view():

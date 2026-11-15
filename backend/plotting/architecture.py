@@ -22,9 +22,44 @@ _FLAG = {
 
 
 def _flag_attrs(flags: dict, section: str, item: str, dark: bool) -> str:
-    """Border attributes for an item that has a finding against it."""
+    """Border attributes for an item that has a finding against it, or that an
+    amendment added, removed or changed (section "Diff")."""
     level = (flags or {}).get(section, {}).get(item)
+    mark = (flags or {}).get("Diff", {}).get(f"{section}:{item}")
+    if mark:
+        color = _DIFF[bool(dark)][mark]
+        return (f' color="{color}" penwidth=3' + (' style="dashed"' if mark == "removed" else "")
+                + f' xlabel="{mark}" fontcolor="{color}"')
     return f' color="{_FLAG[bool(dark)][level]}" penwidth=3' if level else ""
+
+
+_DIFF = {
+    False: {"added": "#1a7f37", "changed": "#bf8700", "removed": "#8c959f"},
+    True: {"added": "#56d364", "changed": "#f2cc60", "removed": "#8b949e"},
+}
+
+
+def diff_ir(ir_a: dict, ir_b: dict) -> tuple:
+    """(IR to draw, flags) for the change from A to B: B's actors and contracts with
+    those that A has and B lacks, each marked added, removed or changed."""
+    marks = {}
+    union = {k: v for k, v in (ir_b or {}).items()}
+    inst_a = (ir_a or {}).get("institution") or {}
+    inst_b = dict((ir_b or {}).get("institution") or {})
+    for kind, section in (("actors", "Actors"), ("contracts", "Contracts")):
+        old = {str(x.get("id")): x for x in inst_a.get(kind) or []}
+        new = {str(x.get("id")): x for x in inst_b.get(kind) or []}
+        for key, item in new.items():
+            if key not in old:
+                marks[f"{section}:{key}"] = "added"
+            elif old[key] != item:
+                marks[f"{section}:{key}"] = "changed"
+        removed = [x for key, x in old.items() if key not in new]
+        for x in removed:
+            marks[f"{section}:{x.get('id')}"] = "removed"
+        inst_b[kind] = list(inst_b.get(kind) or []) + removed
+    union["institution"] = inst_b
+    return union, {"Diff": marks}
 
 
 def architecture_to_dot(ir: dict, dark: bool = False, flags: Optional[dict] = None) -> str:

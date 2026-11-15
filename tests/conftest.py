@@ -48,3 +48,16 @@ def prism_or_skip() -> None:
 @pytest.fixture
 def prism():
     prism_or_skip()
+
+
+# The page runs long checks of cadl in a background thread (design_jobs); in the
+# page tests they run inline, so that one run of AppTest shows their result.
+os.environ.setdefault("CADL_JOBS_SYNC", "1")
+
+
+@pytest.fixture(autouse=True)
+def _forget_jobs():
+    """Each test starts without the results of the jobs of another test."""
+    from backend.services import design_jobs
+    design_jobs.clear()
+    yield

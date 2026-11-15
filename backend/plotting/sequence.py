@@ -142,3 +142,50 @@ def sequence_svg(protocol: dict, dark: bool = False, flagged: Iterable[str] = ()
         )
     svg.append("</svg>")
     return "\n".join(svg)
+
+
+def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: int = 300) -> dict:
+    """A recorded trace (the JSON Lines records of `cadl norms-eval` or `agents-run`)
+    as the steps of a protocol for sequence_svg: a band for each observation with its
+    time, values and state, and an arrow for each message. Observations in a row
+    with nothing in them share one band. `decisions`, one per message in order, are
+    written after the message names (allow, deny, escalate)."""
+    decisions = list(decisions)
+    steps: List[dict] = []
+    quiet: List = []
+    n = 0
+
+    def flush():
+        if quiet:
+            span = f"t = {quiet[0]}" if len(quiet) == 1 else f"t = {quiet[0]} … {quiet[-1]}"
+            steps.append({"type": "band", "content": f"{span}: no message"})
+            quiet.clear()
+
+    for record in records:
+        messages = record.get("messages") or []
+        parts = []
+        if record.get("bindings"):
+            parts.append(", ".join(f"{k} = {v}" for k, v in record["bindings"].items()))
+        if record.get("values"):
+            parts.append(", ".join(f"{k} = {v}" for k, v in record["values"].items()))
+        if record.get("state"):
+            parts.append(f"state {record['state']}")
+        if record.get("end"):
+            parts.append("end")
+        if not messages and not parts:
+            quiet.append(record.get("t"))
+            continue
+        flush()
+        steps.append({"type": "band", "content": " · ".join([f"t = {record.get('t')}"] + parts)})
+        for m in messages:
+            args = m.get("args") or []
+            name = str(m.get("name") or "") + (f"({', '.join(map(str, args))})" if args else "")
+            if n < len(decisions):
+                name += f" — {decisions[n]}"
+            n += 1
+            steps.append({"type": "message", "sender": m.get("from"), "receiver": m.get("to"),
+                          "content": name})
+    flush()
+    if len(steps) > limit:
+        steps = steps[:limit] + [{"type": "band", "content": f"… {len(steps) - limit} more steps"}]
+    return {"steps": steps}
