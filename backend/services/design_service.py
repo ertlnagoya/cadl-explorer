@@ -1939,7 +1939,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 instances: Any = None, versions: Optional[List[tuple]] = None,
                 starts: Optional[str] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
-    one contract instance, translated into a model for PRISM and checked over every
+    one contract instance (or several), translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
     the command line; `timeout` bounds building the model and the runs of PRISM
     (`--timeout`; at most MAX_NORMS_CHECK_TIMEOUT). cadl 0.3.26 adds `domains`

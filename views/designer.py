@@ -778,7 +778,7 @@ def _norms_check_section(source: str):
     contracts = ds.norms_contracts(source)
     with st.expander("Norms over all behaviours (norms 0.1): `cadl norms-check`"):
         st.caption(
-            "The norms of one contract instance are translated into a model for PRISM, which "
+            "The norms of a contract are translated into a model for PRISM, which "
             "answers over every behaviour up to the horizon whether each norm can be activated, "
             "violated and fulfilled, whether every activation can be kept, which obligations and "
             "prohibitions are in conflict, and whether powers and reparations are used. Every "
