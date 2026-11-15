@@ -84,13 +84,13 @@ def _status():
         errors, warnings = analysis.count("error", stage), analysis.count("warning", stage)
         ran = any(f.stage == stage for f in analysis.findings)
         if errors:
-            badges.append(f":red-badge[{LEVEL_ICON['error']} {stage} · {errors}]")
+            badges.append(f":red-badge[{LEVEL_ICON['error']} {t(stage)} · {errors}]")
         elif warnings:
-            badges.append(f":orange-badge[{LEVEL_ICON['warning']} {stage} · {warnings}]")
+            badges.append(f":orange-badge[{LEVEL_ICON['warning']} {t(stage)} · {warnings}]")
         elif ran:
-            badges.append(f":green-badge[{LEVEL_ICON['pass']} {stage}]")
+            badges.append(f":green-badge[{LEVEL_ICON['pass']} {t(stage)}]")
         else:
-            badges.append(f":gray-badge[:material/remove: {stage}]")
+            badges.append(f":gray-badge[:material/remove: {t(stage)}]")
     stale = verify.stale_runs(source)
     if stale:
         badges.append(f":violet-badge[:material/history: {t('older results')} · {stale}]")
@@ -125,7 +125,11 @@ def _status():
     label = ", ".join(
         f"{n} {t(word + ('s' if n != 1 else ''))}"
         for n, word in ((n_errors, "error"), (n_warnings, "warning")) if n)
-    with st.expander(f"{t('Problems')} — {label}", expanded=bool(n_errors) or len(problems) <= 3):
+    # In one column the Write stage puts the editor below this list; warnings stay
+    # closed there, since the editor marks their lines.
+    writing = not layout.side_by_side() and ss.get("design_stage") == "Write"
+    with st.expander(f"{t('Problems')} — {label}",
+                     expanded=bool(n_errors) or (len(problems) <= 3 and not writing)):
         for i, f in enumerate(problems[:8]):
             where = f" ({t('line')} {f.line})" if getattr(f, "line", None) else ""
             st.markdown(

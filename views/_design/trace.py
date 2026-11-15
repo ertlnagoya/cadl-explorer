@@ -20,7 +20,7 @@ from backend.plotting.sequence import sequence_svg, trace_protocol
 from backend.services import design_runtime as runtime
 from backend.services import design_service as ds
 from views._design.cache import _NotCached, _uncached
-from views._design.common import _is_dark, _plain, ss
+from views._design.common import _is_dark, _load_example, _plain, ss
 from views._i18n import t
 
 TRACES_DIR = ds.DESIGNS_DIR / "traces"
@@ -58,6 +58,23 @@ def cached_agents_run(source: str, trace: str) -> dict:
         return e.result
 
 
+def _open_example(name: str):
+    ss.design_example = name
+    _load_example()
+
+
+def _example_buttons(names: list):
+    """A button for each example that has what this view needs; it replaces the design."""
+    examples = ds.list_examples()
+    with st.container(horizontal=True):
+        for name in names:
+            if name in examples:
+                st.button(t("Open the example {name}").format(name=f"*{name}*"),
+                          key=f"design_open_example_{name}", on_click=_open_example, args=(name,),
+                          icon=":material/folder_open:",
+                          help=t("Replaces the design in the editor."))
+
+
 def example_traces(source: str, prefix: str) -> dict:
     """{label: text} of the bundled traces of the example that the source is, or of
     every example whose file starts with `prefix` when the source is no example."""
@@ -80,12 +97,19 @@ def _use_text(key: str, text: str):
     ss[f"{key}_ver"] = ss.get(f"{key}_ver", 0) + 1
 
 
+def _keep_text(key: str, widget_key: str):
+    """Keep the typed text in ss[key], which outlives the text area when the view changes."""
+    ss[key] = ss[widget_key]
+
+
 def trace_input(key: str, examples: dict, help_text: str) -> str:
-    """A trace from an example, a file or typed text; the text is kept in ss[key]."""
+    """A trace from an example, a file or typed text; the text is kept in ss[key].
+    The text area has a versioned key, so that an example or a file replaces its text."""
     c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
     if examples:
+        choose = t("(choose one)")
         pick = c1.selectbox(t("Example trace"), [""] + list(examples), key=f"{key}_example",
-                            format_func=lambda s: s or t("(choose one)"))
+                            format_func=lambda s: s or choose)
         c2.button(t("Use this trace"), key=f"{key}_use", disabled=not pick, width="stretch",
                   on_click=_use_text, args=(key, examples.get(pick, "")))
     upload = st.file_uploader(t("Or open a trace file (JSON Lines)"), type=["jsonl", "json", "txt"],
@@ -99,8 +123,9 @@ def trace_input(key: str, examples: dict, help_text: str) -> str:
         else:
             _use_text(key, text)
             st.rerun()
+    widget_key = f"{key}_text_{ss.get(f'{key}_ver', 0)}"
     return st.text_area(t("Trace (one JSON object per line)"), value=ss.get(key, ""), height=180,
-                        key=f"{key}_text_{ss.get(f'{key}_ver', 0)}",
+                        key=widget_key, on_change=_keep_text, args=(key, widget_key),
                         placeholder=t('{"t": 0, "bindings": {"i": 1}, "values": {...}}'))
 
 
@@ -155,6 +180,7 @@ def traces(c):
         st.info(t("This design declares no norms (norms 0.1), so there is nothing to evaluate. "
                   "The examples *norms robot delivery* and *norms no double assignment* have "
                   "norms and traces."))
+        _example_buttons(["norms robot delivery", "norms no double assignment"])
         return
     contract = st.selectbox(t("Contract"), contracts, key="design_trace_contract")
     text = trace_input("design_trace", example_traces(source, "norms_"),
@@ -170,7 +196,7 @@ def traces(c):
         return
     result = cached_norms_eval(source, text, contract)
     if result.get("failure"):
-        st.error(f"Not evaluated: {result['failure']}")
+        st.error(t("Not evaluated: {e}").format(e=result["failure"]))
         return
     report = result["report"]
     _record("norms-eval", source, text, report)
@@ -191,7 +217,10 @@ def traces(c):
             a = answers.get(n["id"], {})
             row["norms-check: violable"] = a.get("violable", "—")
         rows.append(row)
-    st.dataframe(rows, hide_index=True, width="stretch")
+    st.dataframe(rows, hide_index=True, width="stretch", column_config={
+        k: st.column_config.Column(t(k)) for k in (
+            "norm", "kind", "bearer", "verdict", "activated at", "decided at", "why",
+            "norms-check: violable")})
     if answers:
         st.caption(t("The last column is the answer of this session's norms-check over every "
                      "behaviour: a norm violated here must be violable there."))
@@ -242,6 +271,7 @@ def agents(c):
     if "agents" not in ds.extensions_in_effect(source):
         st.info(t("This design does not use the agent governance extension (agents 0.1). The "
                   "example *agents tool governance* does, with traces."))
+        _example_buttons(["agents tool governance"])
         return
     text = trace_input("design_agents_trace", example_traces(source, "agents_"),
                        t("Recorded messages in the trace format of norms-eval, with `epoch` on "
@@ -256,7 +286,7 @@ def agents(c):
         return
     result = cached_agents_run(source, text)
     if result.get("failure"):
-        st.error(f"Not replayed: {result['failure']}")
+        st.error(t("Not replayed: {e}").format(e=result["failure"]))
         return
     report = result["report"]
     _record("agents-run", source, text, report)
@@ -279,7 +309,9 @@ def agents(c):
         "norms": ", ".join((step.get("result") or {}).get("norms") or []) or "—",
         "hold": step.get("hold_id") or "—",
         "escalated to": (step.get("result") or {}).get("escalate_to") or "—",
-    } for step in steps], hide_index=True, width="stretch")
+    } for step in steps], hide_index=True, width="stretch", column_config={
+        k: st.column_config.Column(t(k)) for k in (
+            "time", "message", "decision", "reason", "norms", "hold", "escalated to")})
     decisions = [(step.get("result") or {}).get("decision") or "" for step in steps]
     with st.expander(t("The messages as a sequence, with the decisions"), expanded=len(steps) <= 12):
         st.markdown(sequence_svg(trace_protocol(records, decisions), dark=_is_dark()),
@@ -291,7 +323,9 @@ def agents(c):
             "message": f"{h['message'].get('from')} → {h['message'].get('to')} : {h['message'].get('name')}",
             "approver": h.get("approver"), "deadline": h.get("deadline"), "closed": h.get("closed"),
             "released": h.get("released"),
-        } for h in report["holds"]], hide_index=True, width="stretch")
+        } for h in report["holds"]], hide_index=True, width="stretch", column_config={
+            k: st.column_config.Column(t(k)) for k in (
+                "hold", "state", "message", "approver", "deadline", "closed", "released")})
     for w in report.get("warnings") or []:
         st.warning(_plain(str(w)))
     audit = result.get("audit") or ""

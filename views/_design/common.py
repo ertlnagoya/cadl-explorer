@@ -145,8 +145,9 @@ def _problem_buttons(finding, key: str):
             st.button(
                 t("Open form"), key=f"{key}_form", on_click=_jump,
                 args=(finding.section, finding.item),
-                help=f"Open Forms → {finding.section}"
-                     + (f" → {finding.item}" if finding.item else "") + ", where this can be fixed.",
+                help=(t("Open Forms → {section} → {item}, where this can be fixed.") if finding.item
+                      else t("Open Forms → {section}, where this can be fixed.")).format(
+                    section=t(finding.section), item=finding.item),
             )
         if target:
             st.button(
@@ -206,15 +207,17 @@ def _add_files_as_versions():
     added, skipped = [], []
     for f in files:
         if f.size > MAX_SOURCE_CHARS * 4:
-            skipped.append(f"{f.name} (too large; the limit is {MAX_SOURCE_CHARS:,} characters)")
+            skipped.append(t("{name} (too large; the limit is {n:,} characters)").format(
+                name=f.name, n=MAX_SOURCE_CHARS))
             continue
         try:
             text = f.getvalue().decode("utf-8-sig")
         except UnicodeDecodeError:
-            skipped.append(f"{f.name} (not UTF-8 text)")
+            skipped.append(t("{name} (not UTF-8 text)").format(name=f.name))
             continue
         if len(text) > MAX_SOURCE_CHARS:
-            skipped.append(f"{f.name} ({len(text):,} characters; the limit is {MAX_SOURCE_CHARS:,})")
+            skipped.append(t("{name} ({n:,} characters; the limit is {m:,})").format(
+                name=f.name, n=len(text), m=MAX_SOURCE_CHARS))
             continue
         stem = f.name.rsplit(".", 1)[0]
         added.append(_add_version(f"{prefix} {stem}" if prefix else stem, text))

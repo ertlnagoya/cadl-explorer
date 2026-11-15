@@ -48,7 +48,7 @@ def _pick(label: str, ids: list, state_key: str, marks: dict = None):
         return None
     marks = marks or {}
     return st.selectbox(
-        label, ids, key=state_key, format_func=lambda i: f"{i}{_MARK.get(marks.get(i), '')}")
+        label, ids, key=state_key, format_func=lambda i: f"{i}{t(_MARK.get(marks.get(i), ''))}")
 
 
 def _party_options(sos: dict) -> list:
@@ -65,15 +65,15 @@ def _party_options(sos: dict) -> list:
 def _system(sos, key, apply, flags):
     with st.form(f"sos_{key}", border=False):
         c1, c2, c3 = st.columns([3, 2, 1])
-        name = c1.text_input("Name", sos.get("name", ""))
+        name = c1.text_input(t("Name"), sos.get("name", ""))
         current = str(sos.get("type", ds.SOS_TYPES[1]))
         sos_type = c2.selectbox(
             t("Type"), ds.SOS_TYPES,
             index=ds.SOS_TYPES.index(current) if current in ds.SOS_TYPES else 1,
             help=t("Maier's SoS categories, from most to least centrally managed."),
         )
-        version = c3.text_input("Version", str(sos.get("version", "")))
-        description = st.text_input("Description", sos.get("description", ""))
+        version = c3.text_input(t("Version"), str(sos.get("version", "")))
+        description = st.text_input(t("Description"), sos.get("description", ""))
 
         context = sos.get("context") if isinstance(sos.get("context"), dict) else {}
         st.markdown(t("**Context**"))
@@ -85,7 +85,7 @@ def _system(sos, key, apply, flags):
         assumptions = st.text_area(
             t("Assumptions (one per line)"), _lines(context.get("assumptions")), height=80)
 
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             sos["name"], sos["type"] = name.strip(), sos_type
             ds.put(sos, "version", version.strip())
             ds.put(sos, "description", description.strip())
@@ -93,7 +93,7 @@ def _system(sos, key, apply, flags):
             ds.put(context, "environment", ds.rows_to_mapping(env_rows, typed=True))
             ds.put(context, "assumptions", _from_lines(assumptions))
             ds.put(sos, "context", context)
-            apply("System updated")
+            apply(t("System updated"))
 
 
 def _actors(sos, key, apply, flags):
@@ -109,13 +109,13 @@ def _actors(sos, key, apply, flags):
             column_config={
                 "autonomy": st.column_config.SelectboxColumn(
                     options=ds.AUTONOMY_LEVELS, required=True, default="medium"),
-                "input": st.column_config.TextColumn("input messages"),
-                "output": st.column_config.TextColumn("output messages"),
+                "input": st.column_config.TextColumn(t("input messages")),
+                "output": st.column_config.TextColumn(t("output messages")),
             },
         )
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             ds.rows_to_actors(sos, rows)
-            apply("Actors updated")
+            apply(t("Actors updated"))
 
 
 def _contracts(sos, key, apply, flags):
@@ -123,23 +123,23 @@ def _contracts(sos, key, apply, flags):
     ids = [str(c.get("id", f"contract_{i}")) for i, c in enumerate(contracts)]
     col_pick, col_del = st.columns([5, 1], vertical_alignment="bottom")
     with col_pick:
-        picked = _pick("Contract", ids, "design_contract", flags.get("Contracts"))
+        picked = _pick(t("Contract"), ids, "design_contract", flags.get("Contracts"))
     if col_del.button(t("Delete"), width="stretch", disabled=picked is None,
                       help=t("Delete the selected contract"), key="contract_del"):
         sos["contracts"] = [c for c in contracts if str(c.get("id")) != picked]
-        apply(f"Deleted {picked}")
+        apply(t("Deleted {id}").format(id=picked))
 
     col_template, col_add = st.columns([5, 1], vertical_alignment="bottom")
     template = col_template.selectbox(
         t("New contract from"), list(ds.CONTRACT_TEMPLATES), key="design_contract_template",
-        format_func=lambda t: f"{t} — {ds.CONTRACT_TEMPLATES[t][0]}",
+        format_func=lambda name: f"{t(name)} — {t(ds.CONTRACT_TEMPLATES[name][0])}",
     )
     if col_add.button(t("Add"), width="stretch", help=t("Add a contract from this template"),
                       key="contract_add"):
         added = ds.contract_from_template(sos, template)
         sos.setdefault("contracts", []).append(added)
         ss.design_contract_next = added["id"]
-        apply(f"Added {added['id']}")
+        apply(t("Added {id}").format(id=added["id"]))
 
     contract = next((c for c in contracts if str(c.get("id")) == picked), None)
     if contract is None:
@@ -148,13 +148,14 @@ def _contracts(sos, key, apply, flags):
 
     col_preset, col_use = st.columns([5, 1], vertical_alignment="bottom")
     preset = col_preset.selectbox(
-        f"Lifecycle preset for {picked}", list(ds.LIFECYCLE_PRESETS), key="design_lifecycle_preset",
+        t("Lifecycle preset for {id}").format(id=picked), list(ds.LIFECYCLE_PRESETS),
+        key="design_lifecycle_preset", format_func=t,
         help=t("Replaces this contract's lifecycle with a ready-made state machine."),
     )
     if col_use.button(t("Use"), width="stretch", key="lifecycle_use",
                       help=t("Replace the lifecycle of the selected contract with this preset")):
         contract["lifecycle"] = copy.deepcopy(ds.LIFECYCLE_PRESETS[preset])
-        apply(f"Lifecycle of {picked} replaced")
+        apply(t("Lifecycle of {id} replaced").format(id=picked))
 
     actor_ids = [str(a.get("id", "")) for a in sos.get("actors") or []]
     parties_now = [str(p) for p in contract.get("parties") or []]
@@ -169,9 +170,9 @@ def _contracts(sos, key, apply, flags):
         holders.append(holder_now)
 
     with st.form(f"contract_{picked}_{key}", border=False):
-        cid = st.text_input("Contract id", picked)
+        cid = st.text_input(t("Contract id"), picked)
         parties = st.multiselect(
-            "Parties", sorted(set(_party_options(sos) + parties_now)), parties_now,
+            t("Parties"), sorted(set(_party_options(sos) + parties_now)), parties_now,
             accept_new_options=True,
             help=t("Actors bound by this contract. `NAME[*]` means every member of a group."),
         )
@@ -181,13 +182,14 @@ def _contracts(sos, key, apply, flags):
 
         st.markdown(t("**Authority** — who decides"))
         a1, a2 = st.columns([2, 1])
-        holder = a1.selectbox(t("Decision holder"), holders, index=holders.index(holder_now))
+        holder = a1.selectbox(t("Decision holder"), holders, index=holders.index(holder_now),
+                              format_func=lambda h: t(h) if h == "(none)" else h)
         beta = a2.number_input(
             "β", 0.0, 1.0, authority.get("beta"), 0.05,
             help=t("How centralised decisions are, 0–1. Empty = not set."))
         a3, a4 = st.columns(2)
-        scope = a3.text_input("Decision scope", authority.get("decision_scope", "") or "")
-        mode = a4.text_input("Mode", authority.get("mode", "") or "",
+        scope = a3.text_input(t("Decision scope"), authority.get("decision_scope", "") or "")
+        mode = a4.text_input(t("Mode"), authority.get("mode", "") or "",
                              help=t("For example `centralized` or `distributed`."))
 
         st.markdown(t("**Information** — who sees what"))
@@ -203,23 +205,23 @@ def _contracts(sos, key, apply, flags):
 
         st.markdown(t("**Incentives**"))
         i1, i2 = st.columns([2, 1])
-        incentive_type = i1.text_input("Type", incentives.get("type", "") or "")
+        incentive_type = i1.text_input(t("Type"), incentives.get("type", "") or "")
         lam = i2.number_input(
             "λ", 0.0, 1.0, incentives.get("lambda"), 0.05,
             help=t("How strong the incentives are, 0–1. Empty = not set."))
         rules = st.text_area(t("Rules (one per line)"), _lines(incentives.get("rules")), height=80)
 
         st.markdown(t("**Violation handling**"))
-        detect = st.text_input("Detect", violation.get("detect", "") or "")
+        detect = st.text_input(t("Detect"), violation.get("detect", "") or "")
         v1, v2 = st.columns(2)
-        action = v1.text_input("Action", violation.get("action", "") or "")
-        escalation = v2.text_input("Escalation", violation.get("escalation", "") or "")
+        action = v1.text_input(t("Action"), violation.get("action", "") or "")
+        escalation = v2.text_input(t("Escalation"), violation.get("escalation", "") or "")
 
         st.markdown(t("**Lifecycle** — states of one contract instance"))
         l1, l2, l3 = st.columns([3, 1, 2])
-        states = l1.text_input("States (comma-separated)", ds.join_list(lifecycle.get("states")))
-        initial = l2.text_input("Initial", lifecycle.get("initial", "") or "")
-        terminal = l3.text_input("Terminal (comma-separated)", ds.join_list(lifecycle.get("terminal")))
+        states = l1.text_input(t("States (comma-separated)"), ds.join_list(lifecycle.get("states")))
+        initial = l2.text_input(t("Initial"), lifecycle.get("initial", "") or "")
+        terminal = l3.text_input(t("Terminal (comma-separated)"), ds.join_list(lifecycle.get("terminal")))
         st.caption(
             t("Transitions: `from` may list several states. `deadline` takes a "
             "duration such as `5s`; give the state to move to when it is missed.")
@@ -241,7 +243,7 @@ def _contracts(sos, key, apply, flags):
             column_config={"severity": st.column_config.SelectboxColumn(options=[""] + ds.SEVERITIES)},
         )
 
-        if st.form_submit_button("Apply contract", type="primary"):
+        if st.form_submit_button(t("Apply contract"), type="primary"):
             contract["id"] = cid.strip() or picked
             ds.put(contract, "parties", list(parties))
             ds.put(contract, "assume", _from_lines(assume))
@@ -281,7 +283,7 @@ def _contracts(sos, key, apply, flags):
             ds.rows_to_monitors(contract, monitor_rows)
 
             ss.design_contract_next = contract["id"]
-            apply(f"Contract {contract['id']} updated")
+            apply(t("Contract {id} updated").format(id=contract["id"]))
 
 
 def _protocols(sos, key, apply, flags):
@@ -289,16 +291,16 @@ def _protocols(sos, key, apply, flags):
     ids = [str(p.get("id", f"protocol_{i}")) for i, p in enumerate(protocols)]
     col_pick, col_add, col_del = st.columns([4, 1, 1], vertical_alignment="bottom")
     with col_pick:
-        picked = _pick("Protocol", ids, "design_protocol", flags.get("Protocols"))
+        picked = _pick(t("Protocol"), ids, "design_protocol", flags.get("Protocols"))
     if col_add.button(t("Add"), width="stretch", help=t("Add a new protocol"), key="protocol_add"):
         added = ds.new_protocol(sos)
         sos.setdefault("protocols", []).append(added)
         ss.design_protocol_next = added["id"]
-        apply(f"Added {added['id']}")
+        apply(t("Added {id}").format(id=added["id"]))
     if col_del.button(t("Delete"), width="stretch", disabled=picked is None,
                       help=t("Delete the selected protocol"), key="protocol_del"):
         ds.put(sos, "protocols", [p for p in protocols if str(p.get("id")) != picked])
-        apply(f"Deleted {picked}")
+        apply(t("Deleted {id}").format(id=picked))
 
     protocol = next((p for p in protocols if str(p.get("id")) == picked), None)
     if protocol is None:
@@ -310,13 +312,13 @@ def _protocols(sos, key, apply, flags):
 
     with st.form(f"protocol_{picked}_{key}", border=False):
         p1, p2 = st.columns(2)
-        pid = p1.text_input("Protocol id", picked)
-        trigger = p2.text_input("Trigger", protocol.get("trigger", "") or "",
+        pid = p1.text_input(t("Protocol id"), picked)
+        trigger = p2.text_input(t("Trigger"), protocol.get("trigger", "") or "",
                                 help=t("The event that starts the protocol."))
         c1, c2 = st.columns(2)
-        precondition = c1.text_input("Precondition", protocol.get("precondition", "") or "")
-        postcondition = c2.text_input("Postcondition", protocol.get("postcondition", "") or "")
-        invariant = st.text_input("Safety invariant", protocol.get("safety_invariant", "") or "")
+        precondition = c1.text_input(t("Precondition"), protocol.get("precondition", "") or "")
+        postcondition = c2.text_input(t("Postcondition"), protocol.get("postcondition", "") or "")
+        invariant = st.text_input(t("Safety invariant"), protocol.get("safety_invariant", "") or "")
 
         if structured:
             st.caption(
@@ -347,10 +349,10 @@ def _protocols(sos, key, apply, flags):
             )
         st.markdown(t("**Rollback**"))
         r1, r2 = st.columns(2)
-        rb_condition = r1.text_input("Condition", rollback.get("condition", "") or "")
-        rb_action = r2.text_input("Action", rollback.get("action", "") or "")
+        rb_condition = r1.text_input(t("Condition"), rollback.get("condition", "") or "")
+        rb_action = r2.text_input(t("Action"), rollback.get("action", "") or "")
 
-        if st.form_submit_button("Apply protocol", type="primary"):
+        if st.form_submit_button(t("Apply protocol"), type="primary"):
             try:
                 new_steps = ds.text_to_steps(steps, structured)
             except ValueError as e:
@@ -369,7 +371,7 @@ def _protocols(sos, key, apply, flags):
             ds.put(protocol, "postcondition", postcondition.strip())
             ds.put(protocol, "safety_invariant", invariant.strip())
             ss.design_protocol_next = protocol["id"]
-            apply(f"Protocol {protocol['id']} updated")
+            apply(t("Protocol {id} updated").format(id=protocol["id"]))
 
 
 def _algorithms(sos, key, apply, flags):
@@ -383,9 +385,9 @@ def _algorithms(sos, key, apply, flags):
             ds.algorithms_to_rows(sos) or _blank(columns),
             num_rows="dynamic", width="stretch", key=f"algorithms_table_{key}",
         )
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             ds.rows_to_algorithms(sos, rows)
-            apply("Algorithms updated")
+            apply(t("Algorithms updated"))
 
 
 def _regimes(sos, key, apply, flags):
@@ -402,13 +404,13 @@ def _regimes(sos, key, apply, flags):
             num_rows="dynamic", width="stretch", key=f"regimes_table_{key}",
             column_config={
                 "protocol": st.column_config.SelectboxColumn(options=protocol_ids),
-                "safety_invariant": st.column_config.TextColumn("safety invariant"),
+                "safety_invariant": st.column_config.TextColumn(t("safety invariant")),
             },
         )
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             ds.put(sos, "transitions", ds.rows_to_records(
                 sos.get("transitions"), rows, columns, ["from", "to"], ["from", "to"]))
-            apply("Regime transitions updated")
+            apply(t("Regime transitions updated"))
 
 
 def _metrics(sos, key, apply, flags):
@@ -419,9 +421,9 @@ def _metrics(sos, key, apply, flags):
             ds.records_to_rows(sos.get("metrics"), columns) or _blank(columns),
             num_rows="dynamic", width="stretch", key=f"metrics_table_{key}",
         )
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             ds.put(sos, "metrics", ds.rows_to_records(sos.get("metrics"), rows, columns, ["id"]))
-            apply("Metrics updated")
+            apply(t("Metrics updated"))
 
 
 def _verification(sos, key, apply, flags):
@@ -449,7 +451,7 @@ def _verification(sos, key, apply, flags):
             column_config={"target": st.column_config.SelectboxColumn(
                 options=list(ds.CODEGEN_TARGETS))},
         )
-        if st.form_submit_button("Apply", type="primary"):
+        if st.form_submit_button(t("Apply"), type="primary"):
             records = ds.rows_to_records(sos.get("verification"), v_rows, v_columns, ["id"])
             for record in records:
                 bound = str(record.get("bound", ""))
@@ -457,7 +459,7 @@ def _verification(sos, key, apply, flags):
                     record["bound"] = int(bound)
             ds.put(sos, "verification", records)
             ds.put(sos, "codegen", ds.rows_to_records(sos.get("codegen"), c_rows, c_columns, ["target"]))
-            apply("Verification and code generation updated")
+            apply(t("Verification and code generation updated"))
 
 
 _RENDER = {
@@ -507,7 +509,7 @@ def render_forms(doc: dict, key: str, apply, flags: dict = None, findings=None) 
         ss.design_section = SECTIONS[0]
     section = st.radio(
         t("Section"), SECTIONS, key="design_section", horizontal=True, label_visibility="collapsed",
-        format_func=lambda s: (f"{s} ({counts[s]})" if s in counts else s)
+        format_func=lambda s: (f"{t(s)} ({counts[s]})" if s in counts else t(s))
         + (" ⚠" if (flags or {}).get(s) else ""),
     )
     selected = {"Contracts": ss.get("design_contract_next") or ss.get("design_contract"),

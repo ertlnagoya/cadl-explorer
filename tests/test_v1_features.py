@@ -477,3 +477,26 @@ def test_reruns_follow_their_run_after_old_runs_are_dropped():
     # the game-check run fell out of the record, and its re-run with it
     assert "game-check" not in [r["check"] for r in runs]
     assert set(at.session_state["design_rerun"]) <= {r["id"] for r in runs}
+
+
+def test_a_typed_trace_is_kept_when_the_view_changes():
+    pytest.importorskip("cadl.norms_eval")
+    at = _set(_design(_designer(), "norms robot delivery"), design_view="Traces")
+    typed = _trace("norms_robot_delivery_c_violated.jsonl")
+    area = next(a for a in at.text_area if a.key.startswith("design_trace_text_"))
+    at = area.input(typed).run()
+    assert not at.exception
+    assert at.session_state.design_trace == typed
+    at = _set(at, design_view="Checks")
+    at = _set(at, design_view="Traces")
+    area = next(a for a in at.text_area if a.key.startswith("design_trace_text_"))
+    assert area.value == typed and not at.exception
+
+
+def test_an_amended_parameter_that_is_gone_does_not_break_the_versions():
+    """A parameter chosen on an earlier design and kept across pages may no longer
+    be amendable; the Versions view falls back to the first one."""
+    at = _design(_designer(), "robot town")
+    at = _set(at, design_view="Versions", design_amend_name="no_such_parameter")
+    assert not at.exception
+    assert at.session_state.design_amend_name != "no_such_parameter"

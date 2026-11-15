@@ -67,32 +67,3 @@ def _uncached(result: dict) -> dict:
     if result.get("transient"):
         raise _NotCached(result)
     return result
-
-
-@st.cache_data(show_spinner=False, max_entries=16)
-def _cached_game_check(source: str, certify: bool) -> dict:
-    return _uncached(ds.game_check(source, certify))
-
-
-@st.cache_data(show_spinner=False, max_entries=8)
-def _cached_norms_check(source: str, contract: str, bindings: tuple, members: tuple,
-                        step: str, horizon: int, timeout: float, domains: tuple = (),
-                        instances=None, versions: tuple = (), starts: str = "any") -> dict:
-    return _uncached(ds.norms_check(source, contract or None, list(bindings), list(members),
-                                    step or None, horizon or None, timeout,
-                                    domains=list(domains), instances=instances,
-                                    versions=list(versions), starts=starts))
-
-
-def cached_game_check(source: str, certify: bool = False) -> dict:
-    try:
-        return _cached_game_check(source, certify)
-    except _NotCached as e:
-        return e.result
-
-
-def cached_norms_check(*options) -> dict:
-    try:
-        return _cached_norms_check(*options)
-    except _NotCached as e:
-        return e.result

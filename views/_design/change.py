@@ -29,7 +29,41 @@ from views._design.common import (_add_files_as_versions, _amend_apply, _constit
 from views._design.cache import *  # noqa: F401,F403
 from backend.plotting.architecture import diff_ir
 from views._design.common import _is_dark
-from views._i18n import t
+from views._i18n import japanese, t
+
+# The nouns diff_designs writes after "added" / "removed".
+_DIFF_NOUNS = ("actor", "contract", "transition", "monitor", "protocol", "algorithm", "metric")
+_DIFF_ITEM = re.compile(r"^(?P<pre>.+? — )?(?P<verb>added|removed) (?P<noun>%s) (?P<key>.+)$"
+                        % "|".join(_DIFF_NOUNS), re.S)
+
+
+def _diff_item(item: str) -> str:
+    """One line of the comparison in the reader's language: "added contract X" and
+    "removed contract X" are translated; field changes stay as they are."""
+    if not japanese():
+        return item
+    m = _DIFF_ITEM.match(item)
+    if not m:
+        return item
+    text = t("added {noun} {name}" if m["verb"] == "added" else "removed {noun} {name}")
+    return (m["pre"] or "") + text.format(noun=t(m["noun"]), name=m["key"])
+
+
+def _labels(*keys: str) -> dict:
+    """Column labels in the reader's language; the column keys stay English."""
+    return {k: st.column_config.Column(t(k)) for k in keys}
+
+
+def _source_label(name: str) -> str:
+    """A choice of the comparison ("Current design", "Version: v1", "Example: x") for display."""
+    if name == "Current design":
+        return t("Current design")
+    kind, sep, rest = name.partition(": ")
+    if sep and kind == "Version":
+        return t("Version: {name}").format(name=rest)
+    if sep and kind == "Example":
+        return t("Example: {name}").format(name=rest)
+    return name
 
 
 def _amendments_section(source: str, versions: list):
@@ -52,7 +86,8 @@ def _amendments_section(source: str, versions: list):
         ss.design_constitution = uploaded.getvalue().decode("utf-8", errors="replace")
         ss.design_constitution_name = uploaded.name
     if ss.get("design_constitution"):
-        use.button(f"Stop using {ss.get('design_constitution_name', 'the constitution')}",
+        use.button(t("Stop using {name}").format(name=ss["design_constitution_name"])
+                   if ss.get("design_constitution_name") else t("Stop using the constitution"),
                    on_click=_drop_constitution, width="stretch")
     elif BUNDLED_CONSTITUTION.exists():
         use.button(t("Use the Robot Town constitution"), on_click=_use_bundled_constitution,
@@ -62,7 +97,7 @@ def _amendments_section(source: str, versions: list):
         try:
             const = amend.load_constitution(ss.design_constitution)
         except ValueError as e:
-            st.warning(f"{ss.get('design_constitution_name', 'The constitution')}: {e}")
+            st.warning(f"{ss.get('design_constitution_name') or t('The constitution')}: {e}")
     rows = []
     for a in params:
         spec = (const or {}).get(a.name)
@@ -72,25 +107,29 @@ def _amendments_section(source: str, versions: list):
             **({"layer": amend.layer_of(spec),
                 "range": (f"{amend.fmt(spec.get('min'))}–{amend.fmt(spec.get('max'))}" if spec else "—"),
                 "step": amend.fmt(spec.get("step")) if spec else "—",
-                "decided by": ("a person" if amend.needs_human(spec) else "the checks") if spec
-                              else "not amendable"} if const is not None else {}),
+                "decided by": t("a person" if amend.needs_human(spec) else "the checks") if spec
+                              else t("not amendable")} if const is not None else {}),
         })
-    st.dataframe(rows, hide_index=True, width="stretch")
+    st.dataframe(rows, hide_index=True, width="stretch",
+                 column_config=_labels("parameter", "value", "lines", "layer", "range", "step",
+                                       "decided by"))
     for note in amend.findings(source, const):
         st.markdown(f"- {note}")
     if ss.get("design_amend_done"):
-        st.success(f"Amended {ss.pop('design_amend_done')}. The design before it is saved as a "
-                   "version; Undo also takes it back.")
+        st.success(t("Amended {what}. The design before it is saved as a version; Undo also "
+                     "takes it back.").format(what=ss.pop("design_amend_done")))
 
     names = [a.name for a in params if a.value is not None]
     if names:
         c_name, c_value = st.columns(2)
+        if ss.get("design_amend_name") not in names:   # kept from an earlier design
+            ss.pop("design_amend_name", None)
         name = c_name.selectbox(t("Amend"), names, key="design_amend_name")
         current = next(a for a in params if a.name == name).value
         spec = (const or {}).get(name) or {}
         step = float(spec.get("step") or (1.0 if current == int(current) else 0.1))
         whole = step == int(step) and current == int(current)   # integers stay integers on screen
-        value = c_value.number_input(f"New value (now {amend.fmt(current)})",
+        value = c_value.number_input(t("New value (now {value})").format(value=amend.fmt(current)),
                                      value=int(current) if whole else float(current),
                                      step=int(step) if whole else step,
                                      min_value=0 if whole else 0.0,   # written without a sign
@@ -106,23 +145,25 @@ def _amendments_section(source: str, versions: list):
                 st.markdown(t("- The constitution allows this amendment."))
             reason = ""
             if gate.for_a_person:
-                st.markdown(f"- The constitution leaves `{name}` ({amend.layer_of(spec)}) to a "
-                            "person. Write the reason for your decision; it is kept in the "
-                            "decision record below.")
-                reason = st.text_input("Reason for the decision", key=f"design_amend_reason_{name}",
+                st.markdown(t("- The constitution leaves `{name}` ({layer}) to a person. Write "
+                              "the reason for your decision; it is kept in the decision record "
+                              "below.").format(name=name, layer=amend.layer_of(spec)))
+                reason = st.text_input(t("Reason for the decision"), key=f"design_amend_reason_{name}",
                                        placeholder=t("why this change, and what you take for granted"))
             blocked = const is not None and not gate.ok
-            st.button(f"Amend {name} to {amend.fmt(value)}", on_click=_amend_apply,
+            st.button(t("Amend {name} to {value}").format(name=name, value=amend.fmt(value)),
+                      on_click=_amend_apply,
                       args=(name, current, value, amend.layer_of(spec) if spec else ""), type="primary",
                       disabled=blocked or (bool(gate.for_a_person) and not reason.strip()),
-                      help=("The constitution does not allow this amendment." if blocked else
-                            "Saves the current design as a version first, then writes the new value "
-                            "into every line marked with this name."))
+                      help=t("The constitution does not allow this amendment." if blocked else
+                             "Saves the current design as a version first, then writes the new value "
+                             "into every line marked with this name."))
 
     record = ss.get("design_decisions") or []
     if record:
-        with st.expander(f"Decision record ({len(record)})"):
-            st.dataframe(record, hide_index=True, width="stretch")
+        with st.expander(t("Decision record ({n})").format(n=len(record))):
+            st.dataframe(record, hide_index=True, width="stretch",
+                         column_config=_labels("time", "change", "layer", "reason"))
             text = "\n".join(f"- {d['time']} {d['change']}" + (f" ({d['layer']})" if d["layer"] else "")
                              + (f" — {d['reason']}" if d["reason"] else "") for d in record)
             st.download_button(t("Download the record (Markdown)"), "# Decisions\n\n" + text + "\n",
@@ -140,24 +181,27 @@ def _history_section(source: str, versions: list, const: dict | None):
         table = amend.history(sequence)
         if table:
             with st.expander(t("History of the amendable values across the versions")):
-                st.dataframe(table, hide_index=True, width="stretch")
+                st.dataframe(table, hide_index=True, width="stretch",
+                             column_config=_labels("parameter", "current"))
                 st.caption(t("One column per saved version, then the current design; ← marks a "
                            "value that differs from the column before."))
                 moved = amend.movement(sequence[:-1], const)    # the saved versions, not the editor
                 if moved:
                     st.markdown(t("**How far and how often the values moved**"))
-                    st.dataframe(moved, hide_index=True, width="stretch")
+                    st.dataframe(moved, hide_index=True, width="stretch",
+                                 column_config=_labels(*(moved[0] if moved else ())))
                     st.caption(
-                        "Across the saved versions, in the order above (the current design is "
-                        "left out, as it may be another design). *Steps* count the moves in units of the "
-                        "constitution's `step`" + ("" if const is not None else
-                        " (choose a constitution to see them)") + ". Exercise 12-1 of Course D divides "
-                        "by the original `step`: choose the constitution before its step was changed "
-                        "(the `constitution.yaml` restored with `git checkout`, or the Robot Town "
-                        "constitution); one with the changed step counts in that step. "
-                        "A *reversal* is a move opposite to the one before it — the oscillation "
-                        "the exercise counts. How soon the KPI is reached, and the loss on the "
-                        "way, come from the simulation (`town.compare`); the rules do not give them.")
+                        t("Across the saved versions, in the order above (the current design is "
+                          "left out, as it may be another design). *Steps* count the moves in units "
+                          "of the constitution's `step`{hint}. Exercise 12-1 of Course D divides "
+                          "by the original `step`: choose the constitution before its step was changed "
+                          "(the `constitution.yaml` restored with `git checkout`, or the Robot Town "
+                          "constitution); one with the changed step counts in that step. "
+                          "A *reversal* is a move opposite to the one before it — the oscillation "
+                          "the exercise counts. How soon the KPI is reached, and the loss on the "
+                          "way, come from the simulation (`town.compare`); the rules do not give them.")
+                        .format(hint="" if const is not None else
+                                t(" (choose a constitution to see them)")))
 
 
 
@@ -168,42 +212,44 @@ def versions(c):
         "and go back to one. Versions last for this browser session.")
     )
     v_name, v_save = st.columns([3, 2], vertical_alignment="bottom")
-    v_name.text_input("Name for the current design", key="design_version_name",
+    v_name.text_input(t("Name for the current design"), key="design_version_name",
                       placeholder=t("e.g. before adding safety contract"))
     v_save.button(t("Save as a version"), on_click=_save_version, width="stretch",
                   disabled=not analysis.parsed, type="primary")
 
     with st.expander(t("Add CADL files as versions")):
         st.caption(
-            "Choose several files at once — for example `runs/<name>/v1.cadl`, `v2.cadl`, ... "
-            "of a Course D run. They are added in the order of their names (v2 before v10), "
-            f"named after the files; at most {MAX_VERSIONS} versions are kept.")
-        st.text_input("Prefix for their names (optional)", key="design_version_prefix",
+            t("Choose several files at once — for example `runs/<name>/v1.cadl`, `v2.cadl`, ... "
+              "of a Course D run. They are added in the order of their names (v2 before v10), "
+              "named after the files; at most {n} versions are kept.").format(n=MAX_VERSIONS))
+        st.text_input(t("Prefix for their names (optional)"), key="design_version_prefix",
                       placeholder=t("e.g. step30, to tell the runs of different conditions apart"))
         picked = st.file_uploader(
             t("CADL files"), type=["cadl", "yaml", "yml"], accept_multiple_files=True,
             key=f"design_version_files_{ss.get('design_version_files_key', 0)}")
         count = len(picked or [])
-        st.button(f"Add {count} file as a version" if count == 1 else f"Add {count} files as versions",
+        st.button(t("Add {n} file as a version" if count == 1 else "Add {n} files as versions")
+                  .format(n=count),
                   on_click=_add_files_as_versions, disabled=not picked)
     report = ss.pop("design_files_added", None)
     if report:
         if report["added"]:
-            st.success("Added " + ", ".join(f"**{n}**" for n in report["added"]) + ".")
+            st.success(t("Added {names}.").format(
+                names=", ".join(f"**{n}**" for n in report["added"])))
         if report["dropped"]:
-            st.warning(f"Only the last {MAX_VERSIONS} versions are kept; "
-                       + ", ".join(f"**{n}**" for n in report["dropped"]) + " no longer fit and "
-                       "were removed.")
+            st.warning(t("Only the last {n} versions are kept; {names} no longer fit and were "
+                         "removed.").format(n=MAX_VERSIONS,
+                                            names=", ".join(f"**{n}**" for n in report["dropped"])))
         for item in report["skipped"]:
-            st.error(f"Not added: {item}.")
+            st.error(t("Not added: {item}.").format(item=item))
 
     versions = ss.get("design_versions", [])
     for i, version in enumerate(versions):
         same = version["source"] == source
         r_name, r_restore, r_delete = st.columns([4, 1, 1], vertical_alignment="center")
         r_name.markdown(
-            f"**{version['name']}** · saved {version['time']}"
-            + (" · same as the current design" if same else ""))
+            f"**{version['name']}** · " + t("saved {time}").format(time=version["time"])
+            + (t(" · same as the current design") if same else ""))
         r_restore.button(t("Restore"), key=f"version_restore_{i}", width="stretch",
                          on_click=_restore_version, args=(i,), disabled=same,
                          help=t("Make this version the current design. Undo takes it back."))
@@ -228,8 +274,8 @@ def versions(c):
         if ss.get(key) not in names:
             ss[key] = default
     c_a, c_b = st.columns(2)
-    name_a = c_a.selectbox(t("A — baseline"), names, key="design_cmp_a")
-    name_b = c_b.selectbox(t("B — compared"), names, key="design_cmp_b")
+    name_a = c_a.selectbox(t("A — baseline"), names, key="design_cmp_a", format_func=_source_label)
+    name_b = c_b.selectbox(t("B — compared"), names, key="design_cmp_b", format_func=_source_label)
 
     def _source_of(name: str) -> str:
         return sources[name] if sources[name] is not None else ds.load_example(
@@ -253,17 +299,17 @@ def versions(c):
             if n is None:
                 return ""
             n = round(n, 3)
-            return f" ({amend.fmt(n)} step{'' if n == 1 else 's'})"
+            return " " + t("({n} step)" if n == 1 else "({n} steps)").format(n=amend.fmt(n))
 
         moved = [f"`{k}` {amend.fmt(old_values.get(k))} → {amend.fmt(new_values.get(k))}{_in_steps(k)}"
                  for k in dict.fromkeys(list(old_values) + list(new_values))
                  if old_values.get(k) != new_values.get(k)]
         if moved:
-            st.markdown("Amended parameters (`# @amend:`): " + ", ".join(moved))
+            st.markdown(t("Amended parameters (`# @amend:`): {list}").format(list=", ".join(moved)))
         st.markdown(
             f"**A** `{base.name}` → **B** `{other.name}` — "
-            + (f"{total} structural change{'s' if total != 1 else ''}" if total
-               else "no structural change")
+            + (t("{n} structural change" if total == 1 else "{n} structural changes").format(n=total)
+               if total else t("no structural change"))
         )
         union, marks = diff_ir(base.ir, other.ir)
         if marks["Diff"]:
@@ -274,9 +320,9 @@ def versions(c):
                              "in B; amber: changed; grey and dashed: removed."))
         for topic, items in changes.items():
             if items:
-                with st.expander(f"{topic} ({len(items)})", expanded=len(items) <= 8):
+                with st.expander(f"{t(topic)} ({len(items)})", expanded=len(items) <= 8):
                     for item in items:
-                        st.markdown(f"- {item}")
+                        st.markdown(f"- {_diff_item(item)}")
         try:
             amendment = cached_norms_diff(source_a, source_b)
         except Exception as e:
@@ -289,7 +335,7 @@ def versions(c):
                            "`transform:` targets that B lacks (`cadl norms-diff`)."))
                 for c in amendment["contracts"]:
                     st.markdown(f"**{c['id']}**" + ("" if c["findings"] else
-                                                    " — no difference in `norms:` or `counts_as:`"))
+                                                    t(" — no difference in `norms:` or `counts_as:`")))
                     for f in c["findings"]:
                         st.markdown(f"- {LEVEL_ICON.get(f['level'], '')} {f['text']}")
                 if not amendment["contracts"] and amendment["ok"]:
@@ -301,11 +347,11 @@ def versions(c):
                              "to amend."))
                 else:
                     (st.success if amendment["ok"] else st.error)(
-                        "Nothing prevents the amendment." if amendment["ok"] else
-                        f"{len(amendment['errors'])} error(s) prevent the amendment.")
+                        t("Nothing prevents the amendment.") if amendment["ok"] else
+                        t("{n} error(s) prevent the amendment.").format(n=len(amendment["errors"])))
         raw = ds.source_diff(source_a, source_b, name_a, name_b)
         if raw:
-            with st.expander(f"Source diff ({len(raw.splitlines())} lines)"):
+            with st.expander(t("Source diff ({n} lines)").format(n=len(raw.splitlines()))):
                 st.code(raw, language="diff")
 
         st.markdown(t("**Run both in the Explorer**"))
@@ -320,6 +366,6 @@ def versions(c):
                 ss.custom_cadl = ds.to_explorer_yaml(source_b)
                 ss.explorer_from_designer = True
             except Exception as e:
-                st.error(f"Could not convert the designs: {e}")
+                st.error(t("Could not convert the designs: {error}").format(error=e))
             else:
                 st.switch_page("views/explorer.py")

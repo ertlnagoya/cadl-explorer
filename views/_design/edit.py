@@ -1,4 +1,4 @@
-"""The left column of the Designer: the source editor and the forms."""
+"""The editor of the Designer's Write stage: the source editor and the forms."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def render(c):
             )
             if edited is not None and edited != source:
                 if len(edited) > MAX_SOURCE_CHARS:
-                    st.error(f"The design is limited to {MAX_SOURCE_CHARS:,} characters.")
+                    st.error(t("The design is limited to {n:,} characters.").format(n=MAX_SOURCE_CHARS))
                 else:
                     _record()
                     ss.design_src = edited
@@ -116,8 +116,8 @@ def render(c):
             st.caption(t("Press **Apply** or Ctrl/⌘ + Enter to check your changes."))
         else:
             st.markdown(
-                t("<style>textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace !important;"
-                "font-size:13px !important;}</style>"),
+                "<style>textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace !important;"
+                "font-size:13px !important;}</style>",
                 unsafe_allow_html=True,
             )
             st.text_area(
@@ -131,7 +131,7 @@ def render(c):
             doc = ds.load_doc(source)
         except ValueError as e:
             doc = None
-            st.warning(f"Forms need a readable design. Fix the source first: {e}")
+            st.warning(t("Forms need a readable design. Fix the source first: {e}").format(e=e))
 
         if doc is not None:
             if ds.has_amend_tags(source):

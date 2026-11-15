@@ -29,6 +29,15 @@ from views._design import graph_component
 from views._i18n import t
 
 
+def _labels(*keys: str) -> dict:
+    """Column labels in the reader's language; the column keys stay English."""
+    return {k: st.column_config.Column(t(k)) for k in keys}
+
+
+def _points(n: int) -> str:
+    return t("{n} point" if n == 1 else "{n} points").format(n=n)
+
+
 def _control_structure_view(ir: dict, source: str = ""):
     """STAMP control structure inferred from authority, the STPA table to fill in, and what watches each promise."""
     if not graph.actor_ids(ir):
@@ -37,8 +46,8 @@ def _control_structure_view(ir: dict, source: str = ""):
     cs = stamp.control_structure(ir)
     notes = stamp.findings(cs)
     if notes:
-        with st.expander(f"What the control structure shows — {len(notes)} point"
-                         f"{'s' if len(notes) != 1 else ''}", expanded=len(notes) <= 6):
+        with st.expander(t("What the control structure shows — {points}").format(points=_points(len(notes))),
+                         expanded=len(notes) <= 6):
             for note in notes:
                 st.markdown(f"- {note}")
     t_diagram, t_loops, t_uca, t_cover = st.tabs(
@@ -66,7 +75,9 @@ def _control_structure_view(ir: dict, source: str = ""):
                 "controller": l.controller, "controlled": l.controlled,
                 "contracts": ", ".join(l.contracts), "control actions": ", ".join(l.control) or "—",
                 "feedback": ", ".join(l.feedback) or "—", "loop": l.status,
-            } for l in cs.loops], hide_index=True, width="stretch")
+            } for l in cs.loops], hide_index=True, width="stretch",
+                column_config=_labels("controller", "controlled", "contracts", "control actions",
+                                      "feedback", "loop"))
             st.caption(
                 t("*closed*: control actions and feedback. *open: no feedback*: the controller "
                 "acts without learning the effect — the typical cause of an unsafe control "
@@ -93,14 +104,17 @@ def _control_structure_view(ir: dict, source: str = ""):
                      for k, r in zip(keys, rows)]
             editor_key = "design_uca_" + hashlib.sha1("\n".join(keys).encode()).hexdigest()[:12]
             edited = st.data_editor(table, hide_index=True, width="stretch", key=editor_key,
-                                    disabled=["control action"])
+                                    disabled=["control action"],
+                                    column_config=_labels("control action", *stamp.GUIDE_WORDS))
             records = edited if isinstance(edited, list) else edited.to_dict("records")
             ss.design_uca_entries = stamp.update_entries(entries, keys, records)
             st.markdown(t("**What the CADL already says**"))
-            st.dataframe([{"control action": t["control action"], "contracts": r["contracts"],
+            st.dataframe([{"control action": row["control action"], "contracts": r["contracts"],
                            "deadlines": r["deadlines in the CADL"] or "—",
                            "detected by": r["detected by"] or "—", "feedback": r["feedback"]}
-                          for t, r in zip(table, rows)], hide_index=True, width="stretch")
+                          for row, r in zip(table, rows)], hide_index=True, width="stretch",
+                         column_config=_labels("control action", "contracts", "deadlines",
+                                               "detected by", "feedback"))
             buffer = io.StringIO()
             writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
             writer.writeheader()
@@ -126,7 +140,9 @@ def _control_structure_view(ir: dict, source: str = ""):
                 "contract": p.contract, "kind": p.kind, "promise": p.text,
                 "watched by": ", ".join(p.watched_by) or "—",
                 "measured by": ", ".join(p.measured_by) or "—", "status": p.status,
-            } for p in promises], hide_index=True, width="stretch")
+            } for p in promises], hide_index=True, width="stretch",
+                column_config=_labels("contract", "kind", "promise", "watched by", "measured by",
+                                      "status"))
             st.caption(
                 t("What checks each assumption and guarantee while the contract runs: a monitor "
                 "of the contract whose `observe` or `rule` names one of its quantities, the "
@@ -149,7 +165,7 @@ def _structure_view(ir: dict, source: str):
     duties = readback._responsibilities(source)
     gaps = graph.structure_gaps(ir, duties)
     if gaps:
-        with st.expander(f"What the structure shows — {len(gaps)} point{'s' if len(gaps) != 1 else ''}",
+        with st.expander(t("What the structure shows — {points}").format(points=_points(len(gaps))),
                          expanded=len(gaps) <= 6):
             for note in gaps:
                 st.markdown(f"- {note}")
@@ -179,17 +195,18 @@ def _structure_view(ir: dict, source: str):
                  "contracts": r["contracts"], "decides": r["decides"],
                  "out / in": f"{r['sends']} / {r['receives']}"} for r in graph.centrality(ir)]
         st.dataframe(rows, hide_index=True, width="stretch", column_config={
+            **_labels("actor", "contracts"),
             "out / in": st.column_config.TextColumn(
-                "out / in", help="Distinct messages it sends / receives."),
+                t("out / in"), help=t("Distinct messages it sends / receives.")),
             "betweenness": st.column_config.ProgressColumn(
-                "betweenness", min_value=0.0, max_value=1.0, format="%.2f",
-                help="Share of shortest message paths between two other actors that pass "
-                     "through this one. A high value marks a relay: if it fails, others "
-                     "cannot reach each other."),
+                t("betweenness"), min_value=0.0, max_value=1.0, format="%.2f",
+                help=t("Share of shortest message paths between two other actors that pass "
+                       "through this one. A high value marks a relay: if it fails, others "
+                       "cannot reach each other.")),
             "partners": st.column_config.NumberColumn(
-                "partners", help="Actors it exchanges messages with."),
+                t("partners"), help=t("Actors it exchanges messages with.")),
             "decides": st.column_config.NumberColumn(
-                "decides", help="Contracts it is the decision holder of."),
+                t("decides"), help=t("Contracts it is the decision holder of.")),
         })
         st.caption(
             t("Counts come from the CADL only: messages are those of the **Message flow**, "
@@ -208,7 +225,7 @@ def _structure_view(ir: dict, source: str):
                 row[receiver] = (f"{len(cell)}" + (f" ⚠{bad}" if bad else "")) if cell else (
                     "—" if sender == receiver else "")
             table.append(row)
-        st.dataframe(table, hide_index=True, width="stretch")
+        st.dataframe(table, hide_index=True, width="stretch", column_config=_labels("from ↓ to →"))
         st.caption(
             t("Row: sender. Column: receiver. A cell counts the distinct messages; ⚠ counts "
             "those a declared interface leaves out. Many filled cells in one row or column "
@@ -219,7 +236,7 @@ def _structure_view(ir: dict, source: str):
             origins.setdefault((e.sender, e.receiver, e.message), []).append(e.origin)
         pairs = [(s, r, cell) for s, row in matrix.items() for r, cell in row.items() if cell]
         if pairs:
-            with st.expander(f"Messages by pair ({len(pairs)})"):
+            with st.expander(t("Messages by pair ({n})").format(n=len(pairs))):
                 for s, r, cell in pairs:
                     items = ", ".join(
                         f"`{e.message}`" + ("" if e.declared else " ⚠") + " ("
@@ -235,7 +252,7 @@ def _structure_view(ir: dict, source: str):
             st.dataframe(
                 [{"actor ↓": a, **{c: ", ".join(resp[a].get(c) or []) or "—" for c in contracts}}
                  for a in actors],
-                hide_index=True, width="stretch")
+                hide_index=True, width="stretch", column_config=_labels("actor ↓"))
             st.caption(
                 t("*decides*: the contract's decision holder. *party*: listed in `parties`. "
                 "*duties (n)*: entries under `responsibilities:`. *observed*: a monitor "
@@ -253,9 +270,10 @@ def _structure_view(ir: dict, source: str):
             sources = dcon.assumption_sources(ir, deps)
             if sources:
                 st.dataframe(sources, hide_index=True, width="stretch",
-                             column_config={"guaranteed by": st.column_config.TextColumn(
-                                 "guaranteed by", help="Contracts whose guarantee names a quantity "
-                                                       "of this assumption.")})
+                             column_config={**_labels("contract", "assumption"),
+                                            "guaranteed by": st.column_config.TextColumn(
+                                 t("guaranteed by"), help=t("Contracts whose guarantee names a "
+                                                            "quantity of this assumption."))})
             else:
                 st.markdown(t("- No contract states an assumption (`assume:`), so none relies on "
                             "what another guarantees."))
@@ -336,10 +354,11 @@ def _element_panel(source: str, node_id: str, key: str, ir: dict):
 def architecture(c):
     source, analysis, flags, ir, ir_contracts = c.source, c.analysis, c.flags, c.ir, c.ir_contracts
     n_actors = len(ir["institution"].get("actors") or [])
+    n_contracts = len(ir_contracts)
     st.markdown(
         f"**{analysis.name}** · {analysis.sos_type} · "
-        f"{n_actors} actor{'s' if n_actors != 1 else ''}, "
-        f"{len(ir_contracts)} contract{'s' if len(ir_contracts) != 1 else ''}"
+        + t("{n} actor" if n_actors == 1 else "{n} actors").format(n=n_actors) + t(", ")
+        + t("{n} contract" if n_contracts == 1 else "{n} contracts").format(n=n_contracts)
     )
     diagram(architecture_to_dot(ir, dark=_is_dark(), flags=flags), "design_g_arch", source, ir)
     st.caption(
@@ -371,8 +390,8 @@ def lifecycle(c):
         lc_view = build_lifecycle_view(ir_contract)
         if lc_view is None:
             st.info(
-                f"`{pick}` has no `lifecycle:` section. Add states and transitions "
-                "under **Forms → Contracts**, or apply a lifecycle preset there."
+                t("`{contract}` has no `lifecycle:` section. Add states and transitions "
+                  "under **Forms → Contracts**, or apply a lifecycle preset there.").format(contract=pick)
             )
         else:
             trace = ss.get("design_trace") or {}
@@ -392,10 +411,11 @@ def lifecycle(c):
                 current=path[-1] if path else None, visited=path, flagged=bad_states),
                 f"design_g_life_{pick}", source, ir)
             st.caption(
-                f"{len(lc_view.states)} states, {len(lc_view.transitions)} transitions. "
-                "Double circle = initial, dashed box = terminal, dashed red edge = "
-                "transition taken when a deadline is missed."
-                + (" Red outline = state with a problem." if bad_states else "")
+                t("{states} states, {transitions} transitions. "
+                  "Double circle = initial, dashed box = terminal, dashed red edge = "
+                  "transition taken when a deadline is missed.").format(
+                    states=len(lc_view.states), transitions=len(lc_view.transitions))
+                + (t(" Red outline = state with a problem.") if bad_states else "")
             )
 
             with st.container(border=True):
@@ -411,15 +431,16 @@ def lifecycle(c):
                     )
                 else:
                     current = path[-1]
-                    st.markdown("Path: " + " → ".join(
+                    st.markdown(t("Path: ") + " → ".join(
                         f"**{s}**" if i == len(path) - 1 else s for i, s in enumerate(path)))
                     moves = ds.lifecycle_moves(ir_contract, current)
                     if current in lc_view.terminal:
-                        st.success(f"`{current}` is terminal: this instance has ended.")
+                        st.success(t("`{state}` is terminal: this instance has ended.").format(state=current))
                     elif not moves:
-                        st.warning(f"Nothing can happen in `{current}`: the instance is stuck.")
+                        st.warning(t("Nothing can happen in `{state}`: the instance is stuck.")
+                                   .format(state=current))
                     else:
-                        st.caption(f"In `{current}`, choose what happens next:")
+                        st.caption(t("In `{state}`, choose what happens next:").format(state=current))
                         icons = {"transition": ":material/arrow_forward:",
                                  "deadline": ":material/timer_off:",
                                  "monitor": ":material/visibility:"}
@@ -443,7 +464,7 @@ def lifecycle(c):
                     stories = readback.lifecycle_stories(source, pick)
                 except ValueError as e:
                     stories = []
-                    st.caption(f"Cannot tell the stories: {e}")
+                    st.caption(t("Cannot tell the stories: {error}").format(error=e))
                 st.caption(
                     t("Each story follows one instance from start to end, visiting a "
                     "state at most once. Read them and ask: should this be possible?"))
@@ -451,9 +472,10 @@ def lifecycle(c):
                     st.markdown(_md(f"**{story['outcome'].capitalize()}** — {story['story']}"))
 
         monitors = monitors_summary(ir_contract)
-        st.markdown(f"**Monitors** ({len(monitors)})")
+        st.markdown(f"**{t('Monitors')}** ({len(monitors)})")
         if monitors:
-            st.dataframe(monitors, width="stretch", hide_index=True)
+            st.dataframe(monitors, width="stretch", hide_index=True,
+                         column_config=_labels(*monitors[0]))
         else:
             st.caption(t("No `monitors:` declared on this contract."))
 
@@ -469,7 +491,7 @@ def protocols(c):
             ss.pop("design_view_protocol", None)
         pick = st.radio(t("Protocol"), pids, horizontal=True, key="design_view_protocol")
         proto = next(p for p in ir_protocols if str(p.get("id")) == pick)
-        st.markdown(f"**Trigger** `{proto.get('trigger') or '—'}`")
+        st.markdown(f"**{t('Trigger')}** `{proto.get('trigger') or '—'}`")
         bad_messages = {
             f.element for f in analysis.findings
             if f.section == "Protocols" and f.item == pick and f.element
@@ -479,11 +501,13 @@ def protocols(c):
                     unsafe_allow_html=True)
         n_steps = len(proto.get("steps") or [])
         st.caption(
-            f"{n_steps} step{'s' if n_steps != 1 else ''} between "
-            f"{len(participants(proto))} actors, top to bottom. Arrows are messages, "
-            "rounded boxes are local computations, grey bands mark `if`, "
-            "`parallel` and `barrier`."
-            + (" Red arrows are messages with a problem." if bad_messages else "")
+            t("{n} step between {actors} actors, top to bottom. Arrows are messages, "
+              "rounded boxes are local computations, grey bands mark `if`, "
+              "`parallel` and `barrier`." if n_steps == 1 else
+              "{n} steps between {actors} actors, top to bottom. Arrows are messages, "
+              "rounded boxes are local computations, grey bands mark `if`, "
+              "`parallel` and `barrier`.").format(n=n_steps, actors=len(participants(proto)))
+            + (t(" Red arrows are messages with a problem.") if bad_messages else "")
         )
         for f in analysis.findings:
             if f.section == "Protocols" and f.item == pick and f.level in ("error", "warning"):
@@ -495,7 +519,8 @@ def protocols(c):
         facts += [{"item": f"timing · {k}", "value": str(v)} for k, v in (proto.get("timing") or {}).items()]
         facts += [{"item": f"fallback · {k}", "value": str(v)} for k, v in (proto.get("fallback") or {}).items()]
         if facts:
-            st.dataframe(facts, width="stretch", hide_index=True)
+            st.dataframe(facts, width="stretch", hide_index=True,
+                         column_config=_labels("item", "value"))
 
 
 def regimes(c):
@@ -516,9 +541,9 @@ def regimes(c):
                            flagged={f.element for f in regime_findings if f.element}),
             "design_g_regimes", c.source, ir)
         st.caption(
-            "Operating regimes of the whole SoS. Each edge shows the condition "
-            "for the transition; orange edges name the protocol that carries it out."
-            + (" Red marks a regime or transition with a problem." if regime_findings else "")
+            t("Operating regimes of the whole SoS. Each edge shows the condition "
+              "for the transition; orange edges name the protocol that carries it out.")
+            + (t(" Red marks a regime or transition with a problem.") if regime_findings else "")
         )
         for f in regime_findings:
             st.markdown(f"{LEVEL_ICON[f.level]} {f.title}" + (f" — {f.message}" if f.message else ""))
@@ -527,19 +552,19 @@ def regimes(c):
 def algorithms(c):
     analysis, ir = c.analysis, c.ir
     algorithms = (ir.get("algorithm") or {}).get("algorithms") or []
-    st.markdown(f"**Algorithms** ({len(algorithms)})")
+    st.markdown(f"**{t('Algorithms')}** ({len(algorithms)})")
     if algorithms:
         st.dataframe(
             [{"function": a.get("name"), "central": a.get("central") or "—",
               "local": a.get("local") or "—"} for a in algorithms],
-            width="stretch", hide_index=True,
+            width="stretch", hide_index=True, column_config=_labels("function"),
         )
         st.caption(t("`central` runs at the authority, `local` at each actor."))
     else:
         st.caption(t("None declared. Add them under **Forms → Algorithms**."))
 
     metrics = ir.get("metrics") or []
-    st.markdown(f"**Metrics** ({len(metrics)})")
+    st.markdown(f"**{t('Metrics')}** ({len(metrics)})")
     if metrics:
         metric_notes = {}
         for f in analysis.findings:
@@ -549,17 +574,17 @@ def algorithms(c):
             [{"id": m.get("id"), "formula": m.get("formula") or "—",
               "target": m.get("target") or "—",
               "notes": "; ".join(metric_notes.get(str(m.get("id")), []))} for m in metrics],
-            width="stretch", hide_index=True,
+            width="stretch", hide_index=True, column_config=_labels("formula", "target", "notes"),
         )
     else:
         st.caption(t("None declared. Add them under **Forms → Metrics**."))
 
     environment = ir.get("environment") or {}
     if environment:
-        st.markdown(f"**Environment** ({len(environment)})")
+        st.markdown(f"**{t('Environment')}** ({len(environment)})")
         st.dataframe(
             [{"parameter": k, "value": str(v)} for k, v in environment.items()],
-            width="stretch", hide_index=True,
+            width="stretch", hide_index=True, column_config=_labels("parameter", "value"),
         )
 
 
@@ -598,11 +623,11 @@ def read_back(c):
                 ("Takes part in", "protocols", "Takes part in no protocol."),
                 ("Open issues", "notes", None)):
             if seen[key]:
-                st.markdown(f"*{heading}*")
+                st.markdown(f"*{t(heading)}*")
                 for line in seen[key]:
                     st.markdown(_md(f"- {line}"))
             elif empty:
-                st.caption(empty)
+                st.caption(t(empty))
 
     explained = readback.explain_verification(source)
     if explained:

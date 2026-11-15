@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from backend.version import RELEASES_URL, __version__  # noqa: E402
 from backend.services import design_runtime  # noqa: E402
 from views._i18n import LANGUAGES, default_language, t  # noqa: E402
-from views._i18n import t
 
 st.set_page_config(page_title="CADL Explorer", layout="wide")
 
@@ -37,6 +36,9 @@ PERSISTENT_KEYS = [
     "design_nc_horizon", "design_nc_timeout", "design_nc_domains", "design_nc_instances",
     "design_nc_starts", "design_nc_versions", "design_nc_witness", "design_game_certify",
     "design_trace_contract", "design_code_target", "design_sim_target",
+    # choices and typed text that should survive a switch of view or page
+    "design_cmp_a", "design_cmp_b", "design_structure_authority", "design_amend_name",
+    "design_ai_text", "design_version_name", "design_version_prefix",
 ]
 for _key in PERSISTENT_KEYS:
     if _key in st.session_state:

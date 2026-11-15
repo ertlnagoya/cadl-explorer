@@ -35,15 +35,16 @@ st.warning(
     icon=":material/science:",
 )
 st.markdown(
-    f"Version **{__version__}** ([release notes]({RELEASES_URL})) · "
-    f"[CADL specification and hands-on]({SPEC_URL}) · [Source code]({REPO_URL})"
+    t("Version **{version}** ([release notes]({releases})) · "
+      "[CADL specification and hands-on]({spec}) · [Source code]({repo})").format(
+        version=__version__, releases=RELEASES_URL, spec=SPEC_URL, repo=REPO_URL)
 )
 
 st.header(t("What you can do"), divider="gray")
-st.markdown(WHAT_YOU_CAN_DO + OTHER_PAGES)
+st.markdown(t(WHAT_YOU_CAN_DO) + t(OTHER_PAGES))
 
 st.header(t("How to use the Explorer"), divider="gray")
-st.markdown(HOW_TO_USE)
+st.markdown(t(HOW_TO_USE))
 
 st.header(t("Demo"), divider="gray")
 st.markdown(
@@ -52,21 +53,21 @@ st.markdown(
     "*Getting started*.")
 )
 st.markdown(
-    "| Demo | Compares | What to look at |\n|---|---|---|\n"
+    t("| Demo | Compares | What to look at |\n|---|---|---|\n")
     + "\n".join(
-        f"| **{name}** | {compares} | {look_at} |"
+        f"| **{t(name)}** | {t(compares)} | {t(look_at)} |"
         for name, (compares, look_at) in DEMOS.items()
     )
 )
 
 st.header(t("How to use the Designer"), divider="gray")
-st.markdown(HOW_TO_DESIGN)
+st.markdown(t(HOW_TO_DESIGN))
 st.markdown(
-    "The Designer works on full CADL, the language of the "
-    f"[specification]({SPEC_URL}), through the `cadl-lang` toolchain. The "
-    "Explorer's synthetic model is much smaller: it reads only the SoS type, "
-    "the motivation profile and ρ, so structural edits made in the Designer "
-    "do not change the Explorer's metrics."
+    t("The Designer works on full CADL, the language of the "
+      "[specification]({spec}), through the `cadl-lang` toolchain. The "
+      "Explorer's synthetic model is much smaller: it reads only the SoS type, "
+      "the motivation profile and ρ, so structural edits made in the Designer "
+      "do not change the Explorer's metrics.").format(spec=SPEC_URL)
 )
 
 st.header(t("Contract Lifecycle page"), divider="gray")
@@ -83,11 +84,11 @@ st.header(t("Governance templates"), divider="gray")
 st.dataframe(
     [
         {
-            "template": name, "sos_type": t["sos_type"].capitalize(),
-            "α": t["alpha"], "β": t["beta"], "λ": t["lambda_param"],
-            "motivation model": t["motivation_model"],
+            t("template"): name, "sos_type": tpl["sos_type"].capitalize(),
+            "α": tpl["alpha"], "β": tpl["beta"], "λ": tpl["lambda_param"],
+            t("motivation model"): tpl["motivation_model"],
         }
-        for name, t in TEMPLATES.items()
+        for name, tpl in TEMPLATES.items()
     ],
     width="stretch", hide_index=True,
 )

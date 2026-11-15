@@ -12,8 +12,7 @@ import streamlit as st
 import yaml
 
 from backend.services.cadl_service import (
-    make_config, config_to_yaml_str, parse_cadl_yaml,
-    TEMPLATES, MAX_SOURCE_CHARS,
+    parse_cadl_yaml, TEMPLATES, MAX_SOURCE_CHARS,
 )
 from backend.services.experiment_service import run_sweep
 from backend.services.pipeline import (
@@ -105,7 +104,7 @@ def _design_controls(side: str, disabled: bool = False):
     """Template / profile / rho selectors for design `side` ("a" or "b")."""
     template = st.radio(
         t("Governance template"), list(TEMPLATES), key=f"{side}_template",
-        format_func=TEMPLATE_LABELS.get, disabled=disabled,
+        format_func=lambda v: t(TEMPLATE_LABELS[v]), disabled=disabled,
         help=(
             t("Preset of the simulator parameters α (autonomy level), "
             "β (centralization level) and λ (exploration probability). "
@@ -114,14 +113,14 @@ def _design_controls(side: str, disabled: bool = False):
     )
     st.radio(
         t("Motivation profile"), PROFILES, key=f"{side}_profile",
-        format_func=PROFILE_LABELS.get, disabled=disabled,
+        format_func=lambda v: t(PROFILE_LABELS[v]), disabled=disabled,
         help=t("Distribution of motivation levels across the 5 agents."),
     )
     rho_applies = TEMPLATES[template]["motivation_model"] != "none"
     st.slider(
-        "ρ — motivation sensitivity", 0.0, 1.0, step=0.05, key=f"{side}_rho",
+        t("ρ — motivation sensitivity"), 0.0, 1.0, step=0.05, key=f"{side}_rho",
         disabled=disabled or not rho_applies,
-        help=(
+        help=t(
             "How strongly governance decisions respond to agent motivation: "
             "0 ignores it, 1 fully couples budget and wait decisions to it."
         ),
@@ -159,15 +158,15 @@ def _parse_custom(text):
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
         if mark is not None:
-            return None, (
-                f"YAML syntax error at line {mark.line + 1}, "
-                f"column {mark.column + 1}: {getattr(e, 'problem', str(e))}"
-            )
-        return None, f"YAML syntax error: {e}"
+            return None, t("YAML syntax error at line {line}, column {column}: {problem}").format(
+                line=mark.line + 1, column=mark.column + 1,
+                problem=getattr(e, 'problem', str(e)))
+        return None, t("YAML syntax error: {e}").format(e=e)
     except ValueError as e:
-        return None, f"Invalid CADL config: {e}"
+        return None, t("Invalid CADL config: {e}").format(e=e)
     except Exception as e:
-        return None, f"Could not build CADL config ({type(e).__name__}): {e}"
+        return None, t("Could not build CADL config ({kind}): {e}").format(
+            kind=type(e).__name__, e=e)
 
 
 def _is_dark() -> bool:
@@ -195,12 +194,13 @@ with st.sidebar:
 
     st.subheader(t("B — design under study"))
     if custom_config is not None:
-        st.success(f"B is the custom CADL **{custom_config.name}** (see *Custom CADL* below).")
+        st.success(t("B is the custom CADL **{name}** (see *Custom CADL* below).")
+                   .format(name=custom_config.name))
     _design_controls("b", disabled=custom_config is not None)
 
     with st.expander(t("A — baseline"), expanded=custom_config_a is not None):
         if custom_config_a is not None:
-            st.success(f"A is the custom CADL **{custom_config_a.name}**.")
+            st.success(t("A is the custom CADL **{name}**.").format(name=custom_config_a.name))
         _design_controls("a", disabled=custom_config_a is not None)
 
     btn_save = st.button(
@@ -211,7 +211,8 @@ with st.sidebar:
     st.divider()
     with st.expander(t("Examples")):
         for example in EXAMPLES:
-            st.button(example, on_click=_apply_example, args=(example,), width="stretch")
+            st.button(t(example), key=f"example_{example}", on_click=_apply_example, args=(example,),
+                      width="stretch")
 
     with st.expander(t("Custom CADL"), expanded=bool(custom_error or custom_error_a)):
         st.caption(
@@ -265,9 +266,10 @@ try:
 except Exception as e:
     import traceback
     st.error(
-        f"**Pipeline failed** ({type(e).__name__}): {e}\n\n"
-        "The synthetic model supports the uniform, linear and polarized "
-        "profiles with 5 agents. Adjust the design and try again."
+        t("**Pipeline failed** ({kind}): {e}\n\n"
+          "The synthetic model supports the uniform, linear and polarized "
+          "profiles with 5 agents. Adjust the design and try again.").format(
+            kind=type(e).__name__, e=e)
     )
     with st.expander(t("Stack trace (for bug reports)")):
         st.code(traceback.format_exc(), language="text")
@@ -283,17 +285,17 @@ if st.session_state.get("explorer_from_designer") and st.session_state.get("cust
     with st.container(horizontal=True, vertical_alignment="center"):
         st.info(t("Design B is the design you sent from the Designer. Edit it there; this page "
                   "runs the synthetic model on it."), icon=":material/compare_arrows:")
-        st.page_link(t("views/designer.py"), label=t("Back to the Designer"), icon=":material/arrow_back:")
+        st.page_link("views/designer.py", label=t("Back to the Designer"), icon=":material/arrow_back:")
 st.markdown(
     t("Change a governance design and trace how the change propagates: "
     "**CADL** (institution) → **IR** (governance structure) → "
     "**Config** (simulator settings) → **Result** (behaviour).")
 )
 st.caption(
-    f":material/science: Results come from a **synthetic model**, not from "
-    f"measurements of a real system — {NUM_SEEDS} seeds per design. "
-    f"[CADL specification and hands-on]({SPEC_URL}) · "
-    "terms are explained in **About & Glossary**."
+    t(":material/science: Results come from a **synthetic model**, not from "
+      "measurements of a real system — {n} seeds per design. "
+      "[CADL specification and hands-on]({spec}) · "
+      "terms are explained in **About & Glossary**.").format(n=NUM_SEEDS, spec=SPEC_URL)
 )
 
 # Open on arrival, folded away once the page is being used.
@@ -302,10 +304,10 @@ with st.expander(t("Getting started — what this tool does, how to use it, and 
     col_what, col_how = st.columns(2, gap="large")
     with col_what:
         st.markdown(t("##### What you can do"))
-        st.markdown(WHAT_YOU_CAN_DO)
+        st.markdown(t(WHAT_YOU_CAN_DO))
     with col_how:
         st.markdown(t("##### How to use it"))
-        st.markdown(HOW_TO_USE)
+        st.markdown(t(HOW_TO_USE))
 
     st.markdown(t("##### Demo — three comparisons to try"))
     st.caption(
@@ -314,9 +316,9 @@ with st.expander(t("Getting started — what this tool does, how to use it, and 
     )
     for col, (example, (compares, look_at)) in zip(st.columns(len(DEMOS)), DEMOS.items()):
         with col.container(border=True):
-            st.markdown(f"**{example}**")
-            st.markdown(compares)
-            st.markdown(f"*What to look at:* {look_at}")
+            st.markdown(f"**{t(example)}**")
+            st.markdown(t(compares))
+            st.markdown(t("*What to look at:* {text}").format(text=t(look_at)))
             st.button(
                 t("Load this demo"), key=f"demo_{example}", width="stretch",
                 on_click=_apply_example, args=(example,),
@@ -353,10 +355,10 @@ with col_m:
         delta = mb.mean - ma.mean
         pct = f" ({delta / ma.mean:+.1%})" if abs(ma.mean) > 1e-9 else ""
         st.metric(
-            f"{label} — B", f"{mb.mean:{fmt}} ± {mb.std:{fmt}}",
-            f"{delta:+{fmt}}{pct} vs A ({ma.mean:{fmt}})",
+            t("{metric} — B").format(metric=t(label)), f"{mb.mean:{fmt}} ± {mb.std:{fmt}}",
+            t("{delta} vs A ({a})").format(delta=f"{delta:+{fmt}}{pct}", a=f"{ma.mean:{fmt}}"),
             delta_color="off" if abs(delta) < 0.005 else "normal",
-            help=help_text,
+            help=t(help_text),
         )
 
     result_labels = comparison.result.labels
@@ -371,9 +373,9 @@ with col_plot:
     references = {}
     used = {pa.cadl.get("sos_type", "").lower(), pb.cadl.get("sos_type", "").lower()}
     if "directed" not in used:
-        references["D-SoS reference"] = cached_pipeline("D-SoS", "uniform", 0.0).results
+        references[t("D-SoS reference")] = cached_pipeline("D-SoS", "uniform", 0.0).results
     if "collaborative" not in used:
-        references["C-SoS reference"] = cached_pipeline("C-SoS", "uniform", 0.0).results
+        references[t("C-SoS reference")] = cached_pipeline("C-SoS", "uniform", 0.0).results
     st.plotly_chart(
         scatter_ab(pa.results, pb.results, "A", "B", references),
         width="stretch",
@@ -382,9 +384,9 @@ with col_plot:
         compute_region(pa.results, "A"), compute_region(pb.results, "B"),
     )
     st.caption(
-        "Each point is one seed; the dashed outline is the region a design "
-        "reaches and the arrow joins the centres of A and B. "
-        f"From A to B: {region_cmp['summary']}."
+        t("Each point is one seed; the dashed outline is the region a design "
+          "reaches and the arrow joins the centres of A and B. "
+          "From A to B: {summary}.").format(summary=region_cmp['summary'])
     )
 
 # ── 2. Why: causal chain ────────────────────────────────────────────
@@ -407,13 +409,16 @@ for i, (col, (short, title, _, sd, _)) in enumerate(zip(cols, STAGES), 1):
     n = len(sd.labels)
     with col.container(border=True):
         st.markdown(f"**{i}. {short}**" + ("  →" if i < len(STAGES) else ""))
-        st.caption(title)
-        st.markdown(f"**{n}** change{'s' if n != 1 else ''}" if n else "no change")
+        st.caption(t(title))
+        if n:
+            st.markdown(t("**{n}** change" if n == 1 else "**{n}** changes").format(n=n))
+        else:
+            st.markdown(t("no change"))
 
 for i, (short, title, blurb, sd, _) in enumerate(STAGES, 1):
     with st.container(border=True):
-        st.markdown(f"#### {i}. {short} — {title}")
-        st.caption(blurb)
+        st.markdown(f"#### {i}. {short} — {t(title)}")
+        st.caption(t(blurb))
         if not sd.labels:
             st.markdown(t("*No change at this stage.*"))
         else:
@@ -422,10 +427,10 @@ for i, (short, title, blurb, sd, _) in enumerate(STAGES, 1):
             for lbl in main:
                 st.markdown(f"- **{lbl.category}** — {lbl.summary.replace('->', '→')}")
             if minor:
-                st.caption("Also changed: " + ", ".join(l.field for l in minor))
+                st.caption(t("Also changed: {fields}").format(fields=", ".join(l.field for l in minor)))
         raw = _raw_diff(sd)
         if raw:
-            with st.expander(f"Raw diff ({len(raw.splitlines())} lines)"):
+            with st.expander(t("Raw diff ({n} lines)").format(n=len(raw.splitlines()))):
                 st.code(raw, language="diff")
 
 # ── 3. Explore ──────────────────────────────────────────────────────
@@ -450,18 +455,19 @@ with tab_rho:
             width="stretch",
         )
         st.caption(
-            f"Directed design swept over ρ (mean ± std over {NUM_SEEDS} seeds). "
-            f"The highlighted line is B's motivation profile ({pb.profile}); "
-            f"the dotted line marks B's effective ρ = {pb.rho:.2f}. "
-            "Grey lines are the other profiles."
+            t("Directed design swept over ρ (mean ± std over {n} seeds). "
+              "The highlighted line is B's motivation profile ({profile}); "
+              "the dotted line marks B's effective ρ = {rho}. "
+              "Grey lines are the other profiles.").format(
+                n=NUM_SEEDS, profile=pb.profile, rho=f"{pb.rho:.2f}")
         )
 
 with tab_robot:
     st.plotly_chart(per_robot_ab(pa.results, pb.results, "A", "B"), width="stretch")
     st.caption(
-        f"Mean ± std per robot over {NUM_SEEDS} seeds. Freedom is 1 − the "
-        "constrained share of a robot's behaviour. Hover a bar for the "
-        "robot's motivation value."
+        t("Mean ± std per robot over {n} seeds. Freedom is 1 − the "
+          "constrained share of a robot's behaviour. Hover a bar for the "
+          "robot's motivation value.").format(n=NUM_SEEDS)
     )
 
 with tab_scenario:
@@ -491,9 +497,9 @@ st.header(t("4. Reproduce & export"), divider="gray")
 st.dataframe(
     [
         {
-            "design": name, "name": pr.name, "cadl id": pr.cadl_id,
-            "ir id": pr.ir_id, "config id": pr.config_id,
-            "seeds": f"0–{len(pr.seeds) - 1}",
+            t("design"): name, t("name"): pr.name, t("cadl id"): pr.cadl_id,
+            t("ir id"): pr.ir_id, t("config id"): pr.config_id,
+            t("seeds"): f"0–{len(pr.seeds) - 1}",
         }
         for name, pr in [("A", pa), ("B", pb)]
     ],
@@ -552,7 +558,7 @@ if btn_save:
         "seeds": len(pb.seeds),
     })
     ss.run_history = ss.run_history[-20:]
-    st.toast("Comparison saved — see the bottom of the page.")
+    st.toast(t("Comparison saved — see the bottom of the page."))
 
 st.subheader(t("Saved comparisons"))
 history = ss.run_history
@@ -564,7 +570,7 @@ if not history:
 else:
     import pandas as pd
     df = pd.DataFrame(history)
-    st.dataframe(df, width="stretch", hide_index=True)
+    st.dataframe(df.rename(columns=t), width="stretch", hide_index=True)
     col_csv, col_json, col_clear = st.columns(3)
     col_csv.download_button(
         t("Download CSV"), df.to_csv(index=False).encode("utf-8"),

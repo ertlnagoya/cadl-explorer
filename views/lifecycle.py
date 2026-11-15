@@ -21,7 +21,6 @@ Usage
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -86,13 +85,13 @@ source_label = ""
 try:
     if upload is not None:
         ir_doc = json.loads(upload.read().decode("utf-8"))
-        source_label = f"upload: {upload.name}"
+        source_label = t("upload: {name}").format(name=upload.name)
     elif bundled_pick:
         path = EXAMPLES_DIR / bundled_pick
         ir_doc = json.loads(path.read_text(encoding="utf-8"))
-        source_label = f"bundled: {bundled_pick}"
+        source_label = t("bundled: {name}").format(name=bundled_pick)
 except json.JSONDecodeError as e:
-    st.error(f"Failed to parse JSON: {e}")
+    st.error(t("Failed to parse JSON: {e}").format(e=e))
     st.stop()
 
 if ir_doc is None:
@@ -109,7 +108,8 @@ if not contracts:
 
 # --- Per-contract render ---------------------------------------------------
 
-st.markdown(f"**Source:** `{source_label}`  •  **SoS:** `{ir_doc.get('name', '')}`")
+st.markdown(t("**Source:** `{source}`  •  **SoS:** `{name}`").format(
+    source=source_label, name=ir_doc.get('name', '')))
 
 contract_ids = [c.get("id", f"contract_{i}") for i, c in enumerate(contracts)]
 picked = st.radio(t("Contract"), contract_ids, horizontal=True)
@@ -118,14 +118,14 @@ contract = next(c for c in contracts if c.get("id") == picked)
 view = build_lifecycle_view(contract)
 if view is None:
     st.warning(
-        f"Contract `{picked}` does not declare a `lifecycle:` section. "
-        "Add one (see Appendix E.6) and re-emit the IR."
+        t("Contract `{contract}` does not declare a `lifecycle:` section. "
+          "Add one (see Appendix E.6) and re-emit the IR.").format(contract=picked)
     )
 else:
     col_graph, col_meta = st.columns([3, 2])
 
     with col_graph:
-        st.subheader(f"Lifecycle — {view.contract_id}")
+        st.subheader(t("Lifecycle — {contract}").format(contract=view.contract_id))
         _theme = getattr(st.context, "theme", None)
         dot = lifecycle_to_dot(view, dark=getattr(_theme, "type", None) == "dark")
         st.graphviz_chart(dot, width="stretch")

@@ -1,4 +1,6 @@
-"""The sidebar of the Designer: workspace, files and starting points."""
+"""The sidebar of the Designer: the workspace, opening and saving a `.cadl` file or a
+project (`.zip` with versions, decisions and the record of the checks), the examples,
+and a first draft written by the AI from a description."""
 
 from __future__ import annotations
 
@@ -69,7 +71,7 @@ def render(c):
             st.header(t("Workspace"))
             ws_designs = workspace.list_designs()
             if not ws_designs:
-                st.caption(f"No designs yet in `{workspace.root()}`.")
+                st.caption(t("No designs yet in `{path}`.").format(path=workspace.root()))
             else:
                 if ss.get("design_ws_pick") not in ws_designs:
                     ss.design_ws_pick = ss.get("design_ws_name") if ss.get("design_ws_name") in ws_designs \
@@ -81,15 +83,15 @@ def render(c):
             if ws_name and workspace.exists(ws_name):
                 on_disk = workspace.read(ws_name)
                 if on_disk != source:
-                    st.warning(
-                        f"`{ws_name}` in the workspace differs from the editor. The assistant "
-                        "may have changed it, or you have unsaved edits.")
+                    st.warning(t(
+                        "`{name}` in the workspace differs from the editor. The assistant "
+                        "may have changed it, or you have unsaved edits.").format(name=ws_name))
                     st.button(t("Reload from workspace"), on_click=_open_workspace, width="stretch",
                               help=t("Replace the editor content with the workspace file. Undo takes it back."))
                     st.button(t("Save to workspace"), on_click=_save_workspace, width="stretch",
                               type="primary", help=t("Write the editor content to the workspace file."))
                 else:
-                    st.caption(f"Editing `{ws_name}`; in sync with the workspace.")
+                    st.caption(t("Editing `{name}`; in sync with the workspace.").format(name=ws_name))
                 commits = workspace.history(ws_name)
                 if commits:
                     with st.expander(t("History in git") + f" ({len(commits)})"):
@@ -165,11 +167,11 @@ def render(c):
         with st.expander(t("Draft from a description")):
             unavailable = ds.ai_available()
             if unavailable:
-                st.caption(
+                st.caption(t(
                     "Writes a first CADL draft from a plain-language description, using "
-                    f"the upstream `cadl ai` generator. Not enabled here: {unavailable}. "
+                    "the upstream `cadl ai` generator. Not enabled here: {reason}. "
                     "To use it, run the app locally with `pip install anthropic` and "
-                    "`ANTHROPIC_API_KEY` set."
+                    "`ANTHROPIC_API_KEY` set.").format(reason=unavailable)
                 )
             else:
                 st.caption(
@@ -184,13 +186,13 @@ def render(c):
                 )
                 if st.button(t("Write a draft"), width="stretch", disabled=not description.strip()):
                     try:
-                        with st.spinner("Writing a draft…"):
+                        with st.spinner(t("Writing a draft…")):
                             draft, draft_errors = ds.draft_from_description(description)
                     except Exception as e:
-                        st.error(f"Could not write a draft: {e}")
+                        st.error(t("Could not write a draft: {e}").format(e=e))
                     else:
                         _set_source(draft)
                         ss.design_file_name = ""
                         if draft_errors:
-                            st.toast("The draft has problems; see the checks.")
+                            st.toast(t("The draft has problems; see the checks."))
                         st.rerun()

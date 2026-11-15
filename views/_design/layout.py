@@ -140,20 +140,20 @@ def stage_picker() -> str:
     return ss.design_stage
 
 
-def _on_view():
-    if ss.get("design_view_pick"):
-        ss.design_view = ss.design_view_pick
+def _pick_view(view: str):
+    ss.design_view = view
 
 
 def view_picker() -> str:
-    """The views of the current stage; returns the view to draw. The picker has a key
-    of its own, so that a jump that sets `design_view` is not undone by its value."""
+    """The views of the current stage; returns the view to draw. They are buttons in
+    a row that wraps, so that every view stays in sight however narrow the column
+    (pills scroll sideways when they do not fit, which hides the last ones)."""
     views = STAGES[stage_of(ss.design_view)]
     if len(views) > 1:
-        ss.design_view_pick = ss.design_view
-        st.pills(
-            t("View"), views, key="design_view_pick", format_func=t, on_change=_on_view,
-            label_visibility="collapsed")
+        with st.container(horizontal=True, gap="small"):
+            for view in views:
+                st.button(t(view), key=f"design_view_btn_{view}", on_click=_pick_view, args=(view,),
+                          type="primary" if view == ss.design_view else "secondary")
     return ss.design_view
 
 

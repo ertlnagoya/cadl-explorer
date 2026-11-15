@@ -48,17 +48,18 @@ def _extension_checks(source: str, extensions: frozenset):
             try:
                 indices = cached_norms_indices(source)
             except Exception as e:
-                st.error(f"Not computed: {e}")
+                st.error(t("Not computed: {e}").format(e=e))
             else:
                 _record_once("norms-indices", source, "computed",
                              f"{len((indices.get('report') or {}).get('contracts') or [])} contract(s)")
                 st.code(indices["text"], language="text")
     if "games" in extensions:
         with st.expander(t("Equilibria (games 0.1): `cadl game-check`"), expanded=True):
-            st.caption("Whether each named profile is an equilibrium at the fixed values of the "
-                       "parameters, with exact arithmetic (Appendix I, I.8), and, if you ask, the "
-                       "equilibrium maps (entries with `over:`) as certified cells (I.9; "
-                       f"`--certify`). The run is stopped after {ds.GAME_CHECK_TIMEOUT:g} s.")
+            st.caption(t("Whether each named profile is an equilibrium at the fixed values of the "
+                         "parameters, with exact arithmetic (Appendix I, I.8), and, if you ask, the "
+                         "equilibrium maps (entries with `over:`) as certified cells (I.9; "
+                         "`--certify`). The run is stopped after {s} s.").format(
+                             s=f"{ds.GAME_CHECK_TIMEOUT:g}"))
             g1, g2 = st.columns([3, 2], vertical_alignment="center")
             certify = g1.checkbox(t("Also compute the equilibrium maps (--certify)"),
                                   key="design_game_certify")
@@ -73,7 +74,7 @@ def _extension_checks(source: str, extensions: frozenset):
 def _norms_check_section(source: str):
     contracts = ds.norms_contracts(source)
     with st.expander(t("Norms over all behaviours (norms 0.1): `cadl norms-check`")):
-        st.caption(
+        st.caption(t(
             "The norms of a contract are translated into a model for PRISM, which "
             "answers over every behaviour up to the horizon whether each norm can be activated, "
             "violated and fulfilled, whether every activation can be kept, which obligations and "
@@ -85,7 +86,7 @@ def _norms_check_section(source: str):
             "four instances of "
             "the contract are checked together, also with amendments to later versions. The "
             "timeout bounds building the model and the runs of PRISM; the command is stopped "
-            f"{ds.BUILD_BUDGET:g} s after it.")
+            "{s} s after it.").format(s=f"{ds.BUILD_BUDGET:g}"))
         if not contracts:
             st.caption(t("No contract has norms."))
             return
@@ -95,31 +96,31 @@ def _norms_check_section(source: str):
                     "with PRISM on your machine."))
         c1, c2, c3 = st.columns(3)
         contract = c1.selectbox(t("Contract"), contracts, key="design_nc_contract")
-        bindings = c2.text_input("Bindings (i=n, ...)", key="design_nc_bindings",
+        bindings = c2.text_input(t("Bindings (i=n, ...)"), key="design_nc_bindings",
                                  help=t("Index values of the instance (--bindings); by default the "
                                       "lower bound of each set."))
-        members = c3.text_input("Members (SET=n, ...)", key="design_nc_members",
+        members = c3.text_input(t("Members (SET=n, ...)"), key="design_nc_members",
                                 help=t("Number of members of a set in the instance (--members)."))
         c4, c5, c6 = st.columns(3)
-        step = c4.text_input("Step", key="design_nc_step", placeholder=t("from the durations"),
+        step = c4.text_input(t("Step"), key="design_nc_step", placeholder=t("from the durations"),
                              help=t("Time between two observations, such as 1s (--step)."))
-        horizon = c5.number_input("Horizon (0: default)", min_value=0, max_value=1000, step=1,
+        horizon = c5.number_input(t("Horizon (0: default)"), min_value=0, max_value=1000, step=1,
                                   key="design_nc_horizon",
                                   help=t("Last observation of an instance (--horizon)."))
-        timeout = c6.number_input("Timeout (s)", min_value=1,
+        timeout = c6.number_input(t("Timeout (s)"), min_value=1,
                                   max_value=int(ds.MAX_NORMS_CHECK_TIMEOUT),
                                   value=int(ds.NORMS_CHECK_TIMEOUT), step=10,
                                   key="design_nc_timeout",
                                   help=t("Time for all runs of PRISM together (--timeout)."))
         c7, c8, c9 = st.columns(3)
-        domains = c7.text_input("Domains (Q=lo..hi, ...)", key="design_nc_domains",
+        domains = c7.text_input(t("Domains (Q=lo..hi, ...)"), key="design_nc_domains",
                                 placeholder=t("ROBOT[*].load=0..3"),
                                 help=t("Integer domain of a quantity used in arithmetic, sum or avg "
                                      "(--domain); the answers then hold for traces whose numbers "
                                      "for it are such integers. Not needed for linear arithmetic; "
                                      "for nonlinear arithmetic it replaces the domain that cadl "
                                      "assumes from the literals."))
-        instances = c8.text_input("Instances (N, or i=1; i=2)", key="design_nc_instances",
+        instances = c8.text_input(t("Instances (N, or i=1; i=2)"), key="design_nc_instances",
                                   help=t("Several instances checked together, at most 4: a number "
                                        "(--instances N) or the bindings of each instance "
                                        "separated by `;` (--instance)."))
@@ -131,7 +132,7 @@ def _norms_check_section(source: str):
         saved = [v for v in ss.get("design_versions", []) if v["source"] != source]
         if saved:
             names = st.multiselect(
-                "Amend to these saved versions, in this order", [v["name"] for v in saved],
+                t("Amend to these saved versions, in this order"), [v["name"] for v in saved],
                 key="design_nc_versions",
                 help=t("Later versions of the design (--version): the environment may amend "
                      "the contract to the next one at any observation (F.6)."))
@@ -156,7 +157,7 @@ def _norms_check_section(source: str):
 
 def _norms_check_shown(result: dict):
     if result.get("failure"):
-        st.error(f"Not checked: {result['failure']}")
+        st.error(t("Not checked: {e}").format(e=result["failure"]))
     else:
         _norms_check_report(result)
 
@@ -166,7 +167,7 @@ def _game_report(game: dict):
         st.error(game["failure"])
         return
     if game["status"] == 2:
-        st.error("Nothing can be claimed: " + (game["errors"] or "see the report."))
+        st.error(t("Nothing can be claimed:") + " " + (game["errors"] or t("see the report.")))
     elif game["status"] == 1:
         st.warning(t("A map did not reach its resolution, or a query was not evaluated."))
     if game["text"]:
@@ -372,31 +373,34 @@ def summary(c):
     if len(runs) > len(latest):
         with st.expander(t("Every run in this session") + f" ({len(runs)})"):
             st.dataframe([{k: r[k] for k in ("time", "check", "result", "summary", "cadl", "seconds")}
-                          | {"design": ran_on(r, source)} for r in reversed(runs)],
-                         hide_index=True, width="stretch")
+                          | {"result": t(r["result"]), "design": ran_on(r, source)}
+                          for r in reversed(runs)],
+                         hide_index=True, width="stretch", column_config={
+                             k: st.column_config.Column(t(k))
+                             for k in ("time", "check", "result", "summary", "design", "seconds")})
 
 
 def _yes(entry) -> str:
     if not isinstance(entry, dict) or "answer" not in entry:
         return "-"
-    return "yes" if entry["answer"] else "no"
+    return t("yes") if entry["answer"] else t("no")
 
 
 def _norms_check_report(result: dict):
     report = result["report"]
     if not report.get("checked"):
-        st.warning(f"Nothing was checked: {report.get('skipped')}")
+        st.warning(t("Nothing was checked: {reason}").format(reason=report.get("skipped")))
     elif report.get("unconfirmed"):
-        st.error("A witness is not confirmed by the norms engine (an error of norms-check): "
+        st.error(t("A witness is not confirmed by the norms engine (an error of norms-check):") + " "
                  + _plain("; ".join(map(str, report["unconfirmed"]))))
     if report.get("checked") and report.get("findings"):
-        st.warning("Findings:\n" + "\n".join(f"- {_plain(f)}" for f in report["findings"]))
+        st.warning(t("Findings:") + "\n" + "\n".join(f"- {_plain(f)}" for f in report["findings"]))
     elif report.get("checked") and report.get("runs") and not report.get("unconfirmed"):
         st.success(t("No finding."))
     elif report.get("checked") and not report.get("runs"):
         st.info(t("Nothing to ask the model checker: no norm is translated."))
     for note in report.get("notes") or []:
-        st.caption(_plain(f"Note: {note}."))
+        st.caption(_plain(t("Note: {note}.").format(note=note)))
     if not report.get("excuse_known", True):
         st.caption(t("An assumption is not translated, so a violation may be excused in a run."))
     if report.get("checked") and report.get("runs"):
@@ -408,30 +412,37 @@ def _norms_check_report(result: dict):
         for row, n in zip(rows, [n for n in report["norms"] if n["status"] == "model"]):
             if n.get("assumed_domains"):
                 row["norm"] += "*"
-        st.dataframe(rows, hide_index=True, width="stretch")
+        st.dataframe(rows, hide_index=True, width="stretch", column_config={
+            k: st.column_config.Column(t(k)) for k in (
+                "norm", "kind", "activated", "violable", "fulfillable", "kept", "unavoidable",
+                "exercised", "reparation")})
         st.caption(t("*kept*: every activation can be kept; *unavoidable*: violated in every "
                    "instance that runs to the horizon; -: the question does not apply."))
         assumed = (report.get("instance") or {}).get("assumed_domains") or {}
         if assumed:
-            ranges = [f"`{k}` are integers in {v[0]}..{v[1]}" for k, v in assumed.items()]
-            joined = ranges[0] if len(ranges) == 1 else ", ".join(ranges[:-1]) + " and " + ranges[-1]
-            st.caption("\\* The answers hold only for traces whose numbers for " + joined
-                       + ": cadl assumed these domains from the literals of arithmetic that "
-                         "is not linear. Give a domain to choose another one.")
+            ranges = [t("`{k}` are integers in {lo}..{hi}").format(k=k, lo=v[0], hi=v[1])
+                      for k, v in assumed.items()]
+            joined = (ranges[0] if len(ranges) == 1 else
+                      t(", ").join(ranges[:-1]) + t(" and ") + ranges[-1])
+            st.caption(t("\\* The answers hold only for traces whose numbers for {ranges}: cadl "
+                         "assumed these domains from the literals of arithmetic that is not "
+                         "linear. Give a domain to choose another one.").format(ranges=joined))
         if report["conflicts"]:
             st.markdown(t("*Conflicts*"))
         for c in report["conflicts"]:
             marked = "\\*" if c.get("assumed_domains") else ""
-            st.markdown(f"- {c['norms'][0]} and {c['norms'][1]}{marked}: after "
-                        f"{c.get('prefix', '?')} observation(s), keeping one violates the other.")
+            st.markdown("- " + t("{a} and {b}{marked}: after {n} observation(s), keeping one "
+                                 "violates the other.").format(
+                a=c["norms"][0], b=c["norms"][1], marked=marked, n=c.get("prefix", "?")))
             for w in c.get("witnesses", []):
                 # cadl 0.3.28: an instance that starts after an amendment is an
                 # instance of that version, whose file the download holds
-                versions = "".join(f" Instance {k} is an instance of `{v}`."
+                versions = "".join(" " + t("Instance {k} is an instance of `{v}`.").format(k=k, v=v)
                                    for k, v in sorted((w.get("files") or {}).items()))
-                st.markdown(_plain(f"    - keep {w['keeps']}: {w['claim']}"
-                                   f" ({'confirmed' if w['confirmed'] else 'not confirmed'} by "
-                                   f"norms-eval): " + "; ".join(
+                st.markdown(_plain("    - " + t("keep {keeps}: {claim} ({state} by norms-eval):").format(
+                                       keeps=w["keeps"], claim=w["claim"],
+                                       state=t("confirmed") if w["confirmed"] else t("not confirmed"))
+                                   + " " + "; ".join(
                                        f"#{k} `{x}`" for k, x in enumerate(w["choices"])))
                             + versions)
     untranslated = [n for n in report["norms"] if n["status"] != "model"]
@@ -445,7 +456,8 @@ def _norms_check_report(result: dict):
     if result.get("notice"):
         st.caption(result["notice"])
     if result.get("zip"):
-        st.download_button(f"Model, properties and witnesses ({len(result['files'])} files, .zip)",
+        st.download_button(t("Model, properties and witnesses ({n} files, .zip)").format(
+                               n=len(result["files"])),
                            result["zip"], file_name=f"{report['contract']}.norms-check.zip",
                            mime="application/zip", key="design_nc_download")
 
@@ -512,11 +524,11 @@ def checks(c):
         stage_findings = [f for f in analysis.findings if f.stage == stage]
         errors = sum(f.level == "error" for f in stage_findings)
         warnings = sum(f.level == "warning" for f in stage_findings)
-        state = (f"{errors} error{'s' if errors != 1 else ''}" if errors else
-                 f"{warnings} warning{'s' if warnings != 1 else ''}" if warnings else
-                 "passed" if stage_findings else "not run")
-        with st.expander(f"{stage} — {state}", expanded=bool(errors or warnings)):
-            st.caption(ds.STAGE_SCOPE[stage])
+        state = ((t("{n} error") if errors == 1 else t("{n} errors")).format(n=errors) if errors else
+                 (t("{n} warning") if warnings == 1 else t("{n} warnings")).format(n=warnings)
+                 if warnings else t("passed") if stage_findings else t("not run"))
+        with st.expander(f"{t(stage)} — {state}", expanded=bool(errors or warnings)):
+            st.caption(t(ds.STAGE_SCOPE[stage]))
             if not stage_findings:
                 st.caption(
                     t("Not run: nothing in the design for it to look at, or an "
@@ -530,7 +542,7 @@ def checks(c):
                     _problem_buttons(f, f"check_jump_{jump_index}")
     with st.expander(t("Not checked")):
         for item in ds.NOT_CHECKED:
-            st.markdown(f"- {item}")
+            st.markdown(f"- {t(item)}")
     extensions = ds.extensions_in_effect(source)
     if extensions & {"norms", "games", "grounding"}:
         _extension_checks(source, extensions)
