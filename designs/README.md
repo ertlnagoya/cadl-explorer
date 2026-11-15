@@ -95,3 +95,16 @@ the quantities of Exercise 12-1 of the course. The exercise divides by the
 original `step`, so choose the constitution before its step was changed (the
 `constitution.yaml` restored with `git checkout`, or **Use the Robot Town
 constitution**); a constitution with the changed step counts in that step.
+
+## Traces
+
+`traces/` holds recorded runs of three examples, copies of the upstream files
+in `examples/traces/` of `cadl-lang` 0.3.31. The Designer offers them under
+**Verify → Traces** (`cadl norms-eval`) and **Verify → Agents**
+(`cadl agents-run`) when the design in the editor is that example:
+
+- `norms_robot_delivery_*.jsonl` (a to e): fulfilled, repaired, violated,
+  excused and reassigned instances of `DELIVERY_SLA`.
+- `norms_no_double_assignment_*.jsonl` (a to c).
+- `agents_tool_governance_*.jsonl` (a to c): a hold that is approved, one that
+  is rejected and one that times out.

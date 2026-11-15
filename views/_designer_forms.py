@@ -9,6 +9,7 @@ import copy
 import streamlit as st
 
 from backend.services import design_service as ds
+from views._i18n import t
 
 SECTIONS = [
     "System", "Actors", "Contracts", "Protocols",
@@ -67,22 +68,22 @@ def _system(sos, key, apply, flags):
         name = c1.text_input("Name", sos.get("name", ""))
         current = str(sos.get("type", ds.SOS_TYPES[1]))
         sos_type = c2.selectbox(
-            "Type", ds.SOS_TYPES,
+            t("Type"), ds.SOS_TYPES,
             index=ds.SOS_TYPES.index(current) if current in ds.SOS_TYPES else 1,
-            help="Maier's SoS categories, from most to least centrally managed.",
+            help=t("Maier's SoS categories, from most to least centrally managed."),
         )
         version = c3.text_input("Version", str(sos.get("version", "")))
         description = st.text_input("Description", sos.get("description", ""))
 
         context = sos.get("context") if isinstance(sos.get("context"), dict) else {}
-        st.markdown("**Context**")
-        st.caption("Environment parameters the design refers to, and assumptions about the setting.")
+        st.markdown(t("**Context**"))
+        st.caption(t("Environment parameters the design refers to, and assumptions about the setting."))
         env_rows = st.data_editor(
             ds.mapping_to_rows(context.get("environment")) or _blank(["name", "value"]),
             num_rows="dynamic", width="stretch", key=f"env_{key}",
         )
         assumptions = st.text_area(
-            "Assumptions (one per line)", _lines(context.get("assumptions")), height=80)
+            t("Assumptions (one per line)"), _lines(context.get("assumptions")), height=80)
 
         if st.form_submit_button("Apply", type="primary"):
             sos["name"], sos["type"] = name.strip(), sos_type
@@ -99,8 +100,8 @@ def _actors(sos, key, apply, flags):
     columns = ["id", "role", "autonomy", "capabilities", "input", "output"]
     with st.form(f"actors_{key}", border=False):
         st.caption(
-            "One row per actor. Use `NAME[1..N]` for a group. Lists are "
-            "comma-separated. Add a row at the bottom; select rows to delete."
+            t("One row per actor. Use `NAME[1..N]` for a group. Lists are "
+            "comma-separated. Add a row at the bottom; select rows to delete.")
         )
         rows = st.data_editor(
             ds.actors_to_rows(sos) or _blank(columns),
@@ -123,17 +124,17 @@ def _contracts(sos, key, apply, flags):
     col_pick, col_del = st.columns([5, 1], vertical_alignment="bottom")
     with col_pick:
         picked = _pick("Contract", ids, "design_contract", flags.get("Contracts"))
-    if col_del.button("Delete", width="stretch", disabled=picked is None,
-                      help="Delete the selected contract", key="contract_del"):
+    if col_del.button(t("Delete"), width="stretch", disabled=picked is None,
+                      help=t("Delete the selected contract"), key="contract_del"):
         sos["contracts"] = [c for c in contracts if str(c.get("id")) != picked]
         apply(f"Deleted {picked}")
 
     col_template, col_add = st.columns([5, 1], vertical_alignment="bottom")
     template = col_template.selectbox(
-        "New contract from", list(ds.CONTRACT_TEMPLATES), key="design_contract_template",
+        t("New contract from"), list(ds.CONTRACT_TEMPLATES), key="design_contract_template",
         format_func=lambda t: f"{t} — {ds.CONTRACT_TEMPLATES[t][0]}",
     )
-    if col_add.button("Add", width="stretch", help="Add a contract from this template",
+    if col_add.button(t("Add"), width="stretch", help=t("Add a contract from this template"),
                       key="contract_add"):
         added = ds.contract_from_template(sos, template)
         sos.setdefault("contracts", []).append(added)
@@ -142,16 +143,16 @@ def _contracts(sos, key, apply, flags):
 
     contract = next((c for c in contracts if str(c.get("id")) == picked), None)
     if contract is None:
-        st.caption("No contracts yet. Choose a template and press **Add**.")
+        st.caption(t("No contracts yet. Choose a template and press **Add**."))
         return
 
     col_preset, col_use = st.columns([5, 1], vertical_alignment="bottom")
     preset = col_preset.selectbox(
         f"Lifecycle preset for {picked}", list(ds.LIFECYCLE_PRESETS), key="design_lifecycle_preset",
-        help="Replaces this contract's lifecycle with a ready-made state machine.",
+        help=t("Replaces this contract's lifecycle with a ready-made state machine."),
     )
-    if col_use.button("Use", width="stretch", key="lifecycle_use",
-                      help="Replace the lifecycle of the selected contract with this preset"):
+    if col_use.button(t("Use"), width="stretch", key="lifecycle_use",
+                      help=t("Replace the lifecycle of the selected contract with this preset")):
         contract["lifecycle"] = copy.deepcopy(ds.LIFECYCLE_PRESETS[preset])
         apply(f"Lifecycle of {picked} replaced")
 
@@ -172,56 +173,56 @@ def _contracts(sos, key, apply, flags):
         parties = st.multiselect(
             "Parties", sorted(set(_party_options(sos) + parties_now)), parties_now,
             accept_new_options=True,
-            help="Actors bound by this contract. `NAME[*]` means every member of a group.",
+            help=t("Actors bound by this contract. `NAME[*]` means every member of a group."),
         )
         c1, c2 = st.columns(2)
-        assume = c1.text_area("Assume (one expression per line)", _lines(contract.get("assume")), height=100)
-        guarantee = c2.text_area("Guarantee (one expression per line)", _lines(contract.get("guarantee")), height=100)
+        assume = c1.text_area(t("Assume (one expression per line)"), _lines(contract.get("assume")), height=100)
+        guarantee = c2.text_area(t("Guarantee (one expression per line)"), _lines(contract.get("guarantee")), height=100)
 
-        st.markdown("**Authority** — who decides")
+        st.markdown(t("**Authority** — who decides"))
         a1, a2 = st.columns([2, 1])
-        holder = a1.selectbox("Decision holder", holders, index=holders.index(holder_now))
+        holder = a1.selectbox(t("Decision holder"), holders, index=holders.index(holder_now))
         beta = a2.number_input(
             "β", 0.0, 1.0, authority.get("beta"), 0.05,
-            help="How centralised decisions are, 0–1. Empty = not set.")
+            help=t("How centralised decisions are, 0–1. Empty = not set."))
         a3, a4 = st.columns(2)
         scope = a3.text_input("Decision scope", authority.get("decision_scope", "") or "")
         mode = a4.text_input("Mode", authority.get("mode", "") or "",
-                             help="For example `centralized` or `distributed`.")
+                             help=t("For example `centralized` or `distributed`."))
 
-        st.markdown("**Information** — who sees what")
+        st.markdown(t("**Information** — who sees what"))
         alpha = st.number_input(
             "α", 0.0, 1.0, information.get("alpha"), 0.05,
-            help="How much information is shared, 0–1. Empty = not set.")
+            help=t("How much information is shared, 0–1. Empty = not set."))
         view_rows = st.data_editor(
             ds.mapping_to_rows(information.get("views"), "actor", "view") or _blank(["actor", "view"]),
             num_rows="dynamic", width="stretch", key=f"views_{picked}_{key}",
         )
         sharing = st.text_area(
-            "Sharing (one `A -> B : data` per line)", _lines(information.get("sharing")), height=80)
+            t("Sharing (one `A -> B : data` per line)"), _lines(information.get("sharing")), height=80)
 
-        st.markdown("**Incentives**")
+        st.markdown(t("**Incentives**"))
         i1, i2 = st.columns([2, 1])
         incentive_type = i1.text_input("Type", incentives.get("type", "") or "")
         lam = i2.number_input(
             "λ", 0.0, 1.0, incentives.get("lambda"), 0.05,
-            help="How strong the incentives are, 0–1. Empty = not set.")
-        rules = st.text_area("Rules (one per line)", _lines(incentives.get("rules")), height=80)
+            help=t("How strong the incentives are, 0–1. Empty = not set."))
+        rules = st.text_area(t("Rules (one per line)"), _lines(incentives.get("rules")), height=80)
 
-        st.markdown("**Violation handling**")
+        st.markdown(t("**Violation handling**"))
         detect = st.text_input("Detect", violation.get("detect", "") or "")
         v1, v2 = st.columns(2)
         action = v1.text_input("Action", violation.get("action", "") or "")
         escalation = v2.text_input("Escalation", violation.get("escalation", "") or "")
 
-        st.markdown("**Lifecycle** — states of one contract instance")
+        st.markdown(t("**Lifecycle** — states of one contract instance"))
         l1, l2, l3 = st.columns([3, 1, 2])
         states = l1.text_input("States (comma-separated)", ds.join_list(lifecycle.get("states")))
         initial = l2.text_input("Initial", lifecycle.get("initial", "") or "")
         terminal = l3.text_input("Terminal (comma-separated)", ds.join_list(lifecycle.get("terminal")))
         st.caption(
-            "Transitions: `from` may list several states. `deadline` takes a "
-            "duration such as `5s`; give the state to move to when it is missed."
+            t("Transitions: `from` may list several states. `deadline` takes a "
+            "duration such as `5s`; give the state to move to when it is missed.")
         )
         transition_cols = ["id", "from", "to", "on", "when", "deadline",
                            "on violation → state", "severity"]
@@ -231,7 +232,7 @@ def _contracts(sos, key, apply, flags):
             column_config={"severity": st.column_config.SelectboxColumn(options=[""] + ds.SEVERITIES)},
         )
 
-        st.markdown("**Monitors** — rules watched while the contract runs")
+        st.markdown(t("**Monitors** — rules watched while the contract runs"))
         monitor_cols = ["id", "observe", "sampling", "rule", "on match → state",
                         "on match → violation", "severity"]
         monitor_rows = st.data_editor(
@@ -289,19 +290,19 @@ def _protocols(sos, key, apply, flags):
     col_pick, col_add, col_del = st.columns([4, 1, 1], vertical_alignment="bottom")
     with col_pick:
         picked = _pick("Protocol", ids, "design_protocol", flags.get("Protocols"))
-    if col_add.button("Add", width="stretch", help="Add a new protocol", key="protocol_add"):
+    if col_add.button(t("Add"), width="stretch", help=t("Add a new protocol"), key="protocol_add"):
         added = ds.new_protocol(sos)
         sos.setdefault("protocols", []).append(added)
         ss.design_protocol_next = added["id"]
         apply(f"Added {added['id']}")
-    if col_del.button("Delete", width="stretch", disabled=picked is None,
-                      help="Delete the selected protocol", key="protocol_del"):
+    if col_del.button(t("Delete"), width="stretch", disabled=picked is None,
+                      help=t("Delete the selected protocol"), key="protocol_del"):
         ds.put(sos, "protocols", [p for p in protocols if str(p.get("id")) != picked])
         apply(f"Deleted {picked}")
 
     protocol = next((p for p in protocols if str(p.get("id")) == picked), None)
     if protocol is None:
-        st.caption("No protocols yet. Press **Add** to create one.")
+        st.caption(t("No protocols yet. Press **Add** to create one."))
         return
 
     steps_text, structured = ds.steps_to_text(protocol.get("steps"))
@@ -311,7 +312,7 @@ def _protocols(sos, key, apply, flags):
         p1, p2 = st.columns(2)
         pid = p1.text_input("Protocol id", picked)
         trigger = p2.text_input("Trigger", protocol.get("trigger", "") or "",
-                                help="The event that starts the protocol.")
+                                help=t("The event that starts the protocol."))
         c1, c2 = st.columns(2)
         precondition = c1.text_input("Precondition", protocol.get("precondition", "") or "")
         postcondition = c2.text_input("Postcondition", protocol.get("postcondition", "") or "")
@@ -319,32 +320,32 @@ def _protocols(sos, key, apply, flags):
 
         if structured:
             st.caption(
-                "This protocol has nested steps (`if`, `parallel` or `barrier`), "
-                "so its steps are edited as YAML."
+                t("This protocol has nested steps (`if`, `parallel` or `barrier`), "
+                "so its steps are edited as YAML.")
             )
-            steps = st.text_area("Steps (YAML list)", steps_text, height=220)
+            steps = st.text_area(t("Steps (YAML list)"), steps_text, height=220)
         else:
             steps = st.text_area(
-                "Steps (one per line, in order)", steps_text, height=160,
-                help="`A -> B : message` sends a message; `A : computation` is a local step.",
+                t("Steps (one per line, in order)"), steps_text, height=160,
+                help=t("`A -> B : message` sends a message; `A : computation` is a local step."),
             )
 
         t1, t2 = st.columns(2)
         with t1:
-            st.markdown("**Timing**")
+            st.markdown(t("**Timing**"))
             timing_rows = st.data_editor(
                 ds.mapping_to_rows(protocol.get("timing"), "bound", "duration")
                 or _blank(["bound", "duration"]),
                 num_rows="dynamic", width="stretch", key=f"timing_{picked}_{key}",
             )
         with t2:
-            st.markdown("**Fallback**")
+            st.markdown(t("**Fallback**"))
             fallback_rows = st.data_editor(
                 ds.mapping_to_rows(protocol.get("fallback"), "event", "action")
                 or _blank(["event", "action"]),
                 num_rows="dynamic", width="stretch", key=f"fallback_{picked}_{key}",
             )
-        st.markdown("**Rollback**")
+        st.markdown(t("**Rollback**"))
         r1, r2 = st.columns(2)
         rb_condition = r1.text_input("Condition", rollback.get("condition", "") or "")
         rb_action = r2.text_input("Action", rollback.get("action", "") or "")
@@ -375,8 +376,8 @@ def _algorithms(sos, key, apply, flags):
     columns = ["function", "central", "local"]
     with st.form(f"algorithms_{key}", border=False):
         st.caption(
-            "For each function of the SoS (for example `pathfinding`), the "
-            "algorithm run by the central authority and the one run locally by each actor."
+            t("For each function of the SoS (for example `pathfinding`), the "
+            "algorithm run by the central authority and the one run locally by each actor.")
         )
         rows = st.data_editor(
             ds.algorithms_to_rows(sos) or _blank(columns),
@@ -392,9 +393,9 @@ def _regimes(sos, key, apply, flags):
     protocol_ids = [""] + [str(p.get("id")) for p in sos.get("protocols") or []]
     with st.form(f"regimes_{key}", border=False):
         st.caption(
-            "Operating regimes of the whole SoS (for example NORMAL, CONGESTED) "
+            t("Operating regimes of the whole SoS (for example NORMAL, CONGESTED) "
             "and the transitions between them. `protocol` names the protocol "
-            "that carries out the transition."
+            "that carries out the transition.")
         )
         rows = st.data_editor(
             ds.records_to_rows(sos.get("transitions"), columns) or _blank(columns),
@@ -413,7 +414,7 @@ def _regimes(sos, key, apply, flags):
 def _metrics(sos, key, apply, flags):
     columns = ["id", "formula", "target"]
     with st.form(f"metrics_{key}", border=False):
-        st.caption("What the SoS is measured by: a formula and the target it should meet.")
+        st.caption(t("What the SoS is measured by: a formula and the target it should meet."))
         rows = st.data_editor(
             ds.records_to_rows(sos.get("metrics"), columns) or _blank(columns),
             num_rows="dynamic", width="stretch", key=f"metrics_table_{key}",
@@ -427,10 +428,10 @@ def _verification(sos, key, apply, flags):
     v_columns = ["id", "type", "target", "property", "method", "expr", "bound"]
     c_columns = ["target", "output"]
     with st.form(f"verification_{key}", border=False):
-        st.markdown("**Verification directives**")
+        st.markdown(t("**Verification directives**"))
         st.caption(
-            "Properties the verifier should check, on top of the built-in "
-            "contract checks. `target` is a contract or protocol id."
+            t("Properties the verifier should check, on top of the built-in "
+            "contract checks. `target` is a contract or protocol id.")
         )
         v_rows = st.data_editor(
             ds.records_to_rows(sos.get("verification"), v_columns) or _blank(v_columns),
@@ -440,8 +441,8 @@ def _verification(sos, key, apply, flags):
                 "method": st.column_config.SelectboxColumn(options=[""] + ds.VERIFICATION_METHODS),
             },
         )
-        st.markdown("**Code generation**")
-        st.caption("Targets to generate runtime code for, and where to write it.")
+        st.markdown(t("**Code generation**"))
+        st.caption(t("Targets to generate runtime code for, and where to write it."))
         c_rows = st.data_editor(
             ds.records_to_rows(sos.get("codegen"), c_columns) or _blank(c_columns),
             num_rows="dynamic", width="stretch", key=f"codegen_table_{key}",
@@ -493,7 +494,7 @@ def _section_problems(findings, section: str, item) -> None:
     if not relevant:
         return
     with st.container(border=True):
-        st.caption("Found by the checks in this section:")
+        st.caption(t("Found by the checks in this section:"))
         for f in relevant:
             st.markdown(f"{_ICON[f.level]} **{f.title}**" + (f" — {f.message}" if f.message else ""))
 
@@ -505,7 +506,7 @@ def render_forms(doc: dict, key: str, apply, flags: dict = None, findings=None) 
     if ss.get("design_section") not in SECTIONS:
         ss.design_section = SECTIONS[0]
     section = st.radio(
-        "Section", SECTIONS, key="design_section", horizontal=True, label_visibility="collapsed",
+        t("Section"), SECTIONS, key="design_section", horizontal=True, label_visibility="collapsed",
         format_func=lambda s: (f"{s} ({counts[s]})" if s in counts else s)
         + (" ⚠" if (flags or {}).get(s) else ""),
     )

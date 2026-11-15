@@ -17,6 +17,7 @@ import difflib
 import functools
 import html
 import importlib
+import hashlib
 import io
 import json
 import os
@@ -135,6 +136,7 @@ class Finding:
     section: str = ""   # form section that fixes it, e.g. "Contracts"
     item: str = ""      # id within that section, e.g. a contract id
     element: str = ""   # finer element, e.g. a lifecycle state name
+    line: int = 0       # 1-based line of the source it is about, 0 when unknown
 
 
 STAGES = [
@@ -274,6 +276,7 @@ def analyze(source: str) -> DesignAnalysis:
         result.findings.append(Finding("error", "Parse", "Cannot parse the design", str(e)))
         mark = getattr(e.__cause__, "problem_mark", None)
         if mark is not None:
+            result.findings[-1].line = mark.line + 1
             result.annotations.append({
                 "row": mark.line, "column": mark.column, "type": "error",
                 "text": getattr(e.__cause__, "problem", None) or "YAML syntax error",
@@ -366,9 +369,37 @@ def analyze(source: str) -> DesignAnalysis:
     except Exception as e:
         result.findings.append(
             Finding("error", "Simulator IR", "Cannot lower the design to the simulator IR", str(e)))
+    marked = {a["row"] for a in result.annotations}
     for finding in result.findings:
         _locate(finding)
+        at = re.search(r"\(line (\d+)\)", finding.title)
+        finding.line = int(at.group(1)) if at else (
+            find_line(source, finding.element, finding.item) if finding.level in ("error", "warning")
+            else 0)
+        if finding.line and finding.level in ("error", "warning") and finding.line - 1 not in marked:
+            marked.add(finding.line - 1)
+            result.annotations.append({
+                "row": finding.line - 1, "column": 0, "type": finding.level,
+                "text": finding.title + (f": {finding.message}" if finding.message else "")})
     return result
+
+
+def find_line(source: str, *names: str) -> int:
+    """The 1-based line where the first of `names` that the source names is declared
+    (`id: NAME`, `- NAME` or `NAME:`), or else first written; 0 when none is found."""
+    lines = source.splitlines()
+    for name in names:
+        name = str(name or "").strip()
+        if not name:
+            continue
+        word = re.escape(name)
+        for pattern in (rf"^\s*(?:-\s*)?id:\s*[\"']?{word}[\"']?\s*(?:#.*)?$",
+                        rf"^\s*(?:-\s*)?[\"']?{word}[\"']?\s*:",
+                        rf"(?<![\w.]){word}(?![\w])"):
+            for number, line in enumerate(lines, 1):
+                if re.search(pattern, line.split(" #")[0] if "#" in pattern else line):
+                    return number
+    return 0
 
 
 def _locate(finding: Finding) -> None:
@@ -986,6 +1017,99 @@ def dump_doc(doc: dict) -> str:
     # PyYAML quotes the key `on` because YAML 1.1 would read it as a boolean;
     # CADL writes it bare, and its parser accepts either.
     return re.sub(r"(?m)^(\s*(?:- )?)'on':", r"\1on:", text)
+
+
+def merge_doc(source: str, doc: dict) -> str:
+    """The source with the changes of `doc` (a form's edit of load_doc(source)) written
+    into it, keeping the comments, the quoting and the order of what did not change:
+    a round trip through ruamel.yaml. Lists of items with an `id` are matched by id.
+    Falls back to dump_doc(doc), without comments, when ruamel.yaml is missing or the
+    result would not read back as `doc`."""
+    try:
+        from ruamel.yaml import YAML
+    except ImportError:
+        return dump_doc(doc)
+    import difflib
+
+    def dump(data) -> str:
+        buffer = io.StringIO()
+        rt.dump(data, buffer)
+        return buffer.getvalue()
+
+    try:
+        rt = YAML()
+        rt.preserve_quotes = True
+        rt.width = 4096             # never wrap a line that the source did not wrap
+        rt.indent(mapping=2, sequence=4, offset=2)
+        unchanged = dump(rt.load(source)).splitlines()
+        data = rt.load(source)
+        _merge_into(data, doc)
+        changed = dump(data)
+        if load_doc(changed) != doc:
+            return dump_doc(doc)
+        original = source.splitlines()
+        if len(unchanged) != len(original):
+            return changed
+        # ruamel.yaml respaces some lines (aligned values, flow mappings); keep the
+        # lines of the source where nothing changed, and take its lines elsewhere
+        lines = []
+        matcher = difflib.SequenceMatcher(a=unchanged, b=changed.splitlines(), autojunk=False)
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
+            lines += original[i1:i2] if op == "equal" else matcher.b[j1:j2]
+        text = "\n".join(lines) + ("\n" if source.endswith("\n") else "")
+        return text if load_doc(text) == doc else changed
+    except Exception:
+        return dump_doc(doc)
+
+
+def _plain(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {k: _plain(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_plain(v) for v in node]
+    return node
+
+
+def _merge_into(old: Any, new: Any) -> Any:
+    """`old` (a ruamel.yaml node) changed in place to equal `new`; returns the node to
+    keep at its place (`old`, or a plain copy of `new` when the kinds differ)."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key in [k for k in old if k not in new]:
+            del old[key]
+        for key, value in new.items():
+            if key in old:
+                kept = _merge_into(old[key], value)
+                if kept is not old[key]:
+                    old[key] = kept
+            else:
+                old[key] = _plain(value)
+        return old
+    if isinstance(old, list) and isinstance(new, list):
+        def ident(item):
+            return item.get("id") if isinstance(item, dict) else None
+        by_id = {ident(item): item for item in old if ident(item) is not None}
+        if new and all(ident(item) is not None for item in new) and by_id:
+            merged = []
+            for item in new:
+                previous = by_id.get(ident(item))
+                merged.append(_merge_into(previous, item) if previous is not None else _plain(item))
+        else:
+            merged = [_merge_into(old[i], item) if i < len(old) else _plain(item)
+                      for i, item in enumerate(new)]
+        if merged != list(old) or any(a is not b for a, b in zip(merged, old)) or len(merged) != len(old):
+            del old[len(merged):]
+            for i, item in enumerate(merged):
+                if i < len(old):
+                    if old[i] is not item:
+                        old[i] = item
+                else:
+                    old.append(item)
+        return old
+    if type(old) is not type(new) and not (isinstance(old, str) and isinstance(new, str)) \
+            and not (isinstance(old, (int, float)) and isinstance(new, (int, float))
+                     and not isinstance(old, bool) and not isinstance(new, bool)):
+        return _plain(new)
+    return old if old == new else _plain(new)
 
 
 def has_comments(source: str) -> bool:
@@ -1641,7 +1765,8 @@ _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 BUSY = "The server is running other checks; try again shortly. Nothing is claimed."
 
 
-def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] = None) -> dict:
+def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] = None,
+              cancel: Optional[threading.Event] = None) -> dict:
     """Run `cadl ARGS[0] design.cadl ARGS[1:]` in a subprocess with the design in a
     temporary file and with bounds: `wall` seconds of wall-clock time (the process
     group is killed after it), files of at most CADL_FILE_LIMIT bytes, and as soft
@@ -1655,6 +1780,7 @@ def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] 
     not end by itself. A watchdog kills them all when their resident memory exceeds
     MEMORY_WATCH_LIMIT (POSIX; see _watch).
     At most MAX_CONCURRENT_RUNS commands run at once; a further one is refused.
+    When `cancel` is set while the command runs, it is stopped as after a timeout.
 
     Returns {"status", "stdout", "stderr", "failure", "transient"}: `failure` is
     None when cadl ran to its exit status, otherwise a sentence that says nothing
@@ -1666,12 +1792,13 @@ def _run_cadl(args: List[str], source: str, wall: float, workdir: Optional[str] 
     if not _RUN_SLOTS.acquire(timeout=1):
         return {"status": None, "stdout": "", "stderr": "", "failure": BUSY, "transient": True}
     try:
-        return _run_cadl_slot(args, source, wall, workdir)
+        return _run_cadl_slot(args, source, wall, workdir, cancel)
     finally:
         _RUN_SLOTS.release()
 
 
-def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[str]) -> dict:
+def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[str],
+                   cancel: Optional[threading.Event] = None) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "design.cadl"
         path.write_text(source, encoding="utf-8")
@@ -1686,8 +1813,8 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
             env.setdefault("CADL_PRISM_JAVAMAXMEM", PRISM_JAVA_HEAP)
             proc = subprocess.Popen(command, stdout=out, stderr=err, cwd=workdir or tmp, env=env,
                                     start_new_session=(os.name == "posix"))
-            timed_out, over_memory = _watch(proc, pids, wall)
-            if timed_out or proc.returncode != 0:
+            timed_out, over_memory, cancelled = _watch(proc, pids, wall, cancel)
+            if timed_out or cancelled or proc.returncode != 0:
                 # also after a crash of cadl, which can leave PRISM running
                 _kill_recorded(pids)
         name = f"`cadl {args[0]}`"
@@ -1696,7 +1823,10 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
         stderr = _read_capped(err_path).replace(str(path), "the design")
         if workdir:
             stderr = stderr.replace(workdir, "")
-        if timed_out:
+        if cancelled:
+            result["failure"] = f"{name} was stopped before it finished; nothing is claimed."
+            result["transient"] = True
+        elif timed_out:
             result["failure"] = f"{name} did not finish within {wall:g} s; nothing is claimed."
             result["transient"] = True
         elif over_memory:
@@ -1722,26 +1852,31 @@ def _run_cadl_slot(args: List[str], source: str, wall: float, workdir: Optional[
         return result
 
 
-def _watch(proc: subprocess.Popen, pids: Path, wall: float) -> tuple:
+def _watch(proc: subprocess.Popen, pids: Path, wall: float,
+           cancel: Optional[threading.Event] = None) -> tuple:
     """Wait for the child for at most `wall` seconds; every WATCH_INTERVAL seconds
     (POSIX) add up the resident memory of its process group and of the groups of
     the processes it recorded, and kill the child above MEMORY_WATCH_LIMIT: macOS
-    does not take RLIMIT_AS, and PRISM runs without it. (timed out, over memory)."""
+    does not take RLIMIT_AS, and PRISM runs without it. A set `cancel` kills the
+    child too. (timed out, over memory, cancelled)."""
     deadline = time.monotonic() + wall
     while True:
         left = deadline - time.monotonic()
         try:
             proc.wait(timeout=max(0.0, min(WATCH_INTERVAL, left)))
-            return False, False
+            return False, False, False
         except subprocess.TimeoutExpired:
             pass
+        if cancel is not None and cancel.is_set():
+            _kill(proc)
+            return False, False, True
         if time.monotonic() >= deadline:
             _kill(proc)
-            return True, False
+            return True, False, False
         if os.name == "posix" and \
                 _groups_rss({proc.pid} | set(_leading_groups(pids))) > MEMORY_WATCH_LIMIT:
             _kill(proc)
-            return False, True
+            return False, True, False
 
 
 def _recorded(pids: Path) -> set:
@@ -1880,7 +2015,8 @@ def norms_indices(source: str) -> dict:
 GAME_CHECK_TIMEOUT = 120.0
 
 
-def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_TIMEOUT) -> dict:
+def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_TIMEOUT,
+               cancel: Optional[threading.Event] = None) -> dict:
     """The equilibrium checks of a strategic model (games 0.1, Appendix I, I.8) and,
     with `certify`, its equilibrium maps (I.9), as `cadl game-check [--certify]`
     reports them, run in a bounded subprocess (see _run_cadl).
@@ -1892,7 +2028,8 @@ def game_check(source: str, certify: bool = False, timeout: float = GAME_CHECK_T
     hit a limit or failed with an internal error. Never raises for a design
     that parses.
     """
-    run = _run_cadl(["game-check"] + (["--certify"] if certify else []), source, timeout)
+    run = _run_cadl(["game-check"] + (["--certify"] if certify else []), source, timeout,
+                    cancel=cancel)
     return {"status": run["status"], "text": run["stdout"].rstrip(),
             "errors": _usage_error(run["stderr"]), "failure": run["failure"],
             "transient": run["transient"]}
@@ -1937,7 +2074,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
                 budget: float = BUILD_BUDGET, domains: Optional[List[str]] = None,
                 instances: Any = None, versions: Optional[List[tuple]] = None,
-                starts: Optional[str] = None) -> dict:
+                starts: Optional[str] = None, cancel: Optional[threading.Event] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance (or several), translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
@@ -2000,8 +2137,7 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
             version = export_dir / f"v{k}_{stem}.cadl"
             version.write_text(text, encoding="utf-8")
             args += ["--version", str(version)]
-        run = _run_cadl(args, source, timeout + budget,
-                        workdir=tmp)
+        run = _run_cadl(args, source, timeout + budget, workdir=tmp, cancel=cancel)
         if run["failure"]:
             out["failure"], out["transient"] = run["failure"], run["transient"]
             if "did not finish" in run["failure"]:
@@ -2363,7 +2499,8 @@ def _e(value: Any) -> str:
     return html.escape("—" if value in (None, "", []) else str(value))
 
 
-def build_report(source: str, analysis: DesignAnalysis, generated: str = "") -> str:
+def build_report(source: str, analysis: DesignAnalysis, generated: str = "",
+                 runs: Optional[List[dict]] = None) -> str:
     """A self-contained HTML report of the design and its checks.
 
     Sequence diagrams are inline SVG. Graph diagrams are embedded as DOT
@@ -2407,6 +2544,14 @@ def build_report(source: str, analysis: DesignAnalysis, generated: str = "") -> 
     parts.append(_table(["Check", "Covers"], [
         [_e(stage), _e(STAGE_SCOPE[stage])] for stage in STAGES]))
     parts.append("<p class=\"note\">Not checked: " + " ".join(_e(x) for x in NOT_CHECKED) + "</p>")
+    if runs:
+        # the commands of cadl run from the page, each with the design it ran on
+        sha = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        parts.append("<h3>Commands of cadl run on the design</h3>")
+        parts.append(_table(["Time", "Command", "Result", "Summary", "Design", "cadl"], [
+            [r.get("time", ""), f"cadl {r.get('check', '')}", r.get("result", ""), r.get("summary", ""),
+             "this design" if r.get("source_sha256") == sha else "an earlier design",
+             r.get("cadl") or ""] for r in runs]))
 
     if ir:
         parts.append("<h2>Architecture</h2>")

@@ -16,6 +16,36 @@ The simulator parameters α / β / λ mean autonomy level, centralization level
 and exploration probability, and differ from the per-contract α / β / λ of the
 CADL language specification.
 
+## The Designer of v1.0
+
+The Designer leads through five stages of the work, each with its views:
+
+| Stage | Views | What it is for |
+|---|---|---|
+| Write | Source, Forms | The CADL source in an editor with line numbers, problem marks, completion of the names of the design and snippets (contract, norm, lifecycle, monitor, protocol, stochastic model); forms that keep the comments and the lines they do not change |
+| Read | Architecture, Structure, Control structure, Lifecycle, Protocols, Regimes, Algorithms & metrics, Read-back | Diagrams whose boxes open the place in the source that writes them; tables; the design restated in sentences |
+| Verify | Summary, Checks, Traces, Agents | The latest result of every check of cadl with the design it ran on; `cadl norms-check` and `cadl game-check` in the background with a stop button; witnesses of norms-check as sequences of messages; `cadl norms-eval` on a recorded trace; `cadl agents-run` and `cadl audit-verify` for the agent boundary |
+| Change | Versions | Saved versions, amendments within the constitution, the comparison of two designs with its changes drawn on the architecture |
+| Deliver | Export | The report (with the record of the checks), simulator configs checked by `cadl sim-validate`, runtime code with a look at each generated file, the design sent to the Explorer page |
+
+Side by side, the editor stays on the left. In one column (a tablet held
+upright, a window narrower than 1100 px) each stage takes the whole width; the
+page starts in the layout that the width of the window suits, and the switch
+next to the stages changes it. The editor is a plain text area, so it works
+with the on-screen keyboard of a tablet and does not correct or capitalize
+what one types.
+
+The pages are in English or Japanese (the switch at the top of the sidebar; a
+browser that asks for Japanese gets Japanese). What cadl writes, such as the
+findings and the reports, stays in English.
+
+The sidebar saves the whole project as one zip (the design, the saved
+versions, the decision record, the constitution, the entries of the STPA table
+and the record of the checks) and opens it again. With Streamlit 1.51 or later
+the editor and the clickable diagrams are custom components; the diagrams load
+viz.js from jsDelivr. On Python 3.9 (Streamlit 1.50) the page uses the Ace
+editor and diagrams with a list of their elements instead.
+
 ## Research Purpose
 
 This tool enables researchers to **trace how institutional design choices
@@ -67,8 +97,20 @@ Example output (D-SoS, uniform, ρ=0 against D-SoS + motivation-sensitive, linea
 cadl-explorer/
 ├── app.py                          # Streamlit entry point (page router)
 ├── views/
-│   ├── designer.py                 # Author, check and export a full CADL design
+│   ├── designer.py                 # Author, check and export a full CADL design (the page and its stages)
+│   ├── _design/                    # The parts of the Designer
+│   │   ├── layout.py               # Stages, views, side by side or one column, the guide
+│   │   ├── edit.py                 # Source editor and forms
+│   │   ├── editor_component.py     # The CADL editor (custom component)
+│   │   ├── graph_component.py      # Diagrams whose boxes can be chosen (custom component, viz.js)
+│   │   ├── read.py                 # Diagrams, tables and sentences
+│   │   ├── verify.py               # Checks, norms-check and game-check in the background, the summary
+│   │   ├── trace.py                # norms-eval on a trace; agents-run and audit-verify
+│   │   ├── change.py               # Versions, amendments, comparison
+│   │   ├── deliver.py              # Export
+│   │   └── sidebar.py              # Workspace, files, projects, starting points
 │   ├── _designer_forms.py          # Form-based editing for the Designer
+│   ├── _i18n.py, _i18n_ja.py       # English and Japanese texts of the pages
 │   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
@@ -87,7 +129,11 @@ cadl-explorer/
 │   │   ├── design_stamp.py         # STAMP control structure (inferred) and the STPA table
 │   │   ├── design_contracts.py     # What watches each promise; dependencies between contracts
 │   │   ├── design_amend.py         # # @amend: values, the constitution's gate, in-place amendments
-│   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant
+│   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant (optionally in git)
+│   │   ├── design_jobs.py          # Long checks of cadl in a background thread, with cancel
+│   │   ├── design_runtime.py       # norms-eval, agents-run, audit-verify, sim-validate; versions of cadl and PRISM
+│   │   ├── design_project.py       # A project as one zip
+│   │   ├── design_snippets.py      # Names and snippets offered by the editor
 │   │   ├── diff_service.py         # 4-type syntactic + semantic diff
 │   │   ├── evaluation_service.py   # Metric aggregation
 │   │   ├── experiment_service.py   # Runner dispatch
@@ -105,7 +151,7 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
-├── designs/                        # Example CADL designs for the Designer
+├── designs/                        # Example CADL designs for the Designer (traces/: recorded runs of three of them)
 ├── cadl_sim/                       # Vendored CADL subset for simulation
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
@@ -275,6 +321,11 @@ To see and confirm what the assistant did, run the app with the same folder:
 ```bash
 CADL_WORKSPACE=/path/to/my-designs streamlit run app.py
 ```
+
+With `CADL_WORKSPACE_GIT=1` (for the app and for the MCP server), the folder
+is a git repository and every change is committed: an edit saved from the
+Designer, an applied proposal with the person's reason, and an undo. The
+sidebar lists those commits.
 
 The Designer then shows the workspace in its sidebar, warns when the file
 changed underneath the editor, and lists every change the assistant applied

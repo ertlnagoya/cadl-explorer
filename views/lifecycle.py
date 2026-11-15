@@ -40,19 +40,20 @@ from cadl_sim.sos_dsl import (  # noqa: E402
     lifecycle_to_dot,
     monitors_summary,
 )
+from views._i18n import t
 
 
-st.title("Contract Lifecycle")
+st.title(t("Contract Lifecycle"))
 st.markdown(
-    "Where the Explorer follows one design change through the pipeline, "
+    t("Where the Explorer follows one design change through the pipeline, "
     "this page looks inside a single institution: each contract's "
     "`lifecycle:` section (SoS-DSL extension, Appendix E) is drawn as a "
-    "state machine, with its `monitors:` listed below."
+    "state machine, with its `monitors:` listed below.")
 )
 st.caption(
-    "Input is a simulator IR produced by the `cadl` compiler: "
+    t("Input is a simulator IR produced by the `cadl` compiler: "
     "`cadl sim-ir <file>.cadl --format json`. "
-    "[CADL specification and hands-on](https://www.ertl.jp/cadl-spec/)"
+    "[CADL specification and hands-on](https://www.ertl.jp/cadl-spec/)")
 )
 
 # --- Sample data discovery -------------------------------------------------
@@ -63,19 +64,19 @@ BUNDLED = sorted(
 ) if EXAMPLES_DIR.exists() else []
 
 with st.sidebar:
-    st.header("IR source")
+    st.header(t("IR source"))
     upload = st.file_uploader(
-        "Upload a CADL Sim-IR JSON",
+        t("Upload a CADL Sim-IR JSON"),
         type=["json"],
         accept_multiple_files=False,
     )
     bundled_pick = None
     if BUNDLED:
         bundled_pick = st.selectbox(
-            "Bundled example",
+            t("Bundled example"),
             [p.name for p in BUNDLED],
             disabled=upload is not None,
-            help="Used when no file is uploaded.",
+            help=t("Used when no file is uploaded."),
         )
 
 # --- Load IR ---------------------------------------------------------------
@@ -96,14 +97,14 @@ except json.JSONDecodeError as e:
 
 if ir_doc is None:
     st.info(
-        "Upload a Sim-IR JSON in the sidebar. The IR document must "
-        "contain `institution.contracts[*].lifecycle`."
+        t("Upload a Sim-IR JSON in the sidebar. The IR document must "
+        "contain `institution.contracts[*].lifecycle`.")
     )
     st.stop()
 
 contracts = ir_doc.get("institution", {}).get("contracts", []) or []
 if not contracts:
-    st.warning("This IR has no `institution.contracts`.")
+    st.warning(t("This IR has no `institution.contracts`."))
     st.stop()
 
 # --- Per-contract render ---------------------------------------------------
@@ -111,7 +112,7 @@ if not contracts:
 st.markdown(f"**Source:** `{source_label}`  •  **SoS:** `{ir_doc.get('name', '')}`")
 
 contract_ids = [c.get("id", f"contract_{i}") for i, c in enumerate(contracts)]
-picked = st.radio("Contract", contract_ids, horizontal=True)
+picked = st.radio(t("Contract"), contract_ids, horizontal=True)
 contract = next(c for c in contracts if c.get("id") == picked)
 
 view = build_lifecycle_view(contract)
@@ -128,11 +129,11 @@ else:
         _theme = getattr(st.context, "theme", None)
         dot = lifecycle_to_dot(view, dark=getattr(_theme, "type", None) == "dark")
         st.graphviz_chart(dot, width="stretch")
-        with st.expander("Show DOT source"):
+        with st.expander(t("Show DOT source")):
             st.code(dot, language="dot")
 
     with col_meta:
-        st.subheader("Lifecycle metadata")
+        st.subheader(t("Lifecycle metadata"))
         st.json({
             "states": view.states,
             "initial": view.initial,
@@ -143,9 +144,9 @@ else:
 # --- Monitors panel --------------------------------------------------------
 
 st.divider()
-st.subheader("Monitors")
+st.subheader(t("Monitors"))
 mons = monitors_summary(contract)
 if not mons:
-    st.caption("No `monitors:` declared on this contract.")
+    st.caption(t("No `monitors:` declared on this contract."))
 else:
     st.dataframe(mons, width="stretch", hide_index=True)

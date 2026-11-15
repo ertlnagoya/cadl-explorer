@@ -10,6 +10,11 @@ A constitution for the design's `# @amend:` values is read from
 `<name>.constitution.yaml`, or else `constitution.yaml`, in the folder.
 
 The folder is `$CADL_WORKSPACE`, or `~/cadl-designs` when that is unset.
+
+With `CADL_WORKSPACE_GIT=1`, the folder is a git repository (made with
+`git init` when it is not one) and every change to a design is committed: an
+edit saved from the Designer, an applied proposal with the person's reason,
+and an undo. `history(name)` lists those commits.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -119,7 +125,47 @@ def _save_state(name: str, state: dict) -> None:
     _sidecar(name).write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def write(name: str, source: str, note: str = "") -> None:
+def git_enabled() -> bool:
+    return os.environ.get("CADL_WORKSPACE_GIT", "").lower() in ("1", "true", "yes")
+
+
+def _git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root()), *args], capture_output=True, text=True,
+                          timeout=30)
+
+
+def _commit(name: str, message: str) -> None:
+    """Commit the files of a design when CADL_WORKSPACE_GIT is set; a failure of git
+    does not stop the change, which is already written."""
+    if not git_enabled():
+        return
+    try:
+        if not (root() / ".git").exists():
+            _git("init", "-q")
+        files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name)) if p.exists()]
+        _git("add", "--", *files)
+        who = [] if _git("config", "user.email").stdout.strip() else [
+            "-c", "user.name=CADL Explorer", "-c", "user.email=cadl-explorer@localhost"]
+        subprocess.run(["git", "-C", str(root()), *who, "commit", "-q", "-m", message, "--", *files],
+                       capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def history(name: str, limit: int = 20) -> List[dict]:
+    """The commits of a design's files, newest first: [{"commit", "time", "message"}]."""
+    if not git_enabled() or not (root() / ".git").exists():
+        return []
+    try:
+        out = _git("log", f"-{int(limit)}", "--format=%h%x09%ad%x09%s", "--date=format:%Y-%m-%d %H:%M",
+                   "--", path_of(name).name).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [dict(zip(("commit", "time", "message"), line.split("\t", 2)))
+            for line in out.splitlines() if line.count("\t") >= 2]
+
+
+def write(name: str, source: str, note: str = "", commit: bool = True) -> None:
     """Replace a design's source, keeping the previous text for undo."""
     if len(source) > ds.MAX_SOURCE_CHARS:
         raise WorkspaceError(f"The design is limited to {ds.MAX_SOURCE_CHARS:,} characters.")
@@ -134,6 +180,8 @@ def write(name: str, source: str, note: str = "") -> None:
             state["proposals"] = {}
     path.write_text(source, encoding="utf-8")
     _save_state(name, state)
+    if commit:
+        _commit(name, f"{_check_name(name)}: {note or 'edited'}")
 
 
 def create(name: str, start: str = "empty") -> str:
@@ -170,6 +218,7 @@ def undo(name: str) -> str:
     # Marks made by the undone change no longer describe the file.
     state["unreviewed"] = [u for u in state["unreviewed"] if u.get("time", "") < entry["time"]]
     _save_state(name, state)
+    _commit(name, f"{_check_name(name)}: undo the last change")
     return entry["source"]
 
 
@@ -269,7 +318,7 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
             f"The constitution leaves {', '.join(person)} to a person, so this amendment needs "
             "their decision. Ask them, then call apply_proposal again with their reason "
             "(and any assumptions they state).")
-    write(name, entry["source"], note=f"proposal {proposal_id}")
+    write(name, entry["source"], note=f"proposal {proposal_id}", commit=False)
     state = _load_state(name)   # write() updated the undo stack and cleared proposals
     for change in entry["changes"]:
         state["unreviewed"].append({**change, "time": _now(), "rationale": entry.get("rationale", "")})
@@ -283,6 +332,9 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
     })
     _save_state(name, state)
     _write_decisions(name, state["decisions"])
+    _commit(name, f"{_check_name(name)}: " + "; ".join(c["summary"] for c in entry["changes"])
+            + (f"\n\nReason: {reason}" if reason else "")
+            + (f"\n\nProposed because: {entry['rationale']}" if entry.get("rationale") else ""))
     return {"applied": True, "changes": [c["summary"] for c in entry["changes"]],
             "unreviewed": len(state["unreviewed"]),
             "decision_record": str(_decisions_path(name)),
