@@ -19,6 +19,7 @@ import streamlit as st
 from backend.plotting.sequence import sequence_svg, trace_protocol
 from backend.services import design_runtime as runtime
 from backend.services import design_service as ds
+from views._design.cache import _NotCached, _uncached
 from views._design.common import _is_dark, _plain, ss
 from views._i18n import t
 
@@ -32,13 +33,29 @@ VERDICT_ICON = {"fulfilled": ":material/check_circle:", "violated": ":material/c
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_norms_eval(source: str, trace: str, contract: str) -> dict:
-    return runtime.norms_eval(source, trace, contract or None)
+def _norms_eval(source: str, trace: str, contract: str) -> dict:
+    return _uncached(runtime.norms_eval(source, trace, contract or None))
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
+def _agents_run(source: str, trace: str) -> dict:
+    return _uncached(runtime.agents_run(source, trace))
+
+
+def cached_norms_eval(source: str, trace: str, contract: str) -> dict:
+    """The verdicts, kept for the same design and trace; a failure that may not recur
+    (the server busy, a timeout) is not kept."""
+    try:
+        return _norms_eval(source, trace, contract)
+    except _NotCached as e:
+        return e.result
+
+
 def cached_agents_run(source: str, trace: str) -> dict:
-    return runtime.agents_run(source, trace)
+    try:
+        return _agents_run(source, trace)
+    except _NotCached as e:
+        return e.result
 
 
 def example_traces(source: str, prefix: str) -> dict:
@@ -189,7 +206,7 @@ def traces(c):
 
 
 def _record(check: str, source: str, trace: str, report: dict):
-    from views._design.verify import _latest_runs, record_run
+    from views._design.verify import record_run
     sha = hashlib.sha256((source + "\0" + trace).encode("utf-8")).hexdigest()
     if ss.get(f"design_recorded_{check}") == sha:
         return
@@ -204,7 +221,6 @@ def _record(check: str, source: str, trace: str, report: dict):
         word = "findings" if s.get("deny") or s.get("escalate") else "passed"
         summary = (f"{s.get('messages', 0)} messages: {s.get('allow', 0)} allowed, "
                    f"{s.get('deny', 0)} denied, {s.get('escalate', 0)} escalated")
-    _latest_runs()
     record_run(check, source, word, summary,
                trace_sha256=hashlib.sha256(trace.encode("utf-8")).hexdigest())
 
@@ -222,7 +238,7 @@ def agents(c):
         "escalated to a person, holds are approved, rejected or time out, and every decision "
         "goes into an audit log with a hash chain, which `cadl audit-verify` checks. The "
         "gateways that do this in front of real agents (`cadl mcp-gateway`, "
-        "`cadl a2a-gateway`) run on your machine, not here."))
+        "`cadl a2a-gateway`) run on your own machine; this page does not start them."))
     if "agents" not in ds.extensions_in_effect(source):
         st.info(t("This design does not use the agent governance extension (agents 0.1). The "
                   "example *agents tool governance* does, with traces."))
@@ -287,7 +303,12 @@ def agents(c):
                   args=(source, audit, "design_agents_verified"))
     other = st.file_uploader(t("Or verify another audit log against this design"),
                              type=["jsonl"], key="design_agents_other_audit")
-    if other is not None and ss.get("design_agents_other_id") != other.file_id:
+    if other is not None and ss.get("design_agents_other_id") != other.file_id \
+            and other.size > runtime.MAX_AUDIT_BYTES:
+        ss.design_agents_other_id = other.file_id
+        ss.design_agents_verified = {"failure": t("The audit log is larger than {n} MB.").format(
+            n=runtime.MAX_AUDIT_BYTES >> 20)}
+    elif other is not None and ss.get("design_agents_other_id") != other.file_id:
         ss.design_agents_other_id = other.file_id
         _verify_audit(source, other.getvalue().decode("utf-8", errors="replace"),
                       "design_agents_verified")

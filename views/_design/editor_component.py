@@ -87,6 +87,12 @@ export default function (component) {
   root.querySelector(".body").style.height = (data.height || 560) + "px"
   root.querySelector('[data-act="apply"]').textContent = L.apply || "Apply"
   snip.options[0].textContent = L.insert || "Insert…"
+  for (const [act, title] of Object.entries(L.titles || {})) {
+    const b = root.querySelector(`[data-act="${act}"]`)
+    if (b) b.title = title
+  }
+  if (L.snippetTitle) snip.title = L.snippetTitle
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]))
 
   // Python replaced the source (another file, undo, a form): show it. Otherwise
   // keep what is being typed, which Python has not seen yet.
@@ -114,7 +120,7 @@ export default function (component) {
     let html = ""
     for (let i = 0; i < n; i++) {
       const m = marks[i]
-      html += `<div data-row="${i}" class="${m ? m.type : ""}" title="${m ? m.text.replace(/"/g, "&quot;") : ""}">${i + 1}</div>`
+      html += `<div data-row="${i}" class="${m ? esc(m.type) : ""}" title="${m ? esc(m.text) : ""}">${i + 1}</div>`
     }
     gutter.innerHTML = html
     gutter.scrollTop = ta.scrollTop
@@ -131,7 +137,8 @@ export default function (component) {
   function apply() {
     closePop()
     setDirty(false)
-    setTriggerValue("applied", ta.value)
+    // the version tells Python which source the text was typed over
+    setTriggerValue("applied", { text: ta.value, version: String(data.version) })
   }
 
   function lineStart(pos) { return ta.value.lastIndexOf("\\n", pos - 1) + 1 }
@@ -184,7 +191,7 @@ export default function (component) {
     wordStart = w.start
     active = 0
     pop.innerHTML = items.map((n, i) =>
-      `<li data-i="${i}" class="${i === 0 ? "on" : ""}"><span>${n.name}</span><small>${n.kind}</small></li>`).join("")
+      `<li data-i="${i}" class="${i === 0 ? "on" : ""}"><span>${esc(n.name)}</span><small>${esc(n.kind)}</small></li>`).join("")
     const row = caretRow()
     const col = ta.selectionStart - lineStart(ta.selectionStart)
     const charWidth = 7.8
@@ -234,7 +241,7 @@ export default function (component) {
     const text = blank ? body.slice(indent.length) : "\\n" + indent + body.slice(indent.length)
     replace(pos, pos, text, pos + text.length)
     msg.className = "msg"
-    msg.textContent = (L.inserted || "Inserted; it goes into") + " " + s.where + "."
+    msg.textContent = (L.inserted || "Inserted; it goes into {where}.").replace("{where}", s.where.replace(/`/g, ""))
     ta.focus()
   }
 
@@ -282,7 +289,7 @@ export default function (component) {
     const all = lines()
     const start = all.slice(0, row).join("\\n").length + (row ? 1 : 0)
     ta.focus()
-    ta.setSelectionRange(start, start + all[row].length)
+    ta.setSelectionRange(start, start)
     showMessage()
   }
   root.querySelector('[data-act="apply"]').onclick = apply
@@ -301,7 +308,7 @@ export default function (component) {
       const start = all.slice(0, row).join("\\n").length + (row ? 1 : 0)
       ta.scrollTop = Math.max(0, row * lineHeight - ta.clientHeight / 3)
       gutter.scrollTop = ta.scrollTop
-      ta.setSelectionRange(start, start + all[row].length)
+      ta.setSelectionRange(start, start)
       const div = gutter.querySelector(`div[data-row="${row}"]`)
       if (div) div.classList.add("focus")
       showMessage()

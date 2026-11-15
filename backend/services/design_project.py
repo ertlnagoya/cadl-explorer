@@ -35,6 +35,9 @@ FORMAT_VERSION = 1
 MAX_ZIP_BYTES = 8 << 20
 MAX_MEMBER_BYTES = 4 << 20
 MAX_MEMBERS = 200
+MAX_VERSIONS = 20               # as many as the Designer keeps
+MAX_RUNS = 50
+MAX_DECISIONS = 500
 
 
 class ProjectError(ValueError):
@@ -111,7 +114,30 @@ def _design(text: Optional[str], name: str) -> str:
 
 def read(data: bytes) -> dict:
     """{"name", "source", "versions", "decisions", "constitution", "constitution_name",
-    "uca", "runs", "manifest"} of a project zip, or ProjectError."""
+    "uca", "runs", "manifest"} of a project zip, or ProjectError (also for a damaged
+    or encrypted archive and for contents of the wrong kind)."""
+    try:
+        return _read(data)
+    except ProjectError:
+        raise
+    except (zipfile.BadZipFile, RuntimeError, NotImplementedError, ValueError, TypeError,
+            KeyError, AttributeError, OSError) as e:
+        raise ProjectError(f"The project cannot be read: {e}") from None
+
+
+def _run(r: dict) -> Optional[dict]:
+    """A recorded run with the fields the Summary reads, or None."""
+    if not (isinstance(r, dict) and isinstance(r.get("check"), str)
+            and isinstance(r.get("source_sha256"), str)):
+        return None
+    seconds = r.get("seconds")
+    return {"check": r["check"][:40], "source_sha256": r["source_sha256"][:64],
+            "result": str(r.get("result") or "")[:40], "summary": str(r.get("summary") or "")[:500],
+            "time": str(r.get("time") or "")[:40], "cadl": str(r.get("cadl") or "")[:20] or None,
+            "seconds": float(seconds) if isinstance(seconds, (int, float)) else 0.0}
+
+
+def _read(data: bytes) -> dict:
     if len(data) > MAX_ZIP_BYTES:
         raise ProjectError(f"The file is larger than {MAX_ZIP_BYTES >> 20} MB.")
     try:
@@ -124,28 +150,40 @@ def read(data: bytes) -> dict:
         manifest = _json(zf, "manifest.json", None)
         if not isinstance(manifest, dict) or manifest.get("format") != FORMAT:
             raise ProjectError("This zip is not a project of the CADL Explorer (no manifest.json).")
-        if int(manifest.get("format_version") or 0) > FORMAT_VERSION:
+        version = manifest.get("format_version")
+        if not isinstance(version, int) or version > FORMAT_VERSION:
             raise ProjectError("The project was saved by a later version of the Explorer.")
         source = _design(_text(zf, "design.cadl"), "design.cadl")
-        versions = []
-        for v in _json(zf, "versions.json", []):
-            if not isinstance(v, dict) or not isinstance(v.get("file"), str):
+        listed = _json(zf, "versions.json", [])
+        if not isinstance(listed, list):
+            raise ProjectError("`versions.json` does not list the versions.")
+        if len(listed) > MAX_VERSIONS:
+            raise ProjectError(f"The project has more than {MAX_VERSIONS} versions.")
+        versions, files = [], set()
+        for v in listed:
+            if not isinstance(v, dict) or not isinstance(v.get("file"), str) or v["file"] in files:
                 raise ProjectError("`versions.json` does not list the versions.")
+            files.add(v["file"])
             versions.append({"name": str(v.get("name") or v["file"]), "time": str(v.get("time") or ""),
                              "source": _design(_text(zf, v["file"]), v["file"])})
-        decisions = [d for d in _json(zf, "decisions.json", []) if isinstance(d, dict)]
+        decisions = _json(zf, "decisions.json", [])
+        decisions = [d for d in (decisions if isinstance(decisions, list) else [])
+                     if isinstance(d, dict)][:MAX_DECISIONS]
         for d in decisions:
             for key in ("time", "change", "layer", "reason"):
                 d[key] = str(d.get(key) or "")
         uca = _json(zf, "uca.json", {})
-        runs = [r for r in _json(zf, "runs.json", []) if isinstance(r, dict) and "check" in r
-                and "source_sha256" in r]
+        runs = _json(zf, "runs.json", [])
+        runs = [r for r in map(_run, runs if isinstance(runs, list) else []) if r][-MAX_RUNS:]
         return {
             "name": str(manifest.get("name") or ""), "manifest": manifest, "source": source,
             "versions": versions, "decisions": decisions,
             "constitution": _text(zf, "constitution.yaml"),
-            "constitution_name": (uca.get("constitution_name") if isinstance(uca, dict) else None),
-            "uca": (uca.get("entries") if isinstance(uca, dict) and isinstance(uca.get("entries"), dict)
-                    else {}),
+            "constitution_name": (str(uca.get("constitution_name"))[:100]
+                                  if isinstance(uca, dict) and uca.get("constitution_name") else None),
+            "uca": {str(k): {str(g): str(v) for g, v in e.items()}
+                    for k, e in ((uca.get("entries") if isinstance(uca, dict) and
+                                  isinstance(uca.get("entries"), dict) else {}).items())
+                    if isinstance(e, dict)},
             "runs": runs,
         }

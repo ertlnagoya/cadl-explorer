@@ -38,10 +38,16 @@ def _names(source: str, ir) -> list:
 
 def _on_applied():
     state = ss.get("design_cc_editor") or {}
-    text = getattr(state, "applied", None)
-    if text is None and isinstance(state, dict):
-        text = state.get("applied")
-    if text is None or text == ss.design_src:
+    applied = getattr(state, "applied", None)
+    if applied is None and isinstance(state, dict):
+        applied = state.get("applied")
+    if not isinstance(applied, dict):
+        return
+    # typed over a source that was replaced meanwhile (Undo, an example, a version)
+    if applied.get("version") != str(ss.get("design_ver", 0)):
+        return
+    text = applied.get("text")
+    if not isinstance(text, str) or text == ss.design_src:
         return
     if len(text) > MAX_SOURCE_CHARS:
         ss.design_too_long = True
@@ -76,8 +82,14 @@ def render(c):
                 names=_names(source, analysis.ir),
                 snippets=[{**s, "label": t(s["label"]), "where": t(s["where"])} for s in snippets.snippets()],
                 labels={"apply": t("Apply"), "insert": t("Insert…"), "unsaved": t("Not applied yet"),
-                        "line": t("Line"), "inserted": t("Inserted; it goes into")},
-                height=600, focus=ss.get("design_focus"), key="design_cc_editor",
+                        "line": t("Line"), "inserted": t("Inserted; it goes into {where}."),
+                        "snippetTitle": t("Insert a snippet at the cursor"),
+                        "titles": {"apply": t("Apply (Ctrl/⌘ + Enter)"),
+                                   "indent": t("Indent the line or the selection (Tab)"),
+                                   "outdent": t("Outdent (Shift + Tab)"),
+                                   "comment": t("Comment or uncomment the lines")}},
+                # shown once: a later visit of the editor does not jump to the line again
+                height=600, focus=ss.pop("design_focus", None), key="design_cc_editor",
                 on_applied=_on_applied)
             if ss.get("design_too_long"):
                 st.error(t("The design is limited to {n:,} characters.").format(n=MAX_SOURCE_CHARS))

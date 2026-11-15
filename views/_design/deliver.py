@@ -26,13 +26,21 @@ from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_su
 from views._design.common import *  # noqa: F401,F403
 from views._design.common import _md
 from views._design.cache import *  # noqa: F401,F403
+from views._design.cache import _NotCached, _uncached
 from views._i18n import t
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
-def _sim_validate(source: str) -> dict:
+def _sim_validate_kept(source: str) -> dict:
     from backend.services.design_runtime import sim_validate
-    return sim_validate(source)
+    return _uncached(sim_validate(source))
+
+
+def _sim_validate(source: str) -> dict:
+    try:
+        return _sim_validate_kept(source)
+    except _NotCached as e:
+        return e.result
 
 
 def _to_explorer(source: str):

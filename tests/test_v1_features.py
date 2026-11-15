@@ -388,3 +388,92 @@ def test_the_pages_speak_japanese():
     assert not at.exception
     assert at.title[0].value == JA.get("Designer", "Designer")
     assert any(b.label == JA["Apply"] for b in at.button) or JA.get("Undo") in [b.label for b in at.button]
+
+
+# ── Findings of the review of v1.0.0 ───────────────────────────────
+
+def _zip(members):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        for name, text in members.items():
+            zf.writestr(name, text)
+    return buffer.getvalue()
+
+
+def test_a_project_cannot_list_one_file_many_times_or_hold_odd_contents():
+    import json
+    from backend.services import design_project as project
+    manifest = json.dumps({"format": project.FORMAT, "format_version": 1})
+    many = json.dumps([{"name": str(i), "file": "design.cadl"} for i in range(1000)])
+    with pytest.raises(project.ProjectError, match="more than 20 versions"):
+        project.read(_zip({"manifest.json": manifest, "design.cadl": "sos: {}\n", "versions.json": many}))
+    twice = json.dumps([{"name": "a", "file": "design.cadl"}, {"name": "b", "file": "design.cadl"}])
+    with pytest.raises(project.ProjectError, match="does not list"):
+        project.read(_zip({"manifest.json": manifest, "design.cadl": "sos: {}\n", "versions.json": twice}))
+    for members in ({"manifest.json": json.dumps({"format": project.FORMAT, "format_version": "x"}),
+                     "design.cadl": "x"},
+                    {"manifest.json": manifest, "design.cadl": "x", "versions.json": "5"}):
+        with pytest.raises(project.ProjectError):
+            project.read(_zip(members))
+    runs = json.dumps([{"check": "game-check", "source_sha256": "ab"}, {"check": ["x"], "source_sha256": "c"}])
+    opened = project.read(_zip({"manifest.json": manifest, "design.cadl": "x", "runs.json": runs}))
+    assert opened["runs"] == [{"check": "game-check", "source_sha256": "ab", "result": "", "summary": "",
+                               "time": "", "cadl": None, "seconds": 0.0}]
+
+
+def test_the_report_escapes_the_record_of_the_checks():
+    pytest.importorskip("cadl")
+    from backend.services import design_service as ds
+    source = ds.load_example("sos dsl robot delivery")
+    html = ds.build_report(source, ds.analyze(source), runs=[{
+        "check": "game-check", "result": "failed", "summary": "<script>alert(1)</script>",
+        "source_sha256": "x", "time": "t", "cadl": "0.3.31"}])
+    assert "<script>alert(1)</script>" not in html and "&lt;script&gt;" in html
+
+
+def test_the_version_of_prism_is_read_from_any_casing(monkeypatch):
+    from backend.services import design_runtime as runtime
+
+    class Done:
+        stdout = "Version: 4.11\n"
+
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **k: Done())
+    import cadl.norms_check
+    monkeypatch.setattr(cadl.norms_check, "find_checker", lambda: "/bin/prism")
+    runtime.toolchain.cache_clear()
+    try:
+        assert runtime.toolchain()["prism"] == "4.11"
+    finally:
+        runtime.toolchain.cache_clear()
+
+
+def test_a_stopped_run_is_not_taken_again(monkeypatch):
+    from backend.services import design_jobs as jobs
+    monkeypatch.delenv("CADL_JOBS_SYNC", raising=False)
+    gate = threading.Event()
+
+    def slow(cancel=None):
+        gate.wait(5)
+        return {}
+
+    job = jobs.start("stop", ("k",), slow)
+    jobs.cancel(job.id)
+    again = jobs.start("stop", ("k",), slow)
+    assert again is not job
+    gate.set()
+
+
+def test_reruns_follow_their_run_after_old_runs_are_dropped():
+    pytest.importorskip("cadl.norms_check")
+    at = _set(_design(_designer(), "games grounding robot delivery"), design_view="Checks")
+    at = next(b for b in at.button if b.label == "Run game-check").click().run()
+    from views._design import verify
+    for _ in range(verify.MAX_RUNS + 3):
+        at.session_state.design_src = at.session_state.design_src + "\n# edit\n"
+        at.session_state.design_ver += 1
+        at.run()
+    runs = at.session_state.design_runs
+    assert len(runs) == verify.MAX_RUNS
+    # the game-check run fell out of the record, and its re-run with it
+    assert "game-check" not in [r["check"] for r in runs]
+    assert set(at.session_state["design_rerun"]) <= {r["id"] for r in runs}

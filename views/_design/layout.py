@@ -55,14 +55,18 @@ ONE_COLUMN_BELOW = 1100
 _VIEWPORT_JS = """
 export default function (component) {
   const { setStateValue, data } = component
-  const report = () => {
+  // the listener calls the report of the latest mount, which can still set the state
+  window.__cadlReport = () => {
     if (Math.abs((data.width || 0) - window.innerWidth) > 40) setStateValue("width", window.innerWidth)
   }
-  report()
+  window.__cadlReport()
   if (!window.__cadlResize) {
     window.__cadlResize = true
     let timer = null
-    window.addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(report, 400) })
+    window.addEventListener("resize", () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => window.__cadlReport && window.__cadlReport(), 400)
+    })
   }
 }
 """

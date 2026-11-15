@@ -192,14 +192,23 @@ JOBS = {"norms-check": _norms_check_call, "game-check": _game_check_call}
 def start_job(kind: str, options: tuple):
     """Start `cadl <kind>` with these options in the background (or take the run that
     already has them) and remember it as the one this session shows."""
-    job = jobs.start(kind, options, JOBS[kind], *options)
+    # keyed by this session too, so that Stop in one browser does not stop another's run
+    job = jobs.start(kind, (_session(), options), JOBS[kind], *options)
     ss[f"design_job_{kind}"] = job.id
+
+
+def _session() -> str:
+    if "design_session_id" not in ss:
+        import uuid
+        ss.design_session_id = uuid.uuid4().hex
+    return ss.design_session_id
 
 
 def _outcome(kind: str, result: dict) -> tuple:
     """(result in a word, summary in a sentence) of one run, for the record."""
     if result.get("failure"):
-        return "failed", result["failure"]
+        return ("stopped" if "was stopped before it finished" in result["failure"] else "failed",
+                result["failure"])
     if kind == "game-check":
         return ({0: "passed", 1: "incomplete", 2: "failed"}.get(result.get("status"), "failed"),
                 (result.get("text") or "").splitlines()[-1:][0] if result.get("text") else "")
@@ -220,7 +229,7 @@ def show_job(kind: str, options: tuple, render):
     a line that counts the seconds, with a button that stops it, while it runs; its
     result when it has finished. A failure is shown once."""
     job = jobs.get(ss.get(f"design_job_{kind}"))
-    if job is None or job.key != options:
+    if job is None or job.key != (_session(), options):
         return
     if job.running:
         @st.fragment(run_every=1.0)
@@ -252,16 +261,22 @@ def record_run(check: str, source: str, result: str, summary: str, seconds: floa
     """Keep one run of a check of cadl with the source it ran on (by its hash) and the
     version of cadl, for the summary, the project file and the report."""
     from backend.services.design_runtime import toolchain
+    import uuid
     runs = ss.setdefault("design_runs", [])
-    runs.append({
+    run_id = uuid.uuid4().hex[:12]
+    runs.append({"id": run_id,
         "check": check, "result": result, "summary": summary,
         "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
         "cadl": toolchain()["cadl"], "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "seconds": round(seconds, 1), **extra,
     })
     del runs[:-MAX_RUNS]
+    reruns = ss.setdefault("design_rerun", {})
     if rerun is not None:
-        ss.setdefault("design_rerun", {})[len(runs) - 1] = rerun
+        reruns[run_id] = rerun
+    kept = {r.get("id") for r in runs}
+    for old in [k for k in reruns if k not in kept]:    # their runs left the record
+        del reruns[old]
 
 
 def _record_once(check: str, source: str, result: str, summary: str):
@@ -295,8 +310,8 @@ def ran_on(run: dict, source: str) -> str:
     return t("an earlier design")
 
 
-def _rerun(index: int, source: str):
-    kind, options = ss.design_rerun[index]
+def _rerun(run_id: str, source: str):
+    kind, options = ss.design_rerun[run_id]
     options = (source,) + tuple(options[1:])
     if kind == "norms-check":
         # versions equal to the current design are left out, as the form does
@@ -345,13 +360,13 @@ def summary(c):
     if missing:
         st.caption(t("Not run yet on this design:") + " " + ", ".join(f"`cadl {k}`" for k in missing)
                    + t(" (under **Checks**)."))
-    stale = [(check, i) for check, (i, run) in latest.items()
-             if run["source_sha256"] != sha and i in (ss.get("design_rerun") or {})]
+    stale = [(check, run.get("id")) for check, (i, run) in latest.items()
+             if run["source_sha256"] != sha and run.get("id") in (ss.get("design_rerun") or {})]
     if stale:
         with st.container(horizontal=True):
-            for check, i in stale:
+            for check, run_id in stale:
                 st.button(t("Run {check} again on the current design").format(check=f"`cadl {check}`"),
-                          key=f"design_rerun_{check}", on_click=_rerun, args=(i, source),
+                          key=f"design_rerun_{check}", on_click=_rerun, args=(run_id, source),
                           icon=":material/replay:")
     runs = ss.get("design_runs") or []
     if len(runs) > len(latest):

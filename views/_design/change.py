@@ -157,7 +157,7 @@ def _history_section(source: str, versions: list, const: dict | None):
                         "constitution); one with the changed step counts in that step. "
                         "A *reversal* is a move opposite to the one before it — the oscillation "
                         "the exercise counts. How soon the KPI is reached, and the loss on the "
-                        "way, come from the simulation (`town.compare`), not from the rules.")
+                        "way, come from the simulation (`town.compare`); the rules do not give them.")
 
 
 

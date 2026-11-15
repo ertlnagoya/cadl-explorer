@@ -215,7 +215,7 @@ with st.sidebar:
 
     with st.expander(t("Custom CADL"), expanded=bool(custom_error or custom_error_a)):
         st.caption(
-            t("Paste a CADL motivation-config YAML to use instead of the selectors. "
+            t("Paste a CADL motivation-config YAML that replaces the selectors. "
             "The synthetic metrics depend only on `sos_type`, the agent "
             "`profile` and `rho`; other fields such as `alpha`, `beta` and "
             "`lambda` are carried into the generated IR and config but do "

@@ -62,9 +62,9 @@ def start(kind: str, key: Any, function: Callable[..., dict], *args, **kwargs) -
     one that calls function(*args, cancel=..., **kwargs) in a thread."""
     with _lock:
         known = _jobs.get(_by_key.get((kind, key), ""))
-        if known is not None and (known.running or not (
-                known.cancel.is_set() or known.error
-                or (known.result or {}).get("transient"))):
+        # a run that was stopped is never taken again, even while it is still ending
+        if known is not None and not known.cancel.is_set() and (known.running or not (
+                known.error or (known.result or {}).get("transient"))):
             return known
         job = Job(id=uuid.uuid4().hex, kind=kind, key=key)
         _jobs[job.id] = job

@@ -82,7 +82,13 @@ def _on_failed():
 
 def clickable_graph(dot: str, *, key: str, chosen: Optional[str], hint: str, failed: str):
     """Draw `dot`; returns the id of the node chosen in this run, or None."""
+    def _on_clicked():
+        clicked = getattr(st.session_state.get(key), "clicked", None)
+        if clicked:     # stored before the run draws the diagram, which then shows it chosen
+            st.session_state[f"{key}_chosen"] = clicked
+
     result = _COMPONENT(
-        key=key, data={"dot": dot, "url": VIZ_URL, "chosen": chosen, "hint": hint, "failed": failed},
-        on_clicked_change=lambda: None, on_failed_change=_on_failed)
+        key=key, data={"dot": dot, "url": VIZ_URL, "chosen": st.session_state.get(f"{key}_chosen") or chosen,
+                       "hint": hint, "failed": failed},
+        on_clicked_change=_on_clicked, on_failed_change=_on_failed)
     return getattr(result, "clicked", None)

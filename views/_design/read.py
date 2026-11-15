@@ -112,7 +112,7 @@ def _control_structure_view(ir: dict, source: str = ""):
                 "Entries stay with their control action while you switch views or edit the design, "
                 "for this browser session only; download them to keep them. "
                 "A deadline in the CADL bounds *too late*; a monitor that observes the controlled "
-                "actor is a way the effect is *detected*, not a way it is prevented."))
+                "actor is a way the effect is *detected*; it does not prevent it."))
 
     with t_cover:
         promises = dcon.coverage(ir, source)
@@ -264,7 +264,7 @@ def _structure_view(ir: dict, source: str):
                 "two contracts that share actors: a change to one can affect how those actors "
                 "meet the other. A blue arrow runs from a contract to one whose assumption it "
                 "guarantees (it names the same quantity): the second relies on the first, as in "
-                "assume-guarantee reasoning. The links are found by name, not proved."))
+                "assume-guarantee reasoning. The links are found by name; they are not proved."))
 
 
 

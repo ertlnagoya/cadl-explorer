@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -78,7 +79,7 @@ def _with_trace(command: str, source: str, trace: str, extra: List[str]) -> dict
 
 def _report(run: dict, command: str) -> dict:
     if run["failure"]:
-        return {"failure": run["failure"]}
+        return {"failure": run["failure"], "transient": run.get("transient", False)}
     try:
         report = json.loads(run["stdout"])
     except json.JSONDecodeError:
@@ -108,9 +109,24 @@ def agents_run(source: str, trace: str) -> dict:
     return out
 
 
+MAX_AUDIT_BYTES = 8 << 20
+
+
 def audit_verify(source: str, audit: str) -> dict:
     """{"report": the JSON of `cadl audit-verify --source`, "valid", "failure"}: whether
-    the hash chain of an audit log holds and the log was written for this design."""
+    the hash chain of an audit log holds and the log was written for this design. It
+    takes one of the slots of design_service._run_cadl while it runs."""
+    if len(audit.encode("utf-8")) > MAX_AUDIT_BYTES:
+        return {"failure": f"The audit log is larger than {MAX_AUDIT_BYTES >> 20} MB; nothing is claimed."}
+    if not ds._RUN_SLOTS.acquire(timeout=1):
+        return {"failure": ds.BUSY, "transient": True}
+    try:
+        return _audit_verify(source, audit)
+    finally:
+        ds._RUN_SLOTS.release()
+
+
+def _audit_verify(source: str, audit: str) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         log = Path(tmp) / "audit.jsonl"
         log.write_text(audit, encoding="utf-8")
@@ -144,7 +160,7 @@ def sim_validate(source: str) -> dict:
     """{"ok", "text"}: what `cadl sim-validate` says about the design."""
     run = ds._run_cadl(["sim-validate"], source, RUN_TIMEOUT)
     if run["failure"]:
-        return {"ok": False, "text": run["failure"]}
+        return {"ok": False, "text": run["failure"], "transient": run.get("transient", False)}
     text = (run["stdout"] + run["stderr"]).strip()
     return {"ok": run["status"] == 0, "text": text}
 
@@ -167,8 +183,8 @@ def toolchain() -> dict:
         try:
             out = subprocess.run([str(checker), "-version"], capture_output=True, text=True,
                                  timeout=30).stdout
-            prism = next((line.split("version", 1)[1].strip() for line in out.splitlines()
-                          if "version" in line.lower()), "installed")
-        except (OSError, subprocess.SubprocessError):
+            found = re.search(r"version\s*:?\s*(\S+)", out, re.I)
+            prism = found.group(1) if found else "installed"
+        except Exception:
             prism = "installed"
     return {"cadl": cadl, "prism": prism}

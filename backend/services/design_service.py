@@ -2549,9 +2549,10 @@ def build_report(source: str, analysis: DesignAnalysis, generated: str = "",
         sha = hashlib.sha256(source.encode("utf-8")).hexdigest()
         parts.append("<h3>Commands of cadl run on the design</h3>")
         parts.append(_table(["Time", "Command", "Result", "Summary", "Design", "cadl"], [
-            [r.get("time", ""), f"cadl {r.get('check', '')}", r.get("result", ""), r.get("summary", ""),
+            [_e(r.get("time", "")), _e(f"cadl {r.get('check', '')}"), _e(r.get("result", "")),
+             _e(r.get("summary", "")),
              "this design" if r.get("source_sha256") == sha else "an earlier design",
-             r.get("cadl") or ""] for r in runs]))
+             _e(r.get("cadl") or "")] for r in runs]))
 
     if ir:
         parts.append("<h2>Architecture</h2>")

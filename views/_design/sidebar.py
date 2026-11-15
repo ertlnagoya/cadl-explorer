@@ -150,7 +150,7 @@ def render(c):
             help=t("The design with its saved versions, decision record, constitution, STPA "
                    "entries and the record of the checks, to open here again later."),
         )
-        st.caption(t("The design lives in this browser session only. Save it, or the whole "
+        st.caption(t("The design is kept in this browser session only. Save it, or the whole "
                      "project, to keep it."))
 
         st.header(t("Start from"))

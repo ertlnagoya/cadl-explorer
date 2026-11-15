@@ -140,7 +140,8 @@ def _commit(name: str, message: str) -> None:
     if not git_enabled():
         return
     try:
-        if not (root() / ".git").exists():
+        # a folder inside a repository commits there; any other folder becomes one
+        if _git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
             _git("init", "-q")
         files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name)) if p.exists()]
         _git("add", "--", *files)
@@ -154,7 +155,7 @@ def _commit(name: str, message: str) -> None:
 
 def history(name: str, limit: int = 20) -> List[dict]:
     """The commits of a design's files, newest first: [{"commit", "time", "message"}]."""
-    if not git_enabled() or not (root() / ".git").exists():
+    if not git_enabled():
         return []
     try:
         out = _git("log", f"-{int(limit)}", "--format=%h%x09%ad%x09%s", "--date=format:%Y-%m-%d %H:%M",
