@@ -209,8 +209,11 @@ The app has four pages:
     transitions.
   - *Verify.* **Checks** shows `cadl norms-indices` and runs `cadl game-check`
     (also `--certify`) and `cadl norms-check` in the background. norms-check
-    needs PRISM on PATH; without it, it says that nothing was checked, as on
-    Streamlit Community Cloud. Its form takes domains of quantities, several
+    needs PRISM on PATH; without it, it says that nothing was checked. On
+    Streamlit Community Cloud, `packages.txt` installs Java and the first run
+    downloads PRISM 4.11 in the background, checks its SHA-256 and puts it on
+    PATH (`backend/services/prism_setup.py`; `CADL_EXPLORER_INSTALL_PRISM=1`
+    does the same elsewhere on Linux x86-64, `=0` turns it off). The form of norms-check takes domains of quantities, several
     instances (`--starts any` or `together`), the saved versions to amend
     to and the limit on the states (`--max-states`). Nonlinear arithmetic is marked where an answer holds only under the
     domains that cadl assumes.
