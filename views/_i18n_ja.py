@@ -3,6 +3,8 @@
 JA: dict = {
     'Language': '言語',
     'The cadl that checks the designs here, and the PRISM that `cadl norms-check` uses. Without PRISM, norms-check writes the model but checks nothing.': 'ここで設計を検査する cadl と，`cadl norms-check` が使う PRISM です。PRISM がないと，norms-check はモデルを書き出すだけで，何も検査しません。',
+    'being installed': '準備中',
+    'PRISM is being installed where this app runs; this takes a minute or two. Until then `cadl norms-check` checks nothing here.': 'このアプリの動く環境に PRISM を入れているところです。1，2分かかります。それまで，ここの `cadl norms-check` は何も検査しません。',
     'not installed': '未インストール',
     'release notes': 'リリースノート',
     'Designer': 'Designer',

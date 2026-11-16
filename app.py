@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from backend.version import RELEASES_URL, __version__  # noqa: E402
 from backend.services import design_runtime  # noqa: E402
+from backend.services import prism_setup  # noqa: E402
 from views._i18n import LANGUAGES, default_language, t  # noqa: E402
 
 st.set_page_config(page_title="CADL Explorer", layout="wide")
@@ -57,11 +58,14 @@ with st.sidebar:
     st.segmented_control(t("Language"), LANGUAGES, key="lang", label_visibility="collapsed",
                          on_change=lambda: st.session_state.lang or st.session_state.update(
                              lang=LANGUAGES[0]))
+    # On Streamlit Community Cloud, PRISM is downloaded in the background.
+    setup = prism_setup.ensure_prism()
     tools = design_runtime.toolchain()
     st.caption(
         f"CADL Explorer v{__version__} · [{t('release notes')}]({RELEASES_URL})  \n"
         f"cadl {tools['cadl'] or '?'} · PRISM "
-        + (tools["prism"] or t("not installed")),
+        + (tools["prism"] or (t("being installed") if setup == "installing"
+                              else t("not installed"))),
         help=t("The cadl that checks the designs here, and the PRISM that `cadl norms-check` "
                "uses. Without PRISM, norms-check writes the model but checks nothing."))
 page.run()

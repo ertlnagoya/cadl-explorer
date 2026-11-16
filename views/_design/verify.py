@@ -20,6 +20,7 @@ from backend.services import design_contracts as dcon
 from backend.services import design_stamp as stamp
 from backend.services import design_readback as readback
 from backend.services import design_service as ds
+from backend.services import prism_setup
 from backend.services import design_workspace as workspace
 from backend.services.cadl_service import MAX_SOURCE_CHARS
 from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_summary
@@ -91,9 +92,13 @@ def _norms_check_section(source: str):
             st.caption(t("No contract has norms."))
             return
         if not ds.prism_available():
-            st.info(t("PRISM is not installed where this app runs, so `cadl norms-check` checks "
-                    "nothing here; it still writes the model, which you can download and check "
-                    "with PRISM on your machine."))
+            if prism_setup.status()["status"] == "installing":
+                st.info(t("PRISM is being installed where this app runs; this takes a minute or "
+                        "two. Until then `cadl norms-check` checks nothing here."))
+            else:
+                st.info(t("PRISM is not installed where this app runs, so `cadl norms-check` "
+                        "checks nothing here; it still writes the model, which you can "
+                        "download and check with PRISM on your machine."))
         c1, c2, c3 = st.columns(3)
         contract = c1.selectbox(t("Contract"), contracts, key="design_nc_contract")
         bindings = c2.text_input(t("Bindings (i=n, ...)"), key="design_nc_bindings",
