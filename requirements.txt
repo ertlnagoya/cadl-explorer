@@ -40,8 +40,9 @@ pandas>=2.0.0
 # 0.3.32 adds the regime bindings (`regimes:`, A.7.1) and the safety
 # invariants of transitions in the IR, which the Regimes view shows, the
 # amendment extension and `amend-diff` (Appendix K), which Versions uses, and
-# `norms-check --max-states`, which the Checks pass.
-cadl-lang>=0.3.32
+# `norms-check --max-states`, which the Checks pass. The Designer finds these
+# by themselves and hides them with 0.3.31, so 0.3.31 is still enough.
+cadl-lang>=0.3.31
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.
