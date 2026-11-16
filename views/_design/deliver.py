@@ -171,21 +171,37 @@ def export(c):
         _preview(code_zip, code_target)
     notes = []
     if "norms" in extensions:
-        notes.append(t("With norms 0.1, the Python runtime includes `norms_monitor.py`, an online "
-                     "monitor of the norms and of every `assume` / `guarantee` item. The OPA "
-                     "and Solidity targets include a norms monitor per contract "
-                     "(`norms_monitor_<contract>.rego`, `<Contract>NormsMonitor.sol`) that "
-                     "follows the norms observation by observation (Appendix D, D.5); a "
-                     "contract with a quantifier, an aggregate, a wildcard or range reference "
-                     "in a norm, a counts-as rule or an `assume:` item gets none. The "
-                     "Solidity monitor also refuses `*`, `/`, literals with more than six "
-                     "decimals, a content with six or more temporal operators, `until` inside "
-                     "or around another temporal operator, an operand that joins a nested "
-                     "operator with other parts, and a monitor whose code exceeds the size "
-                     "limits of the EVM (cadl 0.3.31; `within` and `throughout` may be nested "
-                     "at any depth); the Rego "
-                     "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
-                     "the items with `within`, `throughout` or `until`."))
+        if ds.supports_max_states():     # cadl 0.3.32 or later
+            notes.append(t("With norms 0.1, the Python runtime includes `norms_monitor.py`, an online "
+                         "monitor of the norms and of every `assume` / `guarantee` item. The OPA "
+                         "and Solidity targets include a norms monitor per contract "
+                         "(`norms_monitor_<contract>.rego`, `<Contract>NormsMonitor.sol`) that "
+                         "follows the norms observation by observation (Appendix D, D.5); a "
+                         "contract with a quantifier, an aggregate, a wildcard or range reference "
+                         "in a norm, a counts-as rule or an `assume:` item gets none. The "
+                         "Solidity monitor also refuses `*`, `/`, literals with more than six "
+                         "decimals, and a monitor whose code exceeds the size limits of the EVM "
+                         "(cadl 0.3.32; temporal operators may be nested and combined in any "
+                         "number, but the gas of an observation can then grow with the "
+                         "observations inside a window, so a deployment should bound them); the Rego "
+                         "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
+                         "the items with `within`, `throughout` or `until`."))
+        else:
+            notes.append(t("With norms 0.1, the Python runtime includes `norms_monitor.py`, an online "
+                         "monitor of the norms and of every `assume` / `guarantee` item. The OPA "
+                         "and Solidity targets include a norms monitor per contract "
+                         "(`norms_monitor_<contract>.rego`, `<Contract>NormsMonitor.sol`) that "
+                         "follows the norms observation by observation (Appendix D, D.5); a "
+                         "contract with a quantifier, an aggregate, a wildcard or range reference "
+                         "in a norm, a counts-as rule or an `assume:` item gets none. The "
+                         "Solidity monitor also refuses `*`, `/`, literals with more than six "
+                         "decimals, a content with six or more temporal operators, `until` inside "
+                         "or around another temporal operator, an operand that joins a nested "
+                         "operator with other parts, and a monitor whose code exceeds the size "
+                         "limits of the EVM (cadl 0.3.31; `within` and `throughout` may be nested "
+                         "at any depth); the Rego "
+                         "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
+                         "the items with `within`, `throughout` or `until`."))
     if "agents" in extensions:
         notes.append(t("The agent policies (agents 0.1) decide the messages at the enforcement "
                      "point; the Cedar policies cover the statically decidable norms only. "

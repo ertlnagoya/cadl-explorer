@@ -129,6 +129,16 @@ def _norms_check_section(source: str):
                               help=t("With several instances (--starts): each starts at an "
                                    "observation the environment chooses (any), or all start "
                                    "at the first observation (together, fewer commands)."))
+        max_states = 0
+        if ds.supports_max_states():
+            c10, _, _ = st.columns(3)
+            max_states = c10.number_input(
+                t("Largest number of states (0: default)"), min_value=0,
+                max_value=ds.MAX_STATES_LIMIT, step=10_000, key="design_nc_max_states",
+                help=t("The limit on the states kept at one step when cadl eliminates compared "
+                       "quantities, and on the points of the faces of their linear arrangement "
+                       "(--max-states; default {n}). Raise it when the report says the limit was "
+                       "reached.").format(n=f"{ds.MAX_STATES_DEFAULT:,}"))
         saved = [v for v in ss.get("design_versions", []) if v["source"] != source]
         if saved:
             names = st.multiselect(
@@ -149,7 +159,7 @@ def _norms_check_section(source: str):
         options = (source, contract, tuple(ds.split_list(bindings)), tuple(ds.split_list(members)),
                    step.strip(), int(horizon), float(timeout), tuple(ds.split_list(domains)),
                    instance_option, versions,
-                   starts if ds.several_instances(instance_option) else "any")
+                   starts if ds.several_instances(instance_option) else "any", int(max_states))
         if st.button(t("Run norms-check"), key="design_nc_run"):
             start_job("norms-check", options)
         show_job("norms-check", options, _norms_check_shown)
@@ -177,10 +187,11 @@ def _game_report(game: dict):
 # ── Jobs in the background and the record of the runs ──────────────
 
 def _norms_check_call(source, contract, bindings, members, step, horizon, timeout, domains=(),
-                      instances=None, versions=(), starts="any", cancel=None):
+                      instances=None, versions=(), starts="any", max_states=0, cancel=None):
     return ds.norms_check(source, contract or None, list(bindings), list(members), step or None,
                           horizon or None, timeout, domains=list(domains), instances=instances,
-                          versions=list(versions), starts=starts, cancel=cancel)
+                          versions=list(versions), starts=starts, cancel=cancel,
+                          max_states=max_states or None)
 
 
 def _game_check_call(source, certify, cancel=None):

@@ -159,7 +159,7 @@ def view_picker() -> str:
 
 def guide():
     """A path through the stages for a first visit, with the chapters of the textbook."""
-    from views._design.common import GUIDE_STEPS, TEXTBOOK_URL
+    from views._design.common import GUIDE_STEPS
     with st.expander(t("First time here? A path through the Designer"), icon=":material/school:"):
         for i, (stage, view, text) in enumerate(GUIDE_STEPS, 1):
             cols = st.columns([5, 2], vertical_alignment="center")
@@ -170,7 +170,7 @@ def guide():
             else:
                 cols[1].button(t("Go to {view}").format(view=t("Write")), key=f"guide_{i}",
                                on_click=_go, args=(stage, view), width="stretch")
-        st.caption(t("The textbook works through the same steps:") + f" [{t('CADL textbook')}]({TEXTBOOK_URL})")
+        st.caption(t("The chapters are those of the CADL textbook, which works through the same steps."))
 
 
 def _go(stage: str, view: str):

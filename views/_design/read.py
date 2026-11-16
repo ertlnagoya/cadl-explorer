@@ -547,6 +547,44 @@ def regimes(c):
         )
         for f in regime_findings:
             st.markdown(f"{LEVEL_ICON[f.level]} {f.title}" + (f" — {f.message}" if f.message else ""))
+        _regime_tables(ir)
+
+
+def _regime_tables(ir: dict):
+    """What each regime binds (`regimes:`, cadl 0.3.32) and the safety invariants
+    of the transitions."""
+    bindings = ds.regime_bindings(ir)
+    if bindings:
+        st.markdown(t("**What each regime binds**"))
+        # a list, which wraps in a narrow column; a table would hide the contracts
+        lines = []
+        for b in bindings:
+            parts = [t("in force: {list}").format(list=", ".join(b["active_contracts"]) or "—")]
+            if b["suspended_contracts"]:
+                parts.append(t("suspended: {list}").format(list=", ".join(b["suspended_contracts"])))
+            if b["parameters"]:
+                parts.append(t("values: {list}").format(list=", ".join(
+                    f"`{k}` = {_value_text(v)}" for k, v in b["parameters"].items())))
+            lines.append(f"- **{b['name']}** — " + " · ".join(parts))
+        st.markdown("\n".join(lines))
+        st.caption(t("From the `regimes:` block. A parameter that a regime does not bind keeps "
+                     "its declared value; a contract that no regime suspends is in force in "
+                     "every regime. Contracts that no regime has in force together are not "
+                     "required to agree: a conflict between them is a warning."))
+    invariants = [{"transition": f"{tr.get('from_regime')} → {tr.get('to_regime')}",
+                   "safety invariant": tr["safety_invariant"],
+                   "condition": tr.get("condition") or "—"}
+                  for tr in ir.get("transitions") or [] if tr.get("safety_invariant")]
+    if invariants:
+        st.markdown(t("**Safety invariants of the transitions**"))
+        st.dataframe(invariants, width="stretch", hide_index=True,
+                     column_config=_labels("transition", "safety invariant", "condition"))
+
+
+def _value_text(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def algorithms(c):

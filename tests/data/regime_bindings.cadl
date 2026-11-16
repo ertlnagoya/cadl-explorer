@@ -1,0 +1,51 @@
+sos:
+  name: RobotTown
+  type: Acknowledged
+  context:
+    environment:
+      bays: 0
+      edge_grant: 0.0
+      exclusive_edges: false
+      mode_name: "free"
+  actors:
+    - id: STEWARD
+      role: steward
+    - id: "ROBOT[1..3]"
+      role: robot
+  contracts:
+    - id: ROUTING
+      parties: [STEWARD, "ROBOT[*]"]
+      guarantee:
+        - "robots_on_road >= 0"
+      authority:
+        decision_holder: STEWARD
+        beta: 0.2
+    - id: BAY_ASSIGNMENT
+      parties: [STEWARD, "ROBOT[*]"]
+      guarantee:
+        - "waiting_on_road == 0"
+    - id: FREE_PASSAGE
+      parties: ["ROBOT[*]"]
+      guarantee:
+        - "waiting_on_road >= 1"
+  transitions:
+    - from: DISTRIBUTED
+      to: CENTRALIZED
+      condition: "orders_in_window < 22"
+      safety_invariant: "robots_on_road == 0"
+    - from: CENTRALIZED
+      to: DISTRIBUTED
+      condition: "orders_in_window >= 26"
+  regimes:
+    DISTRIBUTED:
+      contracts:
+        suspended: [BAY_ASSIGNMENT]
+    CENTRALIZED:
+      parameters:
+        ROUTING.beta: 0.9
+        environment.bays: 3
+        environment.edge_grant: 1
+        environment.exclusive_edges: true
+        environment.mode_name: "steward"
+      contracts:
+        active: [ROUTING, BAY_ASSIGNMENT]

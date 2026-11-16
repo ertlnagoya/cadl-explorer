@@ -37,7 +37,6 @@ VIEWS = [
     "Algorithms & metrics", "Read-back", "Summary", "Checks", "Traces", "Agents",
     "Versions", "Export",
 ]
-TEXTBOOK_URL = "https://github.com/ertlnagoya/cadl-textbook/releases"
 # (stage, view to open, what to do there): the guide for a first visit.
 GUIDE_STEPS = [
     ("Write", "", "Open a `.cadl` file or an example from the sidebar, and edit the source "
@@ -47,9 +46,9 @@ GUIDE_STEPS = [
     ("Verify", "Checks", "Read what the checks found, and run the checks of the extensions "
                          "(Chapters 8 and 10)."),
     ("Change", "Versions", "Save versions, amend the marked values within the constitution, "
-                           "and compare two designs (Chapter 8)."),
+                           "and compare two designs (Chapter 12, section 12.6)."),
     ("Deliver", "Export", "Download the report, the simulator configs and the runtime code "
-                          "(Chapter 11)."),
+                          "(Chapter 12, section 12.2)."),
 ]
 MAX_HISTORY = 50
 MAX_VERSIONS = 20

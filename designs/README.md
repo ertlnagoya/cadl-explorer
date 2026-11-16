@@ -61,6 +61,17 @@ files (unchanged in 0.3.31):
   members `ROBOT=2` and 2 instances; with the starts `together` the
   conflict is not found.
 
+Two examples added in `cadl-lang` 0.3.32 are copies of its upstream files:
+
+- `amendment_robot_town_v1.cadl` and `amendment_robot_town_v2.cadl`
+  (amendment 0.1, Appendix K): the robot town of the Course D hands-on with
+  its amendable parameters declared under `amendment.parameters` (layer,
+  who decides, range, step, the places that hold each value), and version 2
+  of its rules (`block_k` 3 → 2). **Versions** lists the declared
+  parameters; save one as a version and compare the two to see
+  `cadl amend-diff`. The **Checks** keep the warning that OPERATOR is a
+  party to no contract.
+
 They are upstream examples of the extensions, so they keep their findings
 on the **Structure** and **Control structure** views (for example, no
 contract of the first two names a decision holder).

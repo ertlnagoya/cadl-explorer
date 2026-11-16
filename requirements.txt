@@ -37,6 +37,11 @@ pandas>=2.0.0
 # norms monitor decide more temporal operators, which the Export view states.
 # 0.3.30 makes a norm that cannot be evaluated an error of cadl check (N-16),
 # which the Checks show; 0.3.31 widens norms-check and the Solidity monitor.
+# 0.3.32 adds the regime bindings (`regimes:`, A.7.1) and the safety
+# invariants of transitions in the IR, which the Regimes view shows, the
+# amendment extension and `amend-diff` (Appendix K), which Versions uses, and
+# `norms-check --max-states`, which the Checks pass. The Designer finds these
+# by themselves and hides them with 0.3.31, so 0.3.31 is still enough.
 cadl-lang>=0.3.31
 
 # Code editor with line numbers and YAML highlighting on the Designer page.

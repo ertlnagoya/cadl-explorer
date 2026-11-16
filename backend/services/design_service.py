@@ -17,6 +17,7 @@ import difflib
 import functools
 import html
 import importlib
+import importlib.util
 import hashlib
 import io
 import json
@@ -409,6 +410,9 @@ def _locate(finding: Finding) -> None:
     text = f"{finding.title} {finding.message}"
     patterns = [
         (r"^(?:Transition|Regime)\b", "Regimes"),
+        # the rules of the regime bindings (cadl 0.3.32, A.7.1): "regimes.X... (R-4)"
+        # (R-7 about `model.regimes:` of stochastic 0.1 is about the model, not the bindings)
+        (r"(?<!model\.)\bregimes(?:\.\"?([A-Za-z_][\w-]*))?.*\(R-[1-6]\)", "Regimes"),
         (r"[Cc]ontract '([^']+)'", "Contracts"),
         (r"[Pp]rotocol '([^']+)'", "Protocols"),
         (r"Metric '([^']+)'", "Metrics"),
@@ -418,12 +422,13 @@ def _locate(finding: Finding) -> None:
         match = re.search(pattern, text)
         if match:
             finding.section = section
-            finding.item = match.group(1) if match.groups() else ""
+            finding.item = (match.group(1) if match.groups() else "") or ""
             if section == "Regimes":
                 # The transition, regime or protocol the finding names, for the regime map.
                 edge = re.match(r"Transition (\S+?)->(\S+)", text)
                 named = re.search(r"'([^']+)'", text)
                 finding.element = (f"{edge.group(1)} → {edge.group(2)}" if edge
+                                   else finding.item if finding.item
                                    else named.group(1) if named else "")
             return
 
@@ -1601,7 +1606,9 @@ def extensions_in_effect(source: str) -> frozenset:
     """The extensions that cadl reads in this design: "norms" (norms 0.1),
     "agents" (agents 0.1 together with norms 0.1), "stochastic"
     (stochastic 0.1), "games" (games 0.1 together with stochastic 0.1) and
-    "grounding" (grounding 0.1 together with norms 0.1). Decided by cadl
+    "grounding" (grounding 0.1 together with norms 0.1); from cadl 0.3.32
+    "amendment" (amendment 0.1, Appendix K) and "regimes" (a `regimes:` block
+    that binds values and contracts to the regimes, A.7.1). Decided by cadl
     itself; a design that does not parse has none."""
     try:
         sos = _parse(source or "")
@@ -1612,7 +1619,9 @@ def extensions_in_effect(source: str) -> frozenset:
                                ("agents", "cadl.agents", "agents_active"),
                                ("stochastic", "cadl.stochastic", "stochastic_declared"),
                                ("games", "cadl.games", "games_declared"),
-                               ("grounding", "cadl.grounding", "grounding_active")):
+                               ("grounding", "cadl.grounding", "grounding_active"),
+                               ("amendment", "cadl.amendment", "amendment_declared"),
+                               ("regimes", "cadl.regimes", "declared")):
         try:
             if getattr(importlib.import_module(module), test)(sos):
                 found.add(name)
@@ -1661,6 +1670,67 @@ def norms_diff(old_source: str, new_source: str) -> Optional[dict]:
             return diff_versions(old, new)
         except NormsEvalError as e:
             return {"contracts": [], "errors": [str(e)], "ok": False}
+
+
+def amend_diff(old_source: str, new_source: str) -> Optional[dict]:
+    """`cadl amend-diff A B` (cadl 0.3.32, Appendix K): the parameters that the
+    amendment from A to B changes, checked against the declaration of A (range,
+    steps, `max_steps`), the contracts they change with the transitional rule
+    of each, changes that no parameter explains, and the findings of
+    `cadl norms-diff` for contracts whose running instances switch.
+
+    None when neither version declares amendment 0.1, or with a cadl older
+    than 0.3.32. The result is the JSON report of the command (`parameters`,
+    `contracts`, `findings`, `errors`, `ok`, and `old_version`, `new_version`,
+    `previous`, `effective`, `decisions` when B is valid). As in cadl, A that
+    cannot be read (a parse or type-check error) is reported under
+    `invalid_old`; B that cannot be read is an error of the amendment.
+    """
+    if "amendment" not in (extensions_in_effect(old_source) | extensions_in_effect(new_source)):
+        return None
+    try:
+        from cadl.amendment import AmendmentRaw, diff_versions
+    except ImportError:
+        return None
+    from cadl.type_checker import type_check
+
+    def load(label: str, text: str):
+        try:
+            sos = _parse(text)
+        except Exception as e:
+            raise ValueError(f"{label}: {e}") from None
+        result = type_check(sos)
+        if not result.ok:
+            raise ValueError(f"{label} has {len(result.errors)} type-check error(s): "
+                             + "; ".join(str(e) for e in result.errors[:5]))
+        if getattr(sos, "amendment", None) is None:
+            # as `amend-diff` loads a version without the declaration: it declares
+            # no parameter, and its `sos:` mapping is kept so that it can be compared
+            data = yaml.safe_load(text)
+            raw = data.get("sos") if isinstance(data, dict) else None
+            sos.amendment = AmendmentRaw(False, None, [{} for _ in sos.metrics],
+                                         raw if isinstance(raw, dict) else {})
+        return sos
+
+    try:
+        old = load("A", old_source)
+    except ValueError as e:
+        return {"parameters": [], "contracts": [], "findings": [], "errors": [str(e)],
+                "ok": False, "invalid_old": True}
+    try:
+        new = load("B", new_source)
+    except ValueError as e:
+        return {"parameters": [], "contracts": [], "findings": [], "errors": [str(e)], "ok": False}
+    return diff_versions(old, new)
+
+
+def regime_bindings(ir: dict) -> Optional[List[dict]]:
+    """The resolved bindings of the regimes in the IR (cadl 0.3.32, A.7.1): per
+    regime its `name`, `parameters` (key -> value), `active_contracts` and
+    `suspended_contracts`. None for a design without a `regimes:` block, one
+    that breaks its rules, or an IR of an older cadl."""
+    bindings = (ir or {}).get("regimes")
+    return bindings if isinstance(bindings, list) and bindings else None
 
 
 def prism_files(source: str) -> Dict[str, str]:
@@ -2069,12 +2139,24 @@ def several_instances(instances: Any) -> bool:
     return isinstance(instances, (list, tuple)) and len(instances) > 1
 
 
+# The limit of `--max-states` (cadl 0.3.32, F.12): its default and the largest value.
+MAX_STATES_DEFAULT = 50_000
+MAX_STATES_LIMIT = 1_000_000
+
+
+def supports_max_states() -> bool:
+    """Whether the installed cadl takes `norms-check --max-states` (0.3.32, the
+    release that also adds the amendment extension)."""
+    return importlib.util.find_spec("cadl.amendment") is not None
+
+
 def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[List[str]] = None,
                 members: Optional[List[str]] = None, step: Optional[str] = None,
                 horizon: Optional[int] = None, timeout: float = NORMS_CHECK_TIMEOUT,
                 budget: float = BUILD_BUDGET, domains: Optional[List[str]] = None,
                 instances: Any = None, versions: Optional[List[tuple]] = None,
-                starts: Optional[str] = None, cancel: Optional[threading.Event] = None) -> dict:
+                starts: Optional[str] = None, cancel: Optional[threading.Event] = None,
+                max_states: Optional[int] = None) -> dict:
     """`cadl norms-check --format json --export DIR` (Appendix F, F.12): the norms of
     one contract instance (or several), translated into a model for PRISM and checked over every
     behaviour up to the horizon. `bindings` and `members` are "name=n" texts, as on
@@ -2087,7 +2169,10 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     arithmetic under a domain assumed from the literals (`assumed_domains` in the
     report); with several instances, `starts` is "any" (each instance starts at an
     observation the environment chooses, the default of cadl) or "together"
-    (`--starts`), and amendments apply to every instance.
+    (`--starts`), and amendments apply to every instance. cadl 0.3.32 adds
+    `max_states` (`--max-states`, the limit on the states the elimination of
+    compared quantities keeps at one step; cadl's default is 50 000); with an
+    older cadl it is left out.
     The command runs in a subprocess (see _run_cadl) that is stopped after
     `timeout + budget` seconds.
 
@@ -2128,6 +2213,8 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
                 args += ["--instance", value]
         if starts and several_instances(instances):
             args += ["--starts", starts]
+        if max_states and supports_max_states():
+            args += ["--max-states", str(int(max_states))]
         for k, (name, text) in enumerate(versions or [], 1):
             _parse(text)            # the input limits of the page
             stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name)).strip("._") or "version"
