@@ -501,7 +501,14 @@ def agents(c):
             st.error(t("The audit log does not verify") + f": {t('line')} {e.get('line')}: {e.get('what')}.")
 
 
-VERDICT_COLOR = {"met": "green", "not met": "red", "not judged": "gray"}
+def _number(value):
+    """A number of a judgement as text: whole numbers without a decimal point, and
+    a dash for none (the columns mix both)."""
+    if value is None:
+        return "—"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def measurements(c):
@@ -548,9 +555,9 @@ def measurements(c):
             st.metric(t(label), counts.get(label, 0))
     st.caption(t("Versions: {versions}").format(
         versions=" → ".join(f"`{v}`" for v in report.get("versions") or []) or "—"))
-    rows = [{"line": str(m.get("line") or "").replace("line ", ""), "metric": m.get("metric"), "start": m.get("start"),
-             "window": m.get("window") if m.get("window") is not None else "—", "version": m.get("version"), "value": m.get("value"),
-             "target": m.get("target"), "bound": m.get("bound"),
+    rows = [{"line": str(m.get("line") or "").replace("line ", ""), "metric": m.get("metric"), "start": _number(m.get("start")),
+             "window": _number(m.get("window")), "version": m.get("version"), "value": _number(m.get("value")),
+             "target": m.get("target"), "bound": _number(m.get("bound")),
              "target from": m.get("target_from") + (f" ({m['decision']})" if m.get("decision")
                                                     else "") if m.get("target_from") else "",
              "verdict": t(m.get("verdict") or ""), "why": m.get("reason") or ""}
