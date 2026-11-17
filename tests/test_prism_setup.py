@@ -17,7 +17,7 @@ from backend.services import prism_setup as ps
 
 @pytest.fixture
 def fresh(monkeypatch, tmp_path):
-    monkeypatch.setattr(ps, "_state", {"status": None, "error": None})
+    monkeypatch.setattr(ps, "_state", {"status": None, "error": None, "failed_at": 0.0})
     monkeypatch.setenv("CADL_EXPLORER_PRISM_DIR", str(tmp_path / "prism"))
     monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
     monkeypatch.setattr(ps.shutil, "which",
@@ -49,7 +49,7 @@ def _serve(monkeypatch, path, digest=None):
     monkeypatch.setattr(ps, "PRISM_URL", path.as_uri())
     monkeypatch.setattr(ps, "PRISM_SHA256",
                         digest or hashlib.sha256(path.read_bytes()).hexdigest())
-    monkeypatch.setattr(ps, "supported", lambda: True)
+    monkeypatch.setattr(ps, "unsupported_reason", lambda: None)
 
 
 def test_nothing_happens_away_from_the_cloud(fresh, monkeypatch):
@@ -79,7 +79,7 @@ def test_the_archive_is_checked_installed_and_put_on_path(fresh, monkeypatch):
     assert not (fresh / "prism-4.11.tar.gz").exists()   # the archive is removed
 
     # a later process finds the copy and only puts it on PATH
-    monkeypatch.setattr(ps, "_state", {"status": None, "error": None})
+    monkeypatch.setattr(ps, "_state", {"status": None, "error": None, "failed_at": 0.0})
     monkeypatch.setattr(ps, "PRISM_URL", "file:///nonexistent")
     assert ps.ensure_prism() == "ready"
 
@@ -103,6 +103,17 @@ def test_a_path_out_of_the_directory_is_not_unpacked(fresh, monkeypatch):
 
 def test_nothing_happens_without_java_or_on_another_platform(fresh, monkeypatch):
     monkeypatch.setenv("CADL_EXPLORER_INSTALL_PRISM", "1")
-    monkeypatch.setattr(ps, "supported", lambda: False)
-    assert ps.ensure_prism(wait=True) is None
+    monkeypatch.setattr(ps, "unsupported_reason", lambda: "there is no Java on PATH")
+    assert ps.ensure_prism(wait=True) == "unsupported"
+    assert ps.status()["error"] == "there is no Java on PATH"
     assert not (fresh / "prism").exists()
+
+
+def test_a_failure_is_tried_again_later(fresh, monkeypatch):
+    monkeypatch.setenv("CADL_EXPLORER_INSTALL_PRISM", "1")
+    _serve(monkeypatch, _archive(fresh), digest="0" * 64)
+    assert ps.ensure_prism(wait=True) == "failed"
+    _serve(monkeypatch, _archive(fresh))
+    assert ps.ensure_prism(wait=True) == "failed"          # not yet
+    monkeypatch.setattr(ps, "RETRY_AFTER", 0)
+    assert ps.ensure_prism(wait=True) == "ready"

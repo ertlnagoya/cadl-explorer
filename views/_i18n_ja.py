@@ -962,4 +962,5 @@ JA: dict = {
     'Or open a file of measurements (JSON Lines)': 'または計測値のファイル（JSON Lines）を開く',
     'Measurements (one JSON object per line)': '計測値（1行に1つの JSON オブジェクト）',
     'Versions of the model (amendment 0.1)': 'モデルの版（amendment 0.1）',
+    'PRISM could not be installed here: {e}': 'ここに PRISM を入れられませんでした：{e}',
 }
