@@ -35,7 +35,8 @@ RENDER = {
     "Protocols": read.protocols, "Regimes": read.regimes,
     "Algorithms & metrics": read.algorithms, "Read-back": read.read_back,
     "Summary": verify.summary, "Checks": verify.checks, "Traces": trace.traces,
-    "Agents": trace.agents, "Versions": change.versions, "Export": deliver.export,
+    "Measurements": trace.measurements, "Agents": trace.agents, "Versions": change.versions,
+    "Export": deliver.export,
 }
 # Views that do not need the design to parse.
 WITHOUT_IR = {"Checks", "Versions", "Summary", "Traces", "Agents"}

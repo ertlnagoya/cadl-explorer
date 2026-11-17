@@ -34,7 +34,7 @@ LEVEL_ICON = {
 }
 VIEWS = [
     "Architecture", "Structure", "Control structure", "Lifecycle", "Protocols", "Regimes",
-    "Algorithms & metrics", "Read-back", "Summary", "Checks", "Traces", "Agents",
+    "Algorithms & metrics", "Read-back", "Summary", "Checks", "Traces", "Measurements", "Agents",
     "Versions", "Export",
 ]
 # (stage, view to open, what to do there): the guide for a first visit.

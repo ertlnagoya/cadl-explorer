@@ -24,7 +24,7 @@ The Designer leads through five stages of the work, each with its views:
 |---|---|---|
 | Write | Source, Forms | The CADL source in an editor with line numbers, problem marks, completion of the names of the design and snippets (contract, norm, lifecycle, monitor, protocol, stochastic model); forms that keep the comments and the lines they do not change |
 | Read | Architecture, Structure, Control structure, Lifecycle, Protocols, Regimes, Algorithms & metrics, Read-back | Diagrams whose boxes open the place in the source that writes them; tables; the design restated in sentences |
-| Verify | Summary, Checks, Traces, Agents | The latest result of every check of cadl with the design it ran on; `cadl norms-check` and `cadl game-check` in the background with a stop button; witnesses of norms-check as sequences of messages; `cadl norms-eval` on a recorded trace; `cadl agents-run` and `cadl audit-verify` for the agent boundary |
+| Verify | Summary, Checks, Traces, Measurements, Agents | The latest result of every check of cadl with the design it ran on; `cadl norms-check` and `cadl game-check` in the background with a stop button; witnesses of norms-check as sequences of messages; `cadl norms-eval` on a recorded trace, with the regimes it names and the versions of the run; `cadl metrics-eval` on measured values of the metrics; `cadl agents-run` and `cadl audit-verify` for the agent boundary |
 | Change | Versions | Saved versions, amendments within the constitution or the declaration of amendment 0.1, the comparison of two designs with its changes drawn on the architecture |
 | Deliver | Export | The report (with the record of the checks), simulator configs checked by `cadl sim-validate`, runtime code with a look at each generated file, the design sent to the Explorer page |
 
@@ -216,7 +216,12 @@ The app has four pages:
     does the same elsewhere on Linux x86-64, `=0` turns it off). The form of norms-check takes domains of quantities, several
     instances (`--starts any` or `together`), the saved versions to amend
     to and the limit on the states (`--max-states`). Nonlinear arithmetic is marked where an answer holds only under the
-    domains that cadl assumes.
+    domains that cadl assumes. **Traces** passes the other versions of a run
+    (saved versions, or the other `_vN` file of an example) and its time base
+    (`--version`, `--period`, `--origin`, `--epoch`) to `cadl norms-eval` and
+    shows what each version did to the instance; a trace may name the regime
+    of an observation (`regime`). **Measurements** runs `cadl metrics-eval`:
+    each measurement met, not met or not judged, with the target in force.
   - *Change.* Named versions (several CADL files, such as the `v1.cadl`,
     `v2.cadl`, ... of a Course D run, can be added at once) and amendable parameters (values marked `# @amend:`,
     checked against a constitution and amended in place, with how far and how
