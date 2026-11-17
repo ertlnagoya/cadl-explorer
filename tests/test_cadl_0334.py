@@ -165,12 +165,17 @@ def test_the_warnings_of_cadl_reach_the_page():
 
 
 def test_the_choices_follow_the_design_and_not_the_language():
-    at = _designer(NORMS_V1, design_stage="Verify", design_view="Traces", design_trace=SWITCH)
-    at.session_state["lang"] = "日本語"
-    at = at.run()
+    # the page in Japanese labels the example 例：…; the chosen id stays the same
+    at = _designer(NORMS_V1, lang="日本語", design_stage="Verify", design_view="Traces",
+                   design_trace=SWITCH)
     assert not at.exception
     versions = next(m for m in at.multiselect if m.key == "design_trace_versions")
     assert versions.value == ["example:amendment_norms_v2"]
+
+
+def test_the_choices_start_again_for_another_design():
+    # in English: the AppTest of Streamlit 1.50 cannot rerun the Japanese stage picker
+    at = _designer(NORMS_V1, design_stage="Verify", design_view="Traces", design_trace=SWITCH)
     at.session_state.design_src = NORMS_V2         # another design: the choices start again
     at.session_state.design_ver += 1
     at = at.run()
