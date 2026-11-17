@@ -111,7 +111,7 @@ def test_traces_offers_the_other_version_of_the_example_and_its_period():
                    design_trace=SWITCH)
     assert not at.exception
     versions = next(m for m in at.multiselect if m.key == "design_trace_versions")
-    assert versions.value == ["example: amendment_norms_v2"]
+    assert versions.value == ["example:amendment_norms_v2"]
     assert next(x for x in at.text_input if x.key == "design_trace_period").value == "3600s"
     assert any("**Versions of the run**" in m.value for m in at.markdown)
     events = next(d.value for d in at.dataframe if "what happened" in d.value.columns)
@@ -126,8 +126,9 @@ def test_traces_without_the_extension_has_no_versions():
 
 
 def test_the_measurements_view_judges_the_example():
+    # the period of the robot town is filled in, so the example works as it is
     at = _designer(TOWN_V1, design_stage="Verify", design_view="Measurements",
-                   design_measure=MEASUREMENTS, design_measure_period="3600s")
+                   design_measure=MEASUREMENTS)
     assert not at.exception
     assert [m.value for m in at.metric] == ["3", "2", "1"]
     table = next(d.value for d in at.dataframe if "verdict" in d.value.columns)
@@ -139,3 +140,54 @@ def test_the_measurements_view_without_metrics():
                    design_view="Measurements")
     assert not at.exception
     assert any("declares no metrics" in i.value for i in at.info)
+
+
+# ── Regressions of the review ─────────────────────────────────────────
+
+def test_the_origin_is_passed_exactly():
+    assert runtime.time_base("1h", 1763337600.0) == ["--period", "1h", "--origin", "1763337600"]
+    assert runtime.time_base(None, 0.5, True) == ["--origin", "0.5", "--epoch"]
+
+
+def test_a_version_that_cannot_be_read_is_a_failure():
+    out = runtime.norms_eval(NORMS_V1, SWITCH, None, [("broken", "sos: [")], "3600s")
+    assert out["failure"].startswith("broken: ")
+    assert out["failure"].endswith("nothing is claimed.")
+
+
+def test_the_warnings_of_cadl_reach_the_page():
+    out = runtime.norms_eval(NORMS_V1, SWITCH, None, [("v2", NORMS_V2)])
+    assert any("no time base" in n for n in out["notes"])
+    at = _designer(NORMS_V1, design_stage="Verify", design_view="Traces", design_trace=SWITCH)
+    at.session_state["design_trace_period"] = ""
+    at = at.run()
+    assert any("no time base" in w.value for w in at.warning)
+
+
+def test_the_choices_follow_the_design_and_not_the_language():
+    at = _designer(NORMS_V1, design_stage="Verify", design_view="Traces", design_trace=SWITCH)
+    at.session_state["lang"] = "日本語"
+    at = at.run()
+    assert not at.exception
+    versions = next(m for m in at.multiselect if m.key == "design_trace_versions")
+    assert versions.value == ["example:amendment_norms_v2"]
+    at.session_state.design_src = NORMS_V2         # another design: the choices start again
+    at.session_state.design_ver += 1
+    at = at.run()
+    versions = next(m for m in at.multiselect if m.key == "design_trace_versions")
+    assert versions.value == ["example:amendment_norms_v1"]
+    assert at.session_state["design_trace_period"] == ""   # v2 names no period
+
+
+def test_summary_records_a_run_with_other_versions_again(monkeypatch):
+    from views._design import trace
+    seen = []
+    monkeypatch.setattr("views._design.verify.record_run",
+                        lambda *a, **k: seen.append(a), raising=True)
+    monkeypatch.setattr(trace, "ss", {})
+    report = {"norms": [{"verdict": "violated"}]}
+    trace._record("norms-eval", NORMS_V1, SWITCH, report, ("C", (), (None, 0.0, False)))
+    trace._record("norms-eval", NORMS_V1, SWITCH, report, ("C", (), (None, 0.0, False)))
+    trace._record("norms-eval", NORMS_V1, SWITCH, report,
+                  ("C", (("v2", NORMS_V2),), ("3600s", 0.0, False)))
+    assert len(seen) == 2

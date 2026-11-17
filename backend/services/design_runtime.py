@@ -80,7 +80,12 @@ def _with_trace(command: str, source: str, trace: str, extra: List[str],
             str(audit) if a == "{audit}" else a for a in extra]
         names = {}
         for k, (name, text) in enumerate(versions or (), 1):
-            ds._parse(text)             # the input limits of the page
+            try:
+                ds._parse(text)         # the input limits of the page
+            except Exception as e:      # noqa: BLE001 - said on the page
+                return {"failure": f"{name}: {str(e).splitlines()[0] if str(e) else type(e).__name__}"
+                                   "; nothing is claimed.", "transient": False,
+                        "stdout": "", "stderr": "", "audit": ""}
             version = Path(tmp) / f"v{k}.cadl"
             version.write_text(text, encoding="utf-8")
             names[str(version)] = str(name)
@@ -112,7 +117,8 @@ def time_base(period: Optional[str] = None, origin: Optional[float] = None,
     if period and str(period).strip():
         args += ["--period", str(period).strip()]
     if origin:
-        args += ["--origin", f"{float(origin):g}"]
+        value = float(origin)
+        args += ["--origin", str(int(value)) if value.is_integer() else repr(value)]
     if epoch:
         args.append("--epoch")
     return args
@@ -133,7 +139,12 @@ def _report(run: dict, command: str) -> dict:
     except json.JSONDecodeError:
         message = ds._usage_error(run["stderr"]).replace("Error: ", "").strip()
         return {"failure": (message or f"`cadl {command}` gave no report") + "; nothing is claimed."}
-    return {"report": report, "failure": None}
+    # the warnings that cadl writes to standard error only, such as a version
+    # applied without a time base or an amendment applied as a switch
+    notes = [line[len("Warning: "):] if line.startswith("Warning: ") else line
+             for line in (run.get("stderr") or "").splitlines()
+             if line.lower().startswith(("warning", "note"))]
+    return {"report": report, "failure": None, "notes": notes}
 
 
 def norms_eval(source: str, trace: str, contract: Optional[str] = None, versions=(),

@@ -204,14 +204,17 @@ def export(c):
                          "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
                          "the items with `within`, `throughout` or `until`."))
     if runtime.supports_run_versions() and ({"regimes", "amendment"} & set(extensions)):
-        notes.append(t("What cannot follow the current regime or version is not generated, with a "
-                       "warning: the OPA and Solidity norms monitors of a contract that some "
-                       "regime suspends or whose running instances switch to a version that "
-                       "names `previous:`; Unity C# for a file in which a regime suspends a "
-                       "contract with `lifecycle:` or `monitors:`. The Python target follows "
-                       "both: its regime controller refuses a transition whose safety invariant "
-                       "does not hold, and with amendment 0.1 it writes `version.py` "
-                       "(cadl 0.3.33, 0.3.34)."))
+        notes.append(t("cadl leaves out what cannot follow the current regime or version. With a "
+                       "warning, it does not generate the OPA and Solidity norms monitors of a "
+                       "contract that some regime suspends, or whose running instances switch to "
+                       "a version that names `previous:`. It refuses the whole output of Unity "
+                       "C# for a file in which a regime suspends a contract with `lifecycle:` or "
+                       "`monitors:`, or in which a contract with `lifecycle:` switches to such a "
+                       "version, and the outputs of the agent boundary (agent policies, "
+                       "`agents-run`, the gateways) for a file in which a regime suspends an "
+                       "enforced contract. The Python target follows both: its regime controller "
+                       "refuses a transition whose safety invariant does not hold, and with "
+                       "amendment 0.1 it writes `version.py` (cadl 0.3.33, 0.3.34)."))
     if "agents" in extensions:
         notes.append(t("The agent policies (agents 0.1) decide the messages at the enforcement "
                      "point; the Cedar policies cover the statically decidable norms only. "

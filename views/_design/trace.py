@@ -201,30 +201,53 @@ def _norms_check_answers(contract: str) -> dict:
     return answers
 
 
+# The length of a period for the examples whose files do not name one in a
+# comment (`--period D`); the measurements of the robot town name periods.
+EXAMPLE_PERIODS = {"amendment_robot_town": "3600s"}
+
+
 def _version_candidates(source: str) -> dict:
-    """{label: source} of the other versions a run can have: the versions saved
-    under Versions, and the bundled versions of the example that the source is
-    (its stem with another `_vN`)."""
-    out = {v["name"]: v["source"] for v in ss.get("design_versions", [])
-           if v["source"] != source}
+    """{id: (label, source)} of the other versions a run can have: the versions
+    saved under Versions ("saved:NAME"), and the bundled versions of the example
+    that the source is, its stem with another `_vN` ("example:STEM"). The ids do
+    not depend on the language of the page."""
+    out = {f"saved:{v['name']}": (v["name"], v["source"])
+           for v in ss.get("design_versions", []) if v["source"] != source}
     stem = example_stem(source)
     found = re.fullmatch(r"(.+)_v\d+", stem or "")
     if found:
         for path in sorted(ds.DESIGNS_DIR.glob(f"{found.group(1)}_v*.cadl")):
             if path.stem != stem and re.fullmatch(r".+_v\d+", path.stem):
-                out.setdefault(t("example: {name}").format(name=path.stem),
-                               path.read_text(encoding="utf-8"))
+                out[f"example:{path.stem}"] = (t("example: {name}").format(name=path.stem),
+                                               path.read_text(encoding="utf-8"))
     return out
+
+
+def _default_period(source: str) -> str:
+    found = re.search(r"--period\s+(\S+)", source)
+    if found:
+        return found.group(1)
+    family = re.sub(r"_v\d+$", "", example_stem(source) or "")
+    return EXAMPLE_PERIODS.get(family, "")
 
 
 def run_versions(source: str, key: str, title: str = ""):
     """The other versions of a run and its time base (amendment 0.1, K.11), or
     ((), (None, 0.0, False)) when the design does not declare the extension or
-    cadl is older than 0.3.34."""
+    cadl is older than 0.3.34. The choices start again for another design."""
     none = ((), (None, 0.0, False))
     if "amendment" not in ds.extensions_in_effect(source) or not runtime.supports_run_versions():
         return none
     candidates = _version_candidates(source)
+    design = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    if ss.get(f"{key}_design") != design:
+        ss[f"{key}_design"] = design
+        ss[f"{key}_versions"] = [k for k in candidates if k.startswith("example:")]
+        ss[f"{key}_period"] = _default_period(source)
+        ss[f"{key}_origin"] = 0.0
+        ss[f"{key}_epoch"] = False
+    else:                                   # a version saved or removed meanwhile
+        ss[f"{key}_versions"] = [k for k in ss.get(f"{key}_versions", []) if k in candidates]
     with st.expander(title or t("Versions of the run (amendment 0.1)"), expanded=bool(candidates)):
         st.caption(t(
             "The versions form one sequence by `previous:`. The version in force at an "
@@ -235,27 +258,20 @@ def run_versions(source: str, key: str, title: str = ""):
         if not candidates:
             st.caption(t("Save the other versions under Versions to apply them here."))
             return none
-        if f"{key}_versions" in ss:         # versions of another design
-            ss[f"{key}_versions"] = [n for n in ss[f"{key}_versions"] if n in candidates]
-        else:
-            ss[f"{key}_versions"] = [k for k in candidates if k.startswith(t("example: {name}")
-                                                                          .format(name=""))]
-        if f"{key}_period" not in ss:
-            found = re.search(r"--period\s+(\S+)", source)
-            ss[f"{key}_period"] = found.group(1) if found else ""
-        names = st.multiselect(t("Other versions of the run"), list(candidates),
-                               key=f"{key}_versions",
-                               help=t("Passed as --version FILE each; the order does not matter."))
+        ids = st.multiselect(t("Other versions of the run"), list(candidates),
+                             key=f"{key}_versions", format_func=lambda k: candidates[k][0],
+                             help=t("Passed as --version FILE each; the order does not matter."))
         c1, c2, c3 = st.columns(3, vertical_alignment="bottom")
         period = c1.text_input(t("Length of a period"), key=f"{key}_period",
                                placeholder="3600s",
                                help=t("--period: the length of period k of `effective: { period: "
                                       "k }`, such as 3600s or 1h."))
         origin = c2.number_input(t("Start of period 1 (s)"), min_value=0.0, step=1.0,
-                                 key=f"{key}_origin", help=t("--origin (default 0)."))
+                                 format="%.0f", key=f"{key}_origin",
+                                 help=t("--origin (default 0)."))
         epoch = c3.checkbox(t("Time stamps are Unix time"), key=f"{key}_epoch",
                             help=t("--epoch: for `effective: { at: ... }`."))
-    versions = tuple((n, candidates[n]) for n in names if n in candidates)
+    versions = tuple(candidates[k] for k in ids if k in candidates)
     return versions, (period.strip() or None, float(origin or 0.0), bool(epoch))
 
 
@@ -298,7 +314,8 @@ def traces(c):
                        t("The trace format of cadl (Appendix F, F.5): one observation per line, "
                          "with `t`, and `bindings`, `values`, `messages` and `state` as needed; "
                          "`regime` for a design with `regimes:` (A.7.1) and `version` with "
-                         "amendment 0.1 (K.11)."))
+                         "amendment 0.1 (K.11); a run that names a regime cannot also have "
+                         "versions."))
     if not text.strip():
         st.caption(t("Choose an example trace, open a file, or type the trace above."))
         return
@@ -313,7 +330,9 @@ def traces(c):
         st.error(t("Not evaluated: {e}").format(e=result["failure"]))
         return
     report = result["report"]
-    _record("norms-eval", source, text, report)
+    _record("norms-eval", source, text, report, (contract, versions, base))
+    for note in result.get("notes") or []:
+        st.warning(_plain(note))
     inst = report.get("instance") or {}
     st.markdown(
         f"**{report.get('contract')}** · " + t("bindings") + " "
@@ -349,9 +368,10 @@ def traces(c):
                        mime="application/json", key="design_trace_download")
 
 
-def _record(check: str, source: str, trace: str, report: dict):
+def _record(check: str, source: str, trace: str, report: dict, options=()):
+    """Record the run in Summary once for the same design, trace and options."""
     from views._design.verify import record_run
-    sha = hashlib.sha256((source + "\0" + trace).encode("utf-8")).hexdigest()
+    sha = hashlib.sha256((source + "\0" + trace + "\0" + repr(options)).encode("utf-8")).hexdigest()
     if ss.get(f"design_recorded_{check}") == sha:
         return
     ss[f"design_recorded_{check}"] = sha
@@ -516,10 +536,12 @@ def measurements(c):
                                   t("Versions of the model (amendment 0.1)"))
     result = cached_metrics_eval(source, text, versions, base)
     if result.get("failure"):
-        st.error(t("Not judged: {e}").format(e=result["failure"]))
+        st.error(t("Not run: {e}").format(e=result["failure"]))
         return
     report = result["report"]
-    _record("metrics-eval", source, text, report)
+    _record("metrics-eval", source, text, report, (versions, base))
+    for note in result.get("notes") or []:
+        st.warning(_plain(note))
     counts = report.get("counts") or {}
     with st.container(horizontal=True):
         for label in ("met", "not met", "not judged"):
