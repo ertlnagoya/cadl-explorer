@@ -72,6 +72,22 @@ Two examples added in `cadl-lang` 0.3.32 are copies of its upstream files:
   `cadl amend-diff`. The **Checks** keep the warning that OPERATOR is a
   party to no contract.
 
+Two examples added in `cadl-lang` 0.3.34, also copies of upstream files:
+
+- `amendment_norms_v1.cadl` and `amendment_norms_v2.cadl` (norms 0.1 and
+  amendment 0.1, K.11): the orders of the robot town; version 2 shortens the
+  pickup deadline from 120 s to 90 s from period 2, and an order under way
+  switches to it only while it is `Assigned`. Under **Traces**, the traces
+  `amendment_norms_v1_a_switch` and `_b_keep` (in `traces/`) are judged with
+  version 2 as another version of the run and a period of 3600s, which the
+  page fills in from the comment of the file.
+- `measurements/amendment_robot_town_v1_measurements.jsonl` (from
+  `examples/measurements/amendment_robot_town.jsonl`): measured values of the
+  metrics of the robot town, one met, not met and not judged each at least.
+  Under **Measurements**, with `amendment_robot_town_v1` open, version 2 is
+  chosen; type 3600s as the length of a period (the measurements name
+  periods, and the file does not say how long one is).
+
 They are upstream examples of the extensions, so they keep their findings
 on the **Structure** and **Control structure** views (for example, no
 contract of the first two names a decision holder).

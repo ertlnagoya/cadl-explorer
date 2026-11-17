@@ -570,7 +570,11 @@ def _regime_tables(ir: dict):
         st.caption(t("From the `regimes:` block. A parameter that a regime does not bind keeps "
                      "its declared value; a contract that no regime suspends is in force in "
                      "every regime. Contracts that no regime has in force together are not "
-                     "required to agree: a conflict between them is a warning."))
+                     "required to agree: cadl verify notes a conflict between them as "
+                     "information. A run starts in the initial regime, the first `from:` that "
+                     "is no `to:`; while a contract is not in force, its clock stops and it "
+                     "sees nothing of the observations. Under Traces, the key `regime` of an "
+                     "observation names the regime (A.7.1, F.5)."))
     invariants = [{"transition": f"{tr.get('from_regime')} → {tr.get('to_regime')}",
                    "safety invariant": tr["safety_invariant"],
                    "condition": tr.get("condition") or "—"}

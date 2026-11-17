@@ -2,7 +2,10 @@
 
 - Traces: `cadl norms-eval` gives the verdict of each norm on one recorded run of
   a contract instance. The trace can be a file, one of the examples, a witness
-  of norms-check, or text typed on the page.
+  of norms-check, or text typed on the page. With amendment 0.1 the other versions
+  of the run and a time base apply the versions while the run goes on (K.11).
+- Measurements: `cadl metrics-eval` judges measured values of the metrics against
+  the target in force at the start of their window.
 - Agents: `cadl agents-run` replays recorded messages through the enforcement
   point of the agent governance extension, and `cadl audit-verify` checks the
   hash chain of the audit log it writes.
@@ -12,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 import pandas as pd
 import streamlit as st
@@ -24,17 +28,25 @@ from views._design.common import _is_dark, _load_example, _plain, ss
 from views._i18n import t
 
 TRACES_DIR = ds.DESIGNS_DIR / "traces"
+MEASUREMENTS_DIR = ds.DESIGNS_DIR / "measurements"
 STATE_COLOR = {"inactive": "#9e9e9e", "active": "#1f77b4", "fulfilled": "#2ca02c",
                "violated": "#d62728", "excused": "#ff7f0e", "expired": "#8c564b",
                "suspended": "#bcbd22", "exercised": "#17becf", "repaired": "#9467bd"}
-VERDICT_ICON = {"fulfilled": ":material/check_circle:", "violated": ":material/cancel:",
-                "excused": ":material/do_not_disturb_on:", "pending": ":material/pending:",
-                "exercised": ":material/bolt:"}
+# marks, since a table does not draw the icons of Material Symbols
+VERDICT_ICON = {"fulfilled": "✓", "violated": "✗", "excused": "–", "pending": "…",
+                "exercised": "↯"}
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def _norms_eval(source: str, trace: str, contract: str) -> dict:
-    return _uncached(runtime.norms_eval(source, trace, contract or None))
+def _norms_eval(source: str, trace: str, contract: str, versions: tuple = (),
+                base: tuple = (None, 0.0, False)) -> dict:
+    return _uncached(runtime.norms_eval(source, trace, contract or None, versions, *base))
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def _metrics_eval(source: str, measurements: str, versions: tuple = (),
+                  base: tuple = (None, 0.0, False)) -> dict:
+    return _uncached(runtime.metrics_eval(source, measurements, versions, *base))
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
@@ -42,11 +54,20 @@ def _agents_run(source: str, trace: str) -> dict:
     return _uncached(runtime.agents_run(source, trace))
 
 
-def cached_norms_eval(source: str, trace: str, contract: str) -> dict:
-    """The verdicts, kept for the same design and trace; a failure that may not recur
-    (the server busy, a timeout) is not kept."""
+def cached_norms_eval(source: str, trace: str, contract: str, versions: tuple = (),
+                      base: tuple = (None, 0.0, False)) -> dict:
+    """The verdicts, kept for the same design, trace and versions; a failure that may
+    not recur (the server busy, a timeout) is not kept."""
     try:
-        return _norms_eval(source, trace, contract)
+        return _norms_eval(source, trace, contract, versions, base)
+    except _NotCached as e:
+        return e.result
+
+
+def cached_metrics_eval(source: str, measurements: str, versions: tuple = (),
+                        base: tuple = (None, 0.0, False)) -> dict:
+    try:
+        return _metrics_eval(source, measurements, versions, base)
     except _NotCached as e:
         return e.result
 
@@ -75,15 +96,21 @@ def _example_buttons(names: list):
                           help=t("Replaces the design in the editor."))
 
 
-def example_traces(source: str, prefix: str) -> dict:
+def example_stem(source: str):
+    """The file stem of the bundled example that the source is, or None."""
+    return next((p.stem for p in ds.list_examples().values()
+                 if p.read_text(encoding="utf-8") == source), None)
+
+
+def example_traces(source: str, prefix: str, directory=None) -> dict:
     """{label: text} of the bundled traces of the example that the source is, or of
     every example whose file starts with `prefix` when the source is no example."""
     out = {}
-    if not TRACES_DIR.is_dir():
+    directory = directory or TRACES_DIR
+    if not directory.is_dir():
         return out
-    match = next((p.stem for p in ds.list_examples().values()
-                  if p.read_text(encoding="utf-8") == source), None)
-    for path in sorted(TRACES_DIR.glob("*.jsonl")):
+    match = example_stem(source)
+    for path in sorted(directory.glob("*.jsonl")):
         if match and not path.stem.startswith(match + "_"):
             continue
         if not match and not path.stem.startswith(prefix):
@@ -102,17 +129,23 @@ def _keep_text(key: str, widget_key: str):
     ss[key] = ss[widget_key]
 
 
-def trace_input(key: str, examples: dict, help_text: str) -> str:
-    """A trace from an example, a file or typed text; the text is kept in ss[key].
-    The text area has a versioned key, so that an example or a file replaces its text."""
+def trace_input(key: str, examples: dict, help_text: str, measurements: bool = False) -> str:
+    """A trace (or measurements) from an example, a file or typed text; the text is kept
+    in ss[key]. The text area has a versioned key, so that an example or a file replaces
+    its text."""
+    labels = ((t("Example measurements"), t("Use these measurements"),
+               t("Or open a file of measurements (JSON Lines)"),
+               t("Measurements (one JSON object per line)")) if measurements else
+              (t("Example trace"), t("Use this trace"), t("Or open a trace file (JSON Lines)"),
+               t("Trace (one JSON object per line)")))
     c1, c2 = st.columns([3, 2], vertical_alignment="bottom")
     if examples:
         choose = t("(choose one)")
-        pick = c1.selectbox(t("Example trace"), [""] + list(examples), key=f"{key}_example",
+        pick = c1.selectbox(labels[0], [""] + list(examples), key=f"{key}_example",
                             format_func=lambda s: s or choose)
-        c2.button(t("Use this trace"), key=f"{key}_use", disabled=not pick, width="stretch",
+        c2.button(labels[1], key=f"{key}_use", disabled=not pick, width="stretch",
                   on_click=_use_text, args=(key, examples.get(pick, "")))
-    upload = st.file_uploader(t("Or open a trace file (JSON Lines)"), type=["jsonl", "json", "txt"],
+    upload = st.file_uploader(labels[2], type=["jsonl", "json", "txt"],
                               key=f"{key}_file_{ss.get(f'{key}_ver', 0)}", help=help_text)
     if upload is not None:
         try:
@@ -124,7 +157,7 @@ def trace_input(key: str, examples: dict, help_text: str) -> str:
             _use_text(key, text)
             st.rerun()
     widget_key = f"{key}_text_{ss.get(f'{key}_ver', 0)}"
-    return st.text_area(t("Trace (one JSON object per line)"), value=ss.get(key, ""), height=180,
+    return st.text_area(labels[3], value=ss.get(key, ""), height=180,
                         key=widget_key, on_change=_keep_text, args=(key, widget_key),
                         placeholder=t('{"t": 0, "bindings": {"i": 1}, "values": {...}}'))
 
@@ -144,7 +177,7 @@ def _state_chart(norms: list, end: float):
     import altair as alt
     states = sorted({r["state"] for r in rows})
     chart = alt.Chart(pd.DataFrame(rows)).mark_bar(height=16).encode(
-        x=alt.X("from:Q", title="t (s)"), x2="to:Q",
+        x=alt.X("from:Q", title="t (s)", scale=alt.Scale(zero=False)), x2="to:Q",
         y=alt.Y("norm:N", title=None, sort=[n["id"] for n in norms]),
         color=alt.Color("state:N", scale=alt.Scale(
             domain=states, range=[STATE_COLOR.get(s, "#7f7f7f") for s in states])),
@@ -168,6 +201,84 @@ def _norms_check_answers(contract: str) -> dict:
     return answers
 
 
+def _version_candidates(source: str) -> dict:
+    """{label: source} of the other versions a run can have: the versions saved
+    under Versions, and the bundled versions of the example that the source is
+    (its stem with another `_vN`)."""
+    out = {v["name"]: v["source"] for v in ss.get("design_versions", [])
+           if v["source"] != source}
+    stem = example_stem(source)
+    found = re.fullmatch(r"(.+)_v\d+", stem or "")
+    if found:
+        for path in sorted(ds.DESIGNS_DIR.glob(f"{found.group(1)}_v*.cadl")):
+            if path.stem != stem and re.fullmatch(r".+_v\d+", path.stem):
+                out.setdefault(t("example: {name}").format(name=path.stem),
+                               path.read_text(encoding="utf-8"))
+    return out
+
+
+def run_versions(source: str, key: str, title: str = ""):
+    """The other versions of a run and its time base (amendment 0.1, K.11), or
+    ((), (None, 0.0, False)) when the design does not declare the extension or
+    cadl is older than 0.3.34."""
+    none = ((), (None, 0.0, False))
+    if "amendment" not in ds.extensions_in_effect(source) or not runtime.supports_run_versions():
+        return none
+    candidates = _version_candidates(source)
+    with st.expander(title or t("Versions of the run (amendment 0.1)"), expanded=bool(candidates)):
+        st.caption(t(
+            "The versions form one sequence by `previous:`. The version in force at an "
+            "observation comes from the effective times on a time base, from the key `version` "
+            "of the observation, or both; when a version takes effect, an instance follows the "
+            "transitional rule of its contract: `keep`, or `switch` (with `in_states:` only in "
+            "those states) (Appendix K, K.11)."))
+        if not candidates:
+            st.caption(t("Save the other versions under Versions to apply them here."))
+            return none
+        if f"{key}_versions" in ss:         # versions of another design
+            ss[f"{key}_versions"] = [n for n in ss[f"{key}_versions"] if n in candidates]
+        else:
+            ss[f"{key}_versions"] = [k for k in candidates if k.startswith(t("example: {name}")
+                                                                          .format(name=""))]
+        if f"{key}_period" not in ss:
+            found = re.search(r"--period\s+(\S+)", source)
+            ss[f"{key}_period"] = found.group(1) if found else ""
+        names = st.multiselect(t("Other versions of the run"), list(candidates),
+                               key=f"{key}_versions",
+                               help=t("Passed as --version FILE each; the order does not matter."))
+        c1, c2, c3 = st.columns(3, vertical_alignment="bottom")
+        period = c1.text_input(t("Length of a period"), key=f"{key}_period",
+                               placeholder="3600s",
+                               help=t("--period: the length of period k of `effective: { period: "
+                                      "k }`, such as 3600s or 1h."))
+        origin = c2.number_input(t("Start of period 1 (s)"), min_value=0.0, step=1.0,
+                                 key=f"{key}_origin", help=t("--origin (default 0)."))
+        epoch = c3.checkbox(t("Time stamps are Unix time"), key=f"{key}_epoch",
+                            help=t("--epoch: for `effective: { at: ... }`."))
+    versions = tuple((n, candidates[n]) for n in names if n in candidates)
+    return versions, (period.strip() or None, float(origin or 0.0), bool(epoch))
+
+
+def _versions_section(report: dict):
+    """What the versions of the run did to the instance (`versions` of norms-eval)."""
+    v = report.get("versions")
+    if not v:
+        return
+    st.markdown(t("**Versions of the run** · sequence {sequence} · in force at the start: {start} "
+                  "· followed at the end: {follows}").format(
+        sequence=" → ".join(f"`{x}`" for x in v.get("sequence") or []),
+        start=f"`{v.get('start')}`", follows=f"`{v.get('follows')}`"))
+    events = v.get("events") or []
+    if events:
+        st.dataframe([{"t": e.get("t"), "version": e.get("version"), "event": e.get("event"),
+                       "what happened": e.get("text")} for e in events],
+                     hide_index=True, width="stretch", column_config={
+                         k: st.column_config.Column(t(k))
+                         for k in ("version", "event", "what happened")})
+    else:
+        st.caption(t("No version took effect during the run."))
+
+
 def traces(c):
     source = c.source
     st.caption(t(
@@ -185,7 +296,9 @@ def traces(c):
     contract = st.selectbox(t("Contract"), contracts, key="design_trace_contract")
     text = trace_input("design_trace", example_traces(source, "norms_"),
                        t("The trace format of cadl (Appendix F, F.5): one observation per line, "
-                         "with `t`, and `bindings`, `values`, `messages` and `state` as needed."))
+                         "with `t`, and `bindings`, `values`, `messages` and `state` as needed; "
+                         "`regime` for a design with `regimes:` (A.7.1) and `version` with "
+                         "amendment 0.1 (K.11)."))
     if not text.strip():
         st.caption(t("Choose an example trace, open a file, or type the trace above."))
         return
@@ -194,7 +307,8 @@ def traces(c):
     except runtime.TraceError as e:
         st.error(str(e))
         return
-    result = cached_norms_eval(source, text, contract)
+    versions, base = run_versions(source, "design_trace")
+    result = cached_norms_eval(source, text, contract, versions, base)
     if result.get("failure"):
         st.error(t("Not evaluated: {e}").format(e=result["failure"]))
         return
@@ -224,6 +338,7 @@ def traces(c):
     if answers:
         st.caption(t("The last column is the answer of this session's norms-check over every "
                      "behaviour: a norm violated here must be violable there."))
+    _versions_section(report)
     _state_chart(report.get("norms") or [], float(inst.get("end") or 0))
     with st.expander(t("The trace as a sequence of messages")):
         st.markdown(sequence_svg(trace_protocol(records), dark=_is_dark()), unsafe_allow_html=True)
@@ -240,7 +355,12 @@ def _record(check: str, source: str, trace: str, report: dict):
     if ss.get(f"design_recorded_{check}") == sha:
         return
     ss[f"design_recorded_{check}"] = sha
-    if check == "norms-eval":
+    if check == "metrics-eval":
+        counts = report.get("counts") or {}
+        word = "findings" if counts.get("not met") else "passed"
+        summary = (f"{counts.get('met', 0)} met, {counts.get('not met', 0)} not met, "
+                   f"{counts.get('not judged', 0)} not judged")
+    elif check == "norms-eval":
         verdicts = [n.get("verdict") for n in report.get("norms") or []]
         violated = verdicts.count("violated")
         word = "findings" if violated else "passed"
@@ -359,3 +479,66 @@ def agents(c):
         else:
             e = (verified.get("report") or {}).get("error") or {}
             st.error(t("The audit log does not verify") + f": {t('line')} {e.get('line')}: {e.get('what')}.")
+
+
+VERDICT_COLOR = {"met": "green", "not met": "red", "not judged": "gray"}
+
+
+def measurements(c):
+    """`cadl metrics-eval`: measured values of the metrics against their targets."""
+    source = c.source
+    st.caption(t(
+        "`cadl metrics-eval` judges measured values of the metrics (one JSON object per line: "
+        "`metric`, the start of its window as `t` or `period`, the value as `value`, "
+        "`samples` or `runs`, and the values of the terms of the target as `values`). Each is "
+        "judged under the declaration of the metric in the version in force at the start of "
+        "its window, against the target in force then: met, not met, or not judged with the "
+        "reason."))
+    if not runtime.supports_run_versions():
+        st.info(t("This needs cadl 0.3.34 or later."))
+        return
+    if not (c.ir or {}).get("metrics"):
+        st.info(t("This design declares no metrics. The example *amendment robot town v1* has "
+                  "metrics with targets and schedules, and measurements."))
+        _example_buttons(["amendment robot town v1"])
+        return
+    text = trace_input("design_measure", example_traces(source, "amendment_", MEASUREMENTS_DIR),
+                       t("Measurements in JSON Lines, as described above."), measurements=True)
+    if not text.strip():
+        st.caption(t("Choose an example, open a file, or type the measurements above."))
+        return
+    try:
+        runtime.read_trace(text)
+    except runtime.TraceError as e:
+        st.error(str(e))
+        return
+    versions, base = run_versions(source, "design_measure",
+                                  t("Versions of the model (amendment 0.1)"))
+    result = cached_metrics_eval(source, text, versions, base)
+    if result.get("failure"):
+        st.error(t("Not judged: {e}").format(e=result["failure"]))
+        return
+    report = result["report"]
+    _record("metrics-eval", source, text, report)
+    counts = report.get("counts") or {}
+    with st.container(horizontal=True):
+        for label in ("met", "not met", "not judged"):
+            st.metric(t(label), counts.get(label, 0))
+    st.caption(t("Versions: {versions}").format(
+        versions=" → ".join(f"`{v}`" for v in report.get("versions") or []) or "—"))
+    rows = [{"line": str(m.get("line") or "").replace("line ", ""), "metric": m.get("metric"), "start": m.get("start"),
+             "window": m.get("window") if m.get("window") is not None else "—", "version": m.get("version"), "value": m.get("value"),
+             "target": m.get("target"), "bound": m.get("bound"),
+             "target from": m.get("target_from") + (f" ({m['decision']})" if m.get("decision")
+                                                    else "") if m.get("target_from") else "",
+             "verdict": t(m.get("verdict") or ""), "why": m.get("reason") or ""}
+            for m in report.get("measurements") or []]
+    st.dataframe(rows, hide_index=True, width="stretch", column_config={
+        k: st.column_config.Column(t(k)) for k in (
+            "line", "metric", "start", "window", "version", "value", "target", "bound",
+            "target from", "verdict", "why")})
+    st.caption(t("bound: the value of the target with the terms given, which the value is "
+                 "compared with exactly; start and window in seconds."))
+    st.download_button(t("Judgements (JSON)"), json.dumps(report, indent=2, ensure_ascii=False),
+                       file_name="metrics-eval.json", mime="application/json",
+                       key="design_measure_download")

@@ -17,7 +17,7 @@ STAGES = {
     "Write": [],
     "Read": ["Architecture", "Structure", "Control structure", "Lifecycle", "Protocols",
              "Regimes", "Algorithms & metrics", "Read-back"],
-    "Verify": ["Summary", "Checks", "Traces", "Agents"],
+    "Verify": ["Summary", "Checks", "Traces", "Measurements", "Agents"],
     "Change": ["Versions"],
     "Deliver": ["Export"],
 }

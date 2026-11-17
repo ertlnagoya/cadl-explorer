@@ -1,7 +1,10 @@
 """The commands of cadl that look at a design from outside the editor.
 
 - `norms_eval`: the verdicts of the norms of one contract instance on a recorded
-  trace (`cadl norms-eval`, Appendix F, F.5).
+  trace (`cadl norms-eval`, Appendix F, F.5), also with the versions of the run
+  (amendment 0.1, Appendix K, K.11; cadl 0.3.34).
+- `metrics_eval`: measured values of metrics judged against the target in force
+  (`cadl metrics-eval`, cadl 0.3.34).
 - `agents_run`: a recorded sequence of messages replayed through the enforcement
   point of the agent governance extension (`cadl agents-run`, Appendix G), with
   its audit log, and `audit_verify` for such a log (`cadl audit-verify`, G.8).
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -62,19 +66,63 @@ def read_trace(data: bytes | str) -> List[dict]:
     return records
 
 
-def _with_trace(command: str, source: str, trace: str, extra: List[str]) -> dict:
+def _with_trace(command: str, source: str, trace: str, extra: List[str],
+                versions=(), flag: str = "--trace") -> dict:
+    """Run `cadl COMMAND` on the design with the trace (or measurements, `flag`) in a
+    temporary file; `versions` are (name, source) of the other versions of the run,
+    passed as `--version FILE` each."""
     read_trace(trace)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "trace.jsonl"
         path.write_text(trace, encoding="utf-8")
         audit = Path(tmp) / "audit.jsonl"
-        args = [command, "--trace", str(path), "--format", "json"] + [
+        args = [command, flag, str(path), "--format", "json"] + [
             str(audit) if a == "{audit}" else a for a in extra]
+        names = {}
+        for k, (name, text) in enumerate(versions or (), 1):
+            ds._parse(text)             # the input limits of the page
+            version = Path(tmp) / f"v{k}.cadl"
+            version.write_text(text, encoding="utf-8")
+            names[str(version)] = str(name)
+            args += ["--version", str(version)]
         run = ds._run_cadl(args, source, RUN_TIMEOUT, workdir=tmp)
-        run["stdout"] = run["stdout"].replace(str(path), "the trace").replace(str(audit), "audit.jsonl")
-        run["stderr"] = run["stderr"].replace(str(path), "the trace").replace(tmp, "")
+        label = "the measurements" if flag == "--measurements" else "the trace"
+        real = os.path.realpath(tmp)
+        for key in ("stdout", "stderr"):
+            for version, name in names.items():
+                run[key] = run[key].replace(os.path.realpath(version), name).replace(version, name)
+            for p in (os.path.realpath(path), str(path)):
+                run[key] = run[key].replace(p, label)
+            run[key] = run[key].replace(os.path.realpath(audit), "audit.jsonl").replace(
+                str(audit), "audit.jsonl")
+        # _run_cadl has taken the directory out of standard error
+        err = run["stderr"].replace(real, "").replace(tmp, "")
+        err = re.sub(r"(?:/private)?/trace\.jsonl\b", label, err)
+        for version, name in names.items():
+            err = re.sub(r"(?:/private)?/" + re.escape(Path(version).name) + r"\b", name, err)
+        run["stderr"] = err
         run["audit"] = audit.read_text(encoding="utf-8") if audit.exists() else ""
     return run
+
+
+def time_base(period: Optional[str] = None, origin: Optional[float] = None,
+              epoch: bool = False) -> List[str]:
+    """The options of the time base of the versions (K.11): --period, --origin, --epoch."""
+    args = []
+    if period and str(period).strip():
+        args += ["--period", str(period).strip()]
+    if origin:
+        args += ["--origin", f"{float(origin):g}"]
+    if epoch:
+        args.append("--epoch")
+    return args
+
+
+def supports_run_versions() -> bool:
+    """Whether cadl applies the versions of a run (norms-eval --version, metrics-eval;
+    cadl 0.3.34)."""
+    import importlib.util
+    return importlib.util.find_spec("cadl.metrics_eval") is not None
 
 
 def _report(run: dict, command: str) -> dict:
@@ -88,13 +136,32 @@ def _report(run: dict, command: str) -> dict:
     return {"report": report, "failure": None}
 
 
-def norms_eval(source: str, trace: str, contract: Optional[str] = None) -> dict:
+def norms_eval(source: str, trace: str, contract: Optional[str] = None, versions=(),
+               period: Optional[str] = None, origin: Optional[float] = None,
+               epoch: bool = False) -> dict:
     """{"report": the JSON of `cadl norms-eval`, "failure"}: the verdict of each norm
-    of the contract instance that the trace records, with the history of its states."""
+    of the contract instance that the trace records, with the history of its states.
+    `versions` (name, source) and the time base apply the versions of the run (K.11);
+    the report then has the key `versions`."""
     extra = ["--contract", contract] if contract else []
-    out = _report(_with_trace("norms-eval", source, trace, extra), "norms-eval")
+    if versions or period or origin or epoch:
+        extra += time_base(period, origin, epoch)
+    out = _report(_with_trace("norms-eval", source, trace, extra, versions), "norms-eval")
     if out.get("report"):
         out["report"]["trace"] = "the trace"
+    return out
+
+
+def metrics_eval(source: str, measurements: str, versions=(), period: Optional[str] = None,
+                 origin: Optional[float] = None, epoch: bool = False) -> dict:
+    """{"report": the JSON of `cadl metrics-eval`, "failure"}: each measurement judged
+    under the declaration of its metric in the version in force at the start of its
+    window: met, not met, or not judged with the reason."""
+    extra = time_base(period, origin, epoch)
+    out = _report(_with_trace("metrics-eval", source, measurements, extra, versions,
+                              flag="--measurements"), "metrics-eval")
+    if out.get("report"):
+        out["report"]["file"], out["report"]["measurements_file"] = "the design", "the measurements"
     return out
 
 
