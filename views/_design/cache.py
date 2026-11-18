@@ -30,8 +30,8 @@ def cached_analyze(source: str, _version: int = 5) -> ds.DesignAnalysis:
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_codegen(source: str, target: str) -> bytes:
-    return ds.export_codegen_zip(source, target)
+def cached_codegen(source: str, target: str, versions: tuple = ()) -> bytes:
+    return ds.export_codegen_zip(source, target, versions)
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
@@ -50,8 +50,8 @@ def cached_amend_diff(old_source: str, new_source: str):
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_monitor_notes(source: str, target: str) -> dict:
-    return ds.norms_monitor_notes(source, target)
+def cached_monitor_notes(source: str, target: str, versions: tuple = ()) -> dict:
+    return ds.norms_monitor_notes(source, target, versions)
 
 
 @st.cache_data(show_spinner=False, max_entries=16)

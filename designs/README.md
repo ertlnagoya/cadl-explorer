@@ -85,8 +85,21 @@ Two examples added in `cadl-lang` 0.3.34, also copies of upstream files:
   `examples/measurements/amendment_robot_town.jsonl`): measured values of the
   metrics of the robot town, one met, not met and not judged each at least.
   Under **Measurements**, with `amendment_robot_town_v1` open, version 2 is
-  chosen; type 3600s as the length of a period (the measurements name
-  periods, and the file does not say how long one is).
+  chosen and the length of a period is 3600s, which the page fills in for
+  this example (the measurements name periods, and the file does not say how
+  long one is).
+
+Two examples for `cadl-lang` 0.3.35 and 0.3.36, made from the test data
+`tests/data/agents_versions_v1.cadl` and `_v2.cadl` of cadl:
+
+- `agents_versions_v1.cadl` and `agents_versions_v2.cadl` (norms 0.1, agents
+  0.1 and amendment 0.1): the agent governance example with two versions.
+  Version 2 lets the planner read files from period 2 on; it names no
+  `previous:`, so cadl takes version 1 from the effective times (cadl
+  0.3.35). Under **Agents**, the trace `agents_versions_v1_a_switch` (in
+  `traces/`) is replayed with version 2 and a period of 3600s, which the page
+  fills in: the first two calls `read_file` are denied and the last two
+  allowed.
 
 They are upstream examples of the extensions, so they keep their findings
 on the **Structure** and **Control structure** views (for example, no
@@ -135,3 +148,5 @@ in `examples/traces/` of `cadl-lang` 0.3.31. The Designer offers them under
 - `norms_no_double_assignment_*.jsonl` (a to c).
 - `agents_tool_governance_*.jsonl` (a to c): a hold that is approved, one that
   is rejected and one that times out.
+- `agents_versions_v1_a_switch.jsonl`: four calls `read_file` half an hour
+  apart, two before and two after version 2 takes effect.

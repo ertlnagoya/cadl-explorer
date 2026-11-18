@@ -2280,15 +2280,20 @@ def norms_check(source: str, contract: Optional[str] = None, bindings: Optional[
     return out
 
 
-def norms_monitor_notes(source: str, target: str) -> dict:
+def norms_monitor_notes(source: str, target: str, versions=()) -> dict:
     """The norms monitors that the OPA or Solidity target generates for a design
     with norms 0.1 (Appendix D, D.5; cadl 0.3.25 and 0.3.26), and what `cadl codegen` warns
     about them: {"files": [monitor files], "warnings": [texts]}. Empty for other
-    targets and designs."""
+    targets and designs. `versions` are (name, source) of the other versions of a
+    run (cadl 0.3.36, K.11)."""
     out: dict = {"files": [], "warnings": []}
     try:
         from cadl.codegen import norms_monitors
-        monitors = norms_monitors(_parse(source), target)
+        sos = _parse(source)
+        if versions:
+            monitors = norms_monitors(sos, target, [_parse(text) for _, text in versions])
+        else:
+            monitors = norms_monitors(sos, target)
     except Exception:           # an older cadl, or a design that does not generate
         return out
     for m in monitors:
@@ -2307,14 +2312,25 @@ def norms_monitor_notes(source: str, target: str) -> dict:
     return out
 
 
-def export_codegen_zip(source: str, target: str) -> bytes:
-    """Generated runtime code for `target` (see CODEGEN_TARGETS) as a zip archive."""
+def export_codegen_zip(source: str, target: str, versions=()) -> bytes:
+    """Generated runtime code for `target` (see CODEGEN_TARGETS) as a zip archive.
+    `versions` are (name, source) of the other versions of a run, which the targets
+    opa, solidity and unity-csharp follow (`cadl codegen --version`, cadl 0.3.36)."""
     from cadl.codegen import generate
 
     sos = _parse(source)
+    others = []
+    for name, text in versions or ():
+        try:
+            others.append(_parse(text))
+        except Exception as e:  # noqa: BLE001 - the page says which version
+            raise ValueError(f"{name}: {str(e).splitlines()[0] if str(e) else type(e).__name__}") from None
     with tempfile.TemporaryDirectory() as tmp:
         out_dir = Path(tmp) / "generated"
-        generate(sos, out_dir, target=target)
+        if others:
+            generate(sos, out_dir, target=target, versions=others)
+        else:
+            generate(sos, out_dir, target=target)
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for path in sorted(out_dir.rglob("*")):

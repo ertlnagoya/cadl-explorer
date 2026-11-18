@@ -147,20 +147,26 @@ def _norms_check_section(source: str):
                        "quantities, and on the points of the faces of their linear arrangement "
                        "(--max-states; default {n}). Raise it when the report says the limit was "
                        "reached.").format(n=f"{ds.MAX_STATES_DEFAULT:,}"))
-        saved = [v for v in ss.get("design_versions", []) if v["source"] != source]
-        if saved:
-            names = st.multiselect(
-                t("Amend to these saved versions, in this order"), [v["name"] for v in saved],
-                key="design_nc_versions",
-                help=t("Later versions of the design (--version): the environment may amend "
-                     "the contract to the next one at any observation (F.6)."))
-            versions = tuple((n, next(v["source"] for v in saved if v["name"] == n))
-                             for n in names)
+        from views._design.trace import _version_candidates, version_label
+        candidates = _version_candidates(source)
+        if ss.get("design_nc_versions") and any(k not in candidates
+                                                for k in ss.design_nc_versions):
+            ss.design_nc_versions = [k for k in ss.design_nc_versions if k in candidates]
+        if candidates:
+            ids = st.multiselect(
+                t("Amend to these versions, in this order"), list(candidates),
+                key="design_nc_versions", format_func=lambda k: version_label(k, candidates),
+                help=t("Later versions of the design (--version): the next one may take effect "
+                       "at any observation. With amendment 0.1 each instance then follows the "
+                       "transitional rule of its contract, also `keep` and `switch` with "
+                       "`in_states:` (K.11, cadl 0.3.36); without it the contract is amended "
+                       "(F.6). Give the versions in the order of `previous:`."))
+            versions = tuple(candidates[k] for k in ids)
         else:
             versions = ()
             st.caption(t("Amendments (`--version`) are checked against the versions saved under "
-                       "Versions; this session has none other than the current design, so none "
-                       "is checked."))
+                       "Versions, or the other `_vN` file of an example; there is none here other "
+                       "than the current design, so none is checked."))
         count = instances.strip()
         instance_option = (int(count) if count.isdigit() else
                            tuple(x.strip() for x in count.split(";") if x.strip()) or None)
@@ -495,10 +501,14 @@ def _all_witnesses(report: dict) -> dict:
     return out
 
 
-def _to_traces(trace: str, contract: str):
+def _to_traces(trace: str, contract: str, versions=()):
     ss.design_trace = trace
     ss.design_trace_ver = ss.get("design_trace_ver", 0) + 1
     ss.design_trace_contract = contract
+    # the witness names the version in force at each observation (`version`), so
+    # Traces gets the versions norms-check had, or none, and no time base
+    from views._design.trace import set_run_versions
+    set_run_versions("design_trace", ss.design_src, versions)
     ss.design_view = "Traces"
 
 
@@ -526,7 +536,9 @@ def _witnesses(report: dict):
         if not (w.get("files") or {}):
             st.button(t("Evaluate this witness under Traces (norms-eval)"), key="design_nc_to_trace",
                       on_click=_to_traces, icon=":material/timeline:",
-                      args=("\n".join(json.dumps(r) for r in records), report.get("contract")))
+                      args=("\n".join(json.dumps(r) for r in records), report.get("contract"),
+                            tuple(ss.get("design_nc_versions") or ())
+                            if any("version" in r for r in records) else ()))
 
 
 def checks(c):
