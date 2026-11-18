@@ -214,14 +214,20 @@ The app has four pages:
     downloads PRISM 4.11 in the background, checks its SHA-256 and puts it on
     PATH (`backend/services/prism_setup.py`; `CADL_EXPLORER_INSTALL_PRISM=1`
     does the same elsewhere on Linux x86-64, `=0` turns it off). The form of norms-check takes domains of quantities, several
-    instances (`--starts any` or `together`), the saved versions to amend
-    to and the limit on the states (`--max-states`). Nonlinear arithmetic is marked where an answer holds only under the
+    instances (`--starts any` or `together`), the versions to amend to (saved
+    versions, or the other `_vN` file of an example; with amendment 0.1 also
+    `keep` and `switch` with `in_states:`, cadl 0.3.36) and the limit on the
+    states (`--max-states`); a witness that names versions opens under
+    **Traces** with them. Nonlinear arithmetic is marked where an answer holds only under the
     domains that cadl assumes. **Traces** passes the other versions of a run
     (saved versions, or the other `_vN` file of an example) and its time base
     (`--version`, `--period`, `--origin`, `--epoch`) to `cadl norms-eval` and
     shows what each version did to the instance; a trace may name the regime
     of an observation (`regime`). **Measurements** runs `cadl metrics-eval`:
     each measurement met, not met or not judged, with the target in force.
+    **Agents** passes the versions of a run and the time base to
+    `cadl agents-run` (cadl 0.3.35), which switches the enforcement point at
+    the effective times; a line may name the regime (cadl 0.3.36).
   - *Change.* Named versions (several CADL files, such as the `v1.cadl`,
     `v2.cadl`, ... of a Course D run, can be added at once) and amendable parameters (values marked `# @amend:`,
     checked against a constitution and amended in place, with how far and how
@@ -234,7 +240,9 @@ The app has four pages:
   - *Deliver.* The design is exported as CADL, simulator IR, simulator config
     or runtime code, agent policies (Rego, Cedar) for agents 0.1 and PRISM
     files for stochastic 0.1. **Export** lists the norms monitors of the OPA
-    and Solidity code with their warnings and names `cadl mcp-gateway`,
+    and Solidity code with their warnings; for the OPA, Solidity and Unity C#
+    targets it takes the other versions of a run (`cadl codegen --version`,
+    cadl 0.3.36), so that the code follows the version in force. It names `cadl mcp-gateway`,
     `cadl a2a-gateway` and `cadl audit-verify`, which the Explorer does not
     run as gateways.
 
