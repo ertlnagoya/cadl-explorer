@@ -70,5 +70,7 @@ with st.sidebar:
                "uses. Without PRISM, norms-check writes the model but checks nothing.")
         + ("" if tools["prism"] or not prism_setup.status()["error"] else "\n\n"
            + t("PRISM could not be installed here: {e}").format(
-               e=prism_setup.status()["error"])))
+               e=prism_setup.status()["error"]))
+        + ("" if tools["prism"] or not prism_setup.wanted() else "\n\n"
+           + t("Installation of PRISM: {d}").format(d=prism_setup.diagnostics())))
 page.run()

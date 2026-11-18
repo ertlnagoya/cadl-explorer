@@ -102,6 +102,9 @@ def _norms_check_section(source: str):
                 if prism_setup.status()["error"]:
                     st.caption(t("PRISM could not be installed here: {e}").format(
                         e=prism_setup.status()["error"]))
+                if prism_setup.wanted():
+                    st.caption(t("Installation of PRISM: {d}").format(
+                        d=prism_setup.diagnostics()))
         c1, c2, c3 = st.columns(3)
         contract = c1.selectbox(t("Contract"), contracts, key="design_nc_contract")
         bindings = c2.text_input(t("Bindings (i=n, ...)"), key="design_nc_bindings",

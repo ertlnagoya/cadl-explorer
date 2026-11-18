@@ -160,3 +160,22 @@ def ensure_prism(wait: bool = False) -> Optional[str]:
 def status() -> dict:
     """{"status": ..., "error": ...} of the installation in this process."""
     return {"status": _state["status"], "error": _state["error"]}
+
+
+def diagnostics() -> str:
+    """One line on where the installation stands, for the page when PRISM is
+    not found: the status, the directory, its marker file and `bin/prism`, and
+    whether that `bin` is on PATH and found by `shutil.which`."""
+    target = prism_dir()
+    binary = target / "bin" / "prism"
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    return "; ".join([
+        f"status {_state['status']}",
+        f"wanted {wanted()} (Cloud {_on_cloud()})",
+        f"directory {target}",
+        f"marker {(target / '.installed').exists()}",
+        f"bin/prism {binary.exists()}, executable {os.access(binary, os.X_OK)}",
+        f"bin on PATH {str(target / 'bin') in path}",
+        f"which prism {shutil.which('prism')}",
+        f"java {shutil.which('java')}",
+    ])
