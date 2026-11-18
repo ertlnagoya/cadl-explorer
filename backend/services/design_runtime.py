@@ -131,6 +131,27 @@ def supports_run_versions() -> bool:
     return importlib.util.find_spec("cadl.metrics_eval") is not None
 
 
+def supports_agents_versions() -> bool:
+    """Whether `cadl agents-run` takes the versions of a run (--version, cadl 0.3.35)."""
+    import inspect
+    try:
+        from cadl.agents_runtime import run
+    except ImportError:
+        return False
+    return "run_versions" in inspect.signature(run).parameters
+
+
+def supports_codegen_versions() -> bool:
+    """Whether `cadl codegen` takes the versions of a run (--version for the targets
+    opa, solidity and unity-csharp, cadl 0.3.36)."""
+    import inspect
+    from cadl.codegen import generate
+    return "versions" in inspect.signature(generate).parameters
+
+
+CODEGEN_VERSION_TARGETS = ("opa", "solidity", "unity-csharp")
+
+
 def _report(run: dict, command: str) -> dict:
     if run["failure"]:
         return {"failure": run["failure"], "transient": run.get("transient", False)}
@@ -176,10 +197,16 @@ def metrics_eval(source: str, measurements: str, versions=(), period: Optional[s
     return out
 
 
-def agents_run(source: str, trace: str) -> dict:
+def agents_run(source: str, trace: str, versions=(), period: Optional[str] = None,
+               origin: Optional[float] = None, epoch: bool = False) -> dict:
     """{"report": the JSON of `cadl agents-run`, "audit": the audit log (JSON Lines),
-    "failure"}: every message of the trace decided at the enforcement point."""
-    run = _with_trace("agents-run", source, trace, ["--audit", "{audit}"])
+    "failure", "notes"}: every message of the trace decided at the enforcement point.
+    With `versions` ((name, source) each) and a time base, the enforcement point
+    switches to a version at the first line whose time reaches its effective time
+    (cadl 0.3.35); a line may name the regime (`regime`, cadl 0.3.36)."""
+    run = _with_trace("agents-run", source, trace,
+                      ["--audit", "{audit}"] + (time_base(period, origin, epoch) if versions else []),
+                      versions)
     out = _report(run, "agents-run")
     if out.get("report"):
         out["report"]["file"], out["report"]["trace"] = "the design", "the trace"

@@ -160,8 +160,21 @@ def export(c):
         ss.design_code_target = next(iter(targets))
     code_target = c1.selectbox(t("Target"), list(targets),
                                format_func=labels.get, key="design_code_target")
+    versions = ()
+    if (code_target in runtime.CODEGEN_VERSION_TARGETS and runtime.supports_codegen_versions()):
+        from views._design.trace import run_versions
+        versions, _ = run_versions(
+            source, "design_code", title=t("Versions of the run for this target (amendment 0.1)"),
+            time_base=False, caption=t(
+                "With the other versions of the run (`cadl codegen --version`, cadl 0.3.36), the "
+                "OPA and Solidity norms monitors and the Unity C# lifecycle code hold every "
+                "version and follow the version in force that the host names: the key `version` "
+                "of an observation (OPA), `setVersion` (Solidity) or `SetVersion` (Unity C#). "
+                "Without them, a contract whose running instances switch to this version gets "
+                "no monitor, and Unity C# refuses the file. The Python target applies the "
+                "versions at run time (`run_versions`)."))
     try:
-        code_zip = cached_codegen(source, code_target)
+        code_zip = cached_codegen(source, code_target, versions)
     except Exception as e:
         c2.error(t("Cannot generate: {e}").format(e=e))
     else:
@@ -203,7 +216,26 @@ def export(c):
                          "at any depth); the Rego "
                          "monitor refuses `/`. The warnings below say which. Unity C# leaves out "
                          "the items with `within`, `throughout` or `until`."))
-    if runtime.supports_run_versions() and ({"regimes", "amendment"} & set(extensions)):
+    if runtime.supports_codegen_versions() and "regimes" in extensions:
+        notes.append(t("Every target follows the current regime (cadl 0.3.36). An observation "
+                       "names it with the key `regime` (OPA), as do a policy input (agent "
+                       "policies) and a line of the trace of `agents-run`; the orchestrator sets "
+                       "it with `setRegime` (Solidity) and the host with `CadlRegimes.Set` (Unity "
+                       "C#). A gateway takes the first regime from `--init` and later ones from "
+                       "its inbox (`cadl mcp-regime`). While a contract is not in force its clock "
+                       "stops and it sees nothing. `amend` is refused where regimes take an "
+                       "enforced contract out of force. The regime controller of the Python "
+                       "target refuses a transition whose safety invariant does not hold."))
+    if runtime.supports_codegen_versions() and "amendment" in extensions:
+        notes.append(t("The OPA, Solidity and Unity C# targets follow the versions of the run "
+                       "chosen above (cadl 0.3.36); the Python target writes `version.py` and "
+                       "applies the versions at run time. cadl refuses, with the reason: in the "
+                       "Solidity monitor, versions whose lifecycles or actors differ; at the "
+                       "agent boundary (`agents-run`, the gateways), a version whose rule for a "
+                       "changed contract is `keep` or `switch` with `in_states:` while an "
+                       "instance of that contract runs."))
+    if (not runtime.supports_codegen_versions() and runtime.supports_run_versions()
+            and ({"regimes", "amendment"} & set(extensions))):
         notes.append(t("cadl leaves out what cannot follow the current regime or version. With a "
                        "warning, it does not generate the OPA and Solidity norms monitors of a "
                        "contract that some regime suspends, or whose running instances switch to "
@@ -226,7 +258,7 @@ def export(c):
                      "G.13). The Explorer does not run them.").format(url=SPEC_URL))
     for note in notes:
         st.caption(note)
-    monitors = cached_monitor_notes(source, code_target) if "norms" in extensions else None
+    monitors = cached_monitor_notes(source, code_target, versions) if "norms" in extensions else None
     if monitors and (monitors["files"] or monitors["warnings"]):
         if monitors["files"]:
             st.caption(t("Norms monitors in this archive:") + " "

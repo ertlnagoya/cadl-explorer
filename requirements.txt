@@ -43,8 +43,11 @@ pandas>=2.0.0
 # `norms-check --max-states`, which the Checks pass. 0.3.33 runs the regimes
 # (the key `regime` of a trace) and 0.3.34 the versions of a run
 # (`norms-eval --version`, `--period`), which Traces passes, and adds
-# `metrics-eval`, which Measurements runs.
-cadl-lang>=0.3.34
+# `metrics-eval`, which Measurements runs. 0.3.35 runs the versions in
+# `agents-run`, which Agents passes, and infers `previous:`; 0.3.36 lets every
+# target follow the regimes, takes `codegen --version`, which Export passes,
+# and `norms-check --version` with `keep` and `in_states:`.
+cadl-lang>=0.3.36
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.

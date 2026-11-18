@@ -1,0 +1,77 @@
+# =====================================================================
+# agents_versions_v1.cadl -- the agent governance example (Appendix G,
+# G.12) with the amendment extension (Appendix K), version 1.
+#
+# Version 1 does not let the planner read files from FILES: its calls
+# read_file are denied. Version 2 (agents_versions_v2.cadl) adds that
+# permission from period 2 on. It leaves out previous:, so cadl takes the
+# version with the latest effective time before its own (cadl 0.3.35).
+# Replay a trace through the enforcement point with a period of one hour:
+#   cadl agents-run agents_versions_v1.cadl --version agents_versions_v2.cadl \
+#     --period 3600s --trace traces/agents_versions_v1_a_switch.jsonl
+# =====================================================================
+
+sos:
+  name: "AssistedReporting"
+  version: "1"
+  extensions:
+    - norms: 0.1
+    - agents: 0.1
+    - amendment: 0.1
+
+  actors:
+    - id: OPERATOR
+      role: "Human operator who owns the task and the files"
+      agent: { kind: human }
+    - id: PLANNER
+      role: "LLM agent that plans the report and calls tools"
+      agent: { kind: llm_agent, protocol: a2a }
+    - id: SUMMARIZER
+      role: "LLM sub-agent that summarises files for the planner"
+      agent: { kind: llm_agent, protocol: a2a }
+    - id: FILES
+      role: "File store"
+      agent: { kind: tool_server, protocol: mcp, tools: [read_file, delete_file] }
+    - id: TICKETS
+      role: "Issue tracker"
+      agent: { kind: tool_server, protocol: mcp, tools: [search_tickets, create_ticket] }
+
+  contracts:
+    - id: ASSISTED_REPORTING
+      parties: [OPERATOR, PLANNER, SUMMARIZER, FILES, TICKETS]
+      enforcement:
+        point: gateway      # default: omitted -> deny tool calls, allow other messages
+      counts_as:
+        - { when: "OPERATOR -> PLANNER : approve", creates: approval }
+        - { when: "OPERATOR -> PLANNER : reject",  creates: rejection }
+      norms:
+        - id: may_read
+          kind: permission
+          bearer: OPERATOR
+          content: "OPERATOR -> FILES : read_file"
+        - id: may_search
+          kind: permission
+          bearer: PLANNER
+          content: "PLANNER -> TICKETS : search_tickets"
+        - id: may_file_ticket
+          kind: permission
+          bearer: PLANNER
+          content: "PLANNER -> TICKETS : create_ticket"
+        - id: no_delete
+          kind: prohibition
+          bearer: PLANNER
+          content: "PLANNER -> FILES : delete_file"
+          on_denied:
+            escalate_to: OPERATOR
+            timeout: 10min
+            fallback: "PLANNER -> TICKETS : create_ticket"
+            notify: OPERATOR
+      delegations:
+        - norm: may_read
+          to: [PLANNER, SUMMARIZER]
+          grant: grant_read
+          revoke: revoke_read
+          max_depth: 2
+
+  amendment:
+    transitional: { default: switch }

@@ -50,8 +50,9 @@ def _metrics_eval(source: str, measurements: str, versions: tuple = (),
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
-def _agents_run(source: str, trace: str) -> dict:
-    return _uncached(runtime.agents_run(source, trace))
+def _agents_run(source: str, trace: str, versions: tuple = (),
+                base: tuple = (None, 0.0, False)) -> dict:
+    return _uncached(runtime.agents_run(source, trace, versions, *base))
 
 
 def cached_norms_eval(source: str, trace: str, contract: str, versions: tuple = (),
@@ -72,9 +73,10 @@ def cached_metrics_eval(source: str, measurements: str, versions: tuple = (),
         return e.result
 
 
-def cached_agents_run(source: str, trace: str) -> dict:
+def cached_agents_run(source: str, trace: str, versions: tuple = (),
+                      base: tuple = (None, 0.0, False)) -> dict:
     try:
-        return _agents_run(source, trace)
+        return _agents_run(source, trace, versions, base)
     except _NotCached as e:
         return e.result
 
@@ -203,14 +205,15 @@ def _norms_check_answers(contract: str) -> dict:
 
 # The length of a period for the examples whose files do not name one in a
 # comment (`--period D`); the measurements of the robot town name periods.
-EXAMPLE_PERIODS = {"amendment_robot_town": "3600s"}
+EXAMPLE_PERIODS = {"amendment_robot_town": "3600s", "agents_versions": "3600s"}
 
 
 def _version_candidates(source: str) -> dict:
-    """{id: (label, source)} of the other versions a run can have: the versions
+    """{id: (name, source)} of the other versions a run can have: the versions
     saved under Versions ("saved:NAME"), and the bundled versions of the example
-    that the source is, its stem with another `_vN` ("example:STEM"). The ids do
-    not depend on the language of the page."""
+    that the source is, its stem with another `_vN` ("example:STEM"). The ids and
+    the names do not depend on the language of the page; version_label() is the
+    label to show."""
     out = {f"saved:{v['name']}": (v["name"], v["source"])
            for v in ss.get("design_versions", []) if v["source"] != source}
     stem = example_stem(source)
@@ -218,9 +221,28 @@ def _version_candidates(source: str) -> dict:
     if found:
         for path in sorted(ds.DESIGNS_DIR.glob(f"{found.group(1)}_v*.cadl")):
             if path.stem != stem and re.fullmatch(r".+_v\d+", path.stem):
-                out[f"example:{path.stem}"] = (t("example: {name}").format(name=path.stem),
-                                               path.read_text(encoding="utf-8"))
+                out[f"example:{path.stem}"] = (path.stem, path.read_text(encoding="utf-8"))
     return out
+
+
+def version_label(key: str, candidates: dict) -> str:
+    """The label of a candidate of _version_candidates on the page."""
+    name = candidates[key][0]
+    return t("example: {name}").format(name=name) if key.startswith("example:") else name
+
+
+RUN_VERSION_FIELDS = ("versions", "period", "origin", "epoch")
+
+
+def set_run_versions(key: str, source: str, versions=(), period: str = "",
+                     origin: float = 0.0, epoch: bool = False):
+    """Set the choices of run_versions(key) for the design (in a callback, before
+    the widgets are drawn)."""
+    values = {"versions": list(versions), "period": period, "origin": origin, "epoch": epoch}
+    ss[f"{key}_design"] = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    ss[f"{key}_saved"] = dict(values)
+    for name, value in values.items():
+        ss[f"{key}_{name}"] = value
 
 
 def _default_period(source: str) -> str:
@@ -231,36 +253,48 @@ def _default_period(source: str) -> str:
     return EXAMPLE_PERIODS.get(family, "")
 
 
-def run_versions(source: str, key: str, title: str = ""):
+def run_versions(source: str, key: str, title: str = "", time_base: bool = True,
+                 caption: str = ""):
     """The other versions of a run and its time base (amendment 0.1, K.11), or
     ((), (None, 0.0, False)) when the design does not declare the extension or
-    cadl is older than 0.3.34. The choices start again for another design."""
+    cadl is older than 0.3.34. The choices start again for another design. Without
+    `time_base` only the versions are asked for (`cadl codegen --version`)."""
     none = ((), (None, 0.0, False))
     if "amendment" not in ds.extensions_in_effect(source) or not runtime.supports_run_versions():
         return none
     candidates = _version_candidates(source)
     design = hashlib.sha256(source.encode("utf-8")).hexdigest()
     if ss.get(f"{key}_design") != design:
-        ss[f"{key}_design"] = design
-        ss[f"{key}_versions"] = [k for k in candidates if k.startswith("example:")]
-        ss[f"{key}_period"] = _default_period(source)
-        ss[f"{key}_origin"] = 0.0
-        ss[f"{key}_epoch"] = False
-    else:                                   # a version saved or removed meanwhile
+        set_run_versions(key, source, [k for k in candidates if k.startswith("example:")],
+                         _default_period(source))
+    else:
+        # Streamlit drops the value of a widget that a run does not draw (another
+        # view or target); the choices come back from the copy kept beside them
+        saved = ss.get(f"{key}_saved") or {}
+        for name in RUN_VERSION_FIELDS:
+            if f"{key}_{name}" not in ss and name in saved:
+                ss[f"{key}_{name}"] = saved[name]
+        # a version saved or removed meanwhile
         ss[f"{key}_versions"] = [k for k in ss.get(f"{key}_versions", []) if k in candidates]
     with st.expander(title or t("Versions of the run (amendment 0.1)"), expanded=bool(candidates)):
-        st.caption(t(
-            "The versions form one sequence by `previous:`. The version in force at an "
-            "observation comes from the effective times on a time base, from the key `version` "
-            "of the observation, or both; when a version takes effect, an instance follows the "
-            "transitional rule of its contract: `keep`, or `switch` (with `in_states:` only in "
-            "those states) (Appendix K, K.11)."))
+        st.caption(caption or t(
+            "The versions form one sequence by `previous:`; a version without `previous:` "
+            "replaces the one with the latest effective time before its own. The version in "
+            "force at an observation comes from the effective times on a time base, from the "
+            "key `version` of the observation, or both; when a version takes effect, an "
+            "instance follows the transitional rule of its contract: `keep`, or `switch` (with "
+            "`in_states:` only in those states) (Appendix K, K.11)."))
         if not candidates:
             st.caption(t("Save the other versions under Versions to apply them here."))
             return none
         ids = st.multiselect(t("Other versions of the run"), list(candidates),
-                             key=f"{key}_versions", format_func=lambda k: candidates[k][0],
+                             key=f"{key}_versions",
+                             format_func=lambda k: version_label(k, candidates),
                              help=t("Passed as --version FILE each; the order does not matter."))
+        saved = ss.setdefault(f"{key}_saved", {})
+        saved["versions"] = list(ids)
+        if not time_base:
+            return tuple(candidates[k] for k in ids if k in candidates), none[1]
         c1, c2, c3 = st.columns(3, vertical_alignment="bottom")
         period = c1.text_input(t("Length of a period"), key=f"{key}_period",
                                placeholder="3600s",
@@ -271,6 +305,7 @@ def run_versions(source: str, key: str, title: str = ""):
                                  help=t("--origin (default 0)."))
         epoch = c3.checkbox(t("Time stamps are Unix time"), key=f"{key}_epoch",
                             help=t("--epoch: for `effective: { at: ... }`."))
+        saved.update(period=period, origin=origin, epoch=epoch)
     versions = tuple(candidates[k] for k in ids if k in candidates)
     return versions, (period.strip() or None, float(origin or 0.0), bool(epoch))
 
@@ -424,12 +459,21 @@ def agents(c):
     except runtime.TraceError as e:
         st.error(str(e))
         return
-    result = cached_agents_run(source, text)
+    versions, base = (run_versions(source, "design_agents_run", caption=t(
+        "The enforcement point switches to a version at the first line whose time reaches its "
+        "effective time, before the instances of the line are created; a line may also name "
+        "the version in force (`version`) and the regime (`regime`). A version whose rule for "
+        "a changed contract is `keep` or `switch` with `in_states:` is refused while an "
+        "instance of that contract runs (Appendix G, Appendix K, K.11)."))
+                      if runtime.supports_agents_versions() else ((), (None, 0.0, False)))
+    result = cached_agents_run(source, text, versions, base)
     if result.get("failure"):
         st.error(t("Not replayed: {e}").format(e=result["failure"]))
         return
     report = result["report"]
-    _record("agents-run", source, text, report)
+    _record("agents-run", source, text, report, (versions, base))
+    for note in result.get("notes") or []:
+        st.warning(_plain(note), icon=":material/warning:")
     s = report.get("summary") or {}
     holds = s.get("holds") or {}
     with st.container(horizontal=True):
@@ -466,6 +510,13 @@ def agents(c):
         } for h in report["holds"]], hide_index=True, width="stretch", column_config={
             k: st.column_config.Column(t(k)) for k in (
                 "hold", "state", "message", "approver", "deadline", "closed", "released")})
+    if report.get("amendments"):
+        st.markdown("**" + t("Versions and amendments during the run") + "**")
+        st.dataframe([{"time": a.get("time"), "file": a.get("file"),
+                       "contracts": ", ".join(a.get("contracts") or []) or "—"}
+                      for a in report["amendments"]], hide_index=True, width="stretch",
+                     column_config={k: st.column_config.Column(t(k))
+                                    for k in ("time", "file", "contracts")})
     for w in report.get("warnings") or []:
         st.warning(_plain(str(w)))
     audit = result.get("audit") or ""

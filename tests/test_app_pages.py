@@ -692,7 +692,7 @@ def test_designer_norms_check_with_instances_and_a_saved_version():
     at = _view(_set_design(_designer(), small), "Checks")
     assert not at.exception
     assert at.text_input(key="design_nc_domains") and at.text_input(key="design_nc_instances")
-    assert any("this session has none other than the current design" in c.value for c in at.caption)
+    assert any("there is none here other than the current design" in c.value for c in at.caption)
     # a saved version is offered for --version
     at = _view(at, "Versions")
     at.text_input(key="design_version_name").set_value("later").run()
