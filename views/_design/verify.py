@@ -99,6 +99,9 @@ def _norms_check_section(source: str):
                 st.info(t("PRISM is not installed where this app runs, so `cadl norms-check` "
                         "checks nothing here; it still writes the model, which you can "
                         "download and check with PRISM on your machine."))
+                if prism_setup.status()["error"]:
+                    st.caption(t("PRISM could not be installed here: {e}").format(
+                        e=prism_setup.status()["error"]))
         c1, c2, c3 = st.columns(3)
         contract = c1.selectbox(t("Contract"), contracts, key="design_nc_contract")
         bindings = c2.text_input(t("Bindings (i=n, ...)"), key="design_nc_bindings",

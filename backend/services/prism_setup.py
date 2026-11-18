@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tarfile
 import threading
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -31,9 +32,11 @@ PRISM_URL = ("https://github.com/prismmodelchecker/prism/releases/download/"
 PRISM_SHA256 = "6d4677b6ab64daa16a8bb5ad05f79c46313ad67835cb8445ee770e7f57f611c8"
 DOWNLOAD_TIMEOUT = 120      # seconds
 INSTALL_TIMEOUT = 120
+RETRY_AFTER = 600           # seconds after a failure before the next try
 
 _lock = threading.Lock()
-_state = {"status": None, "error": None}    # status: None, "installing", "ready", "failed"
+# status: None, "installing", "ready", "failed" or "unsupported"
+_state = {"status": None, "error": None, "failed_at": 0.0}
 
 
 def _on_cloud() -> bool:
@@ -48,10 +51,18 @@ def wanted() -> bool:
     return _on_cloud()
 
 
+def unsupported_reason() -> Optional[str]:
+    """Why PRISM cannot be installed here, or None: the archive is for Linux on
+    x86-64, and PRISM runs on Java."""
+    if platform.system() != "Linux" or platform.machine() not in ("x86_64", "AMD64"):
+        return f"the archive of PRISM is for Linux on x86-64, not {platform.system()} on {platform.machine()}"
+    if shutil.which("java") is None:
+        return "there is no Java on PATH (packages.txt installs default-jre-headless)"
+    return None
+
+
 def supported() -> bool:
-    """The archive is for Linux on x86-64, and PRISM runs on Java."""
-    return (platform.system() == "Linux" and platform.machine() in ("x86_64", "AMD64")
-            and shutil.which("java") is not None)
+    return unsupported_reason() is None
 
 
 def prism_dir() -> Path:
@@ -111,12 +122,14 @@ def _run(target: Path) -> None:
         _put_on_path(target / "bin")
         _state.update(status="ready", error=None)
     except Exception as exc:        # noqa: BLE001 - reported on the page
-        _state.update(status="failed", error=str(exc) or type(exc).__name__)
+        _state.update(status="failed", error=str(exc) or type(exc).__name__,
+                      failed_at=time.monotonic())
 
 
 def ensure_prism(wait: bool = False) -> Optional[str]:
-    """Make PRISM available if it is wanted here; returns the status
-    (None when nothing is done, "installing", "ready" or "failed")."""
+    """Make PRISM available if it is wanted here; returns the status (None when
+    nothing is done, "installing", "ready", "failed", or "unsupported"). A failure
+    is tried again after RETRY_AFTER seconds."""
     if shutil.which("prism") or not wanted():
         return _state["status"]
     target = prism_dir()
@@ -125,7 +138,13 @@ def ensure_prism(wait: bool = False) -> Optional[str]:
             _put_on_path(target / "bin")
             _state.update(status="ready", error=None)
             return "ready"
-        if _state["status"] in ("installing", "failed") or not supported():
+        retry = (_state["status"] == "failed"
+                 and time.monotonic() - _state.get("failed_at", 0.0) >= RETRY_AFTER)
+        reason = unsupported_reason()
+        if reason:
+            _state.update(status="unsupported", error=reason)
+            thread = None
+        elif _state["status"] in ("installing", "failed") and not retry:
             thread = _state.get("thread")
         else:
             _state["status"] = "installing"

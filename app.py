@@ -67,5 +67,8 @@ with st.sidebar:
         + (tools["prism"] or (t("being installed") if setup == "installing"
                               else t("not installed"))),
         help=t("The cadl that checks the designs here, and the PRISM that `cadl norms-check` "
-               "uses. Without PRISM, norms-check writes the model but checks nothing."))
+               "uses. Without PRISM, norms-check writes the model but checks nothing.")
+        + ("" if tools["prism"] or not prism_setup.status()["error"] else "\n\n"
+           + t("PRISM could not be installed here: {e}").format(
+               e=prism_setup.status()["error"])))
 page.run()
