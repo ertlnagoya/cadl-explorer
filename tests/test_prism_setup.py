@@ -117,3 +117,14 @@ def test_a_failure_is_tried_again_later(fresh, monkeypatch):
     assert ps.ensure_prism(wait=True) == "failed"          # not yet
     monkeypatch.setattr(ps, "RETRY_AFTER", 0)
     assert ps.ensure_prism(wait=True) == "ready"
+
+
+def test_the_diagnostics_say_where_the_installation_stands(fresh, monkeypatch):
+    monkeypatch.setenv("CADL_EXPLORER_INSTALL_PRISM", "1")
+    line = ps.diagnostics()
+    assert "status None" in line and "marker False" in line and "bin on PATH False" in line
+    _serve(monkeypatch, _archive(fresh))
+    assert ps.ensure_prism(wait=True) == "ready", ps.status()
+    line = ps.diagnostics()
+    assert "status ready" in line and "marker True" in line
+    assert "executable True" in line and "bin on PATH True" in line
