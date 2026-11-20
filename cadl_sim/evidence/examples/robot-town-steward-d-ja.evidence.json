@@ -1,0 +1,1613 @@
+{
+ "format": "robot-town-evidence/1",
+ "run": {
+  "name": "ev-d",
+  "tool": "town.steward",
+  "mode": "DISTRIBUTED",
+  "lang": "ja",
+  "rounds": 6,
+  "llm": "replay",
+  "model": "claude-opus-5-5",
+  "replay_dir": "examples/steward-d",
+  "cadl": "0.3.36",
+  "created": "2026-11-20T20:19:52+09:00"
+ },
+ "inputs": {
+  "rules": {
+   "path": "robot_town.cadl",
+   "sha256": "7d1a1d4980988b251b6c777d28a23f02a31497c3736ad57e7042ad94e4f8e45d"
+  },
+  "constitution": {
+   "path": "constitution.yaml",
+   "sha256": "9789d974d43432cad1b1416270cdb3376ca43be1804ce5893daedb03756ca2c0"
+  },
+  "scenario": {
+   "path": "scenario.yaml",
+   "sha256": "02517c26f3bbda567f98d3465e2392bb8819fc0ccf4b67262a9a1675329732df"
+  },
+  "kpi": {
+   "path": "kpi.md",
+   "sha256": "ef7383a8943506ec7fa4e04fdbc66f8c4fc0a703118c11df49b970f01b6a8412"
+  },
+  "answers": {
+   "path": "answers.yaml",
+   "sha256": "05cdc323a390213f14015082bf27ad447aee8a134b7f04c027b2a4df1c97ed21"
+  }
+ },
+ "records": [
+  {
+   "id": "K1",
+   "type": "kpi",
+   "period": 1,
+   "since": 1,
+   "text": "顧客に約束した時間（注文から集荷まで 120 秒、集荷から配達まで 120 秒）のうちに届く配達を、町全体でできるだけ増やしたい。どの会社の顧客も、ひどく待たされることがないようにしたい。",
+   "how": "llm",
+   "interpretation": "KPI の前半は、約束の時間（注文から集荷まで 120 秒、集荷から配達まで 120 秒）のうちに届く配達を町全体で増やすことなので、主目標は on_time_deliveries（町全体の定時配達件数）と読みます。同じ乱数シードで注文件数が同じなら、on_time_rate で測っても順位は変わりません。後半の「どの会社の顧客も、ひどく待たされることがない」は、会社ごとの待ち時間を監視する条件と読みます。ただし、「ひどく待たされる」の水準（何秒を超えたらひどいか、何割の注文までなら許すか）は KPI に書かれていません。そのため、guards には入れず、悪化を監視する目標として target を付けずに置きます。「ひどく待たされる」をどの指標で表すかは、読み方が分かれます。",
+   "options": [
+    {
+     "id": "1",
+     "label": "定時配達件数を増やし、各社の待ち時間の 95 パーセンタイルを監視する",
+     "measure_text": "主目標 on_time_deliveries（増やす）、worst_company_p95_wait_s（減らす）、unfinished（減らす）",
+     "note": "「ひどく待たされる」を、会社ごとに見て大部分の顧客（95%）の待ち時間が長くなることと読みます。少数の例外的な注文に評価が左右されにくい読み方です。水準が書かれていないため target と guards は付けていません。水準を決めていただければ、worst_company_p95_wait_s <= x 秒を guards に加えます。"
+    },
+    {
+     "id": "2",
+     "label": "定時配達件数を増やし、町全体で最も長い待ち時間を監視する",
+     "measure_text": "主目標 on_time_deliveries（増やす）、max_wait_s（減らす）、worst_company_p95_wait_s（減らす）",
+     "note": "「どの会社の顧客も」を、どの 1 件の顧客もと厳しく読みます。最も長い待ち時間は 1 件の注文で決まるため、乱数による変動が大きく、改善の判定が不安定になる恐れがあります。水準が書かれていないため target と guards は付けていません。"
+    },
+    {
+     "id": "3",
+     "label": "定時配達件数を増やし、会社ごとの定時率の差を監視する",
+     "measure_text": "主目標 on_time_deliveries（増やす）、min_company_on_time_rate（増やす）、worst_company_p95_wait_s（減らす）",
+     "note": "「どの会社の顧客も」を、会社の間の公平さに重点を置いて読みます。町全体の件数を増やすために、特定の会社の顧客にしわ寄せが行くことを防ぐ意図です。ただし、定時率は遅れの長さを表さないため、待ち時間の監視も残しています。水準が書かれていないため target と guards は付けていません。"
+    }
+   ],
+   "concerns": [
+    "「ひどく待たされる」の水準（何秒を超えたらひどいか）が KPI に書かれていないため、guards を置けません。いまのままでは、待ち時間の悪化は監視するだけで、改正を止める条件になりません。守らせたい場合は、たとえば「各社の待ち時間の 95 パーセンタイルを x 秒以内」のような水準を決めてください。",
+    "定時配達件数だけを追うと、すでに約束の時間を過ぎた注文を後回しにする改正が有利になります。その結果、遅れた注文の待ち時間が大きく延びたり、期の終わりに未配達のまま残ったりする恐れがあります。未配達の注文は、期の終わりまでの秒数で待ち時間に数えられるので、待ち時間の監視でこの影響も捉えられます。",
+    "町全体の定時配達件数を増やすことと、どの会社の顧客も待たせないことは、ぶつかる場合があります。道路の優先順位を変えると、ある会社の件数が増える代わりに、別の会社の待ち時間が延びることがあります。どの程度まで許すかは、人間が決めることです。",
+    "「ひどく待たされる」をどの指標で表すかによって、どの改正が採択されるかが変わります。会社ごとの 95 パーセンタイルで表すか（option 1）、1 件の最長の待ち時間で表すか（option 2）、会社ごとの定時率の差で表すか（option 3）を選んでください。"
+   ],
+   "revisit": [],
+   "recommended": "1",
+   "measure": {
+    "label": "定時配達件数を増やし、各社の待ち時間の 95 パーセンタイルを監視する",
+    "goals": [
+     {
+      "metric": "on_time_deliveries",
+      "text": "町全体の定時配達件数を増やす（主目標）"
+     },
+     {
+      "metric": "worst_company_p95_wait_s",
+      "text": "最も待ち時間の長い会社の、待ち時間の 95 パーセンタイルが悪化しないことを監視する（どの会社の顧客もひどく待たされないこと）"
+     },
+     {
+      "metric": "unfinished",
+      "text": "期の終わりに未配達のまま残る注文が増えないことを監視する"
+     }
+    ],
+    "guards": [],
+    "note": "「ひどく待たされる」を、会社ごとに見て大部分の顧客（95%）の待ち時間が長くなることと読みます。少数の例外的な注文に評価が左右されにくい読み方です。水準が書かれていないため target と guards は付けていません。水準を決めていただければ、worst_company_p95_wait_s <= x 秒を guards に加えます。"
+   },
+   "measure_text": "主目標 on_time_deliveries（増やす）、worst_company_p95_wait_s（減らす）、unfinished（減らす）",
+   "llm_record": "llm/p1-kpi.json",
+   "request_file": "p1-kpi-request.md",
+   "decision": {
+    "by": "human",
+    "choice": "1",
+    "followed_llm": true,
+    "reason": "KPI の文の順のとおり、町全体の定時配達を主目標にし、どの会社の顧客もひどく待たせないことは、会社ごとの待ち時間の 95 パーセンタイルで監視する。「ひどく」の水準は、第 1 期の測定を見てから決める。",
+    "assumptions": [
+     "顧客は配送の会社を選べない"
+    ]
+   }
+  },
+  {
+   "id": "D1",
+   "type": "decision",
+   "period": 1,
+   "env": {
+    "label": "平常",
+    "order_interval_s": 75,
+    "rush": null,
+    "seeds": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ]
+   },
+   "kpi": "K1",
+   "version_in_force": 1,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 121.8,
+     "on_time_rate": 0.9213,
+     "p95_wait_s": 188.4,
+     "max_wait_s": 385.2,
+     "worst_company_p95_wait_s": 272.6,
+     "late_deliveries": 10.4,
+     "unfinished": 0.0,
+     "blocked_s": 2404.2,
+     "road_violations": 25.8,
+     "violation_total": 36.2,
+     "min_company_on_time_rate": 0.8426,
+     "on_time_rate_gap": 0.1574,
+     "utility_gap": 10.1,
+     "sanction_total": 15.7
+    },
+    "utility": {
+     "A": 38.4,
+     "B": 38.9,
+     "C": 28.8
+    }
+   },
+   "achievement": null,
+   "assessment": "A 社は道路で一度も待っていませんが、ふさがれた時間が 1352 秒と最も長く、定時率は 0.84 で 3 社の中で最も低い値です。待ち時間の 95 パーセンタイルが最も長い会社（273 秒）も A 社である可能性が高いと考えます。一方、C 社は道路で 39.6 回待ち、定時率は 1.00 ですが、罰点 14.8 を受けています。違反の大半は release の期限超過（23.0 件）で、blocking_guard による退去は 2.8 件にとどまるため、道路上に止まった車両がほかの会社の通行をふさぎ、A 社と B 社の集荷の遅れ（deadline:pickup=7.8）につながっていると読み取れます。なお、K1 で人間が「第 1 期の測定を見てから決める」とした「ひどく待たされる」の水準については、今期の worst_company_p95_wait_s が 273 秒、町全体の p95 が 188 秒、max が 385 秒でした。worst_company_p95_wait_s <= x 秒を guards に加えるかどうか、ご判断をお願いします。",
+   "candidates": [
+    {
+     "id": "1",
+     "kind": "amend",
+     "title": "blocking_guard の退去しきい値 block_k を 3 から 2 に下げる",
+     "label": "block_k 3 → 2",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "A 社のふさがれた秒数 1352 と B 社の 849 に対し、blocking_guard による退去は 2.8 件しか起きていません。後ろで 2 台が待った時点で退去させれば交差点 8 の閉塞が短くなり、A 社の集荷遅れ（deadline:pickup=7.8）が減って、on_time_deliveries と worst_company_p95_wait_s がともに改善する見込みです。投票では、A 社は罰点がなくふさがれる側なので賛成する見込みです。B 社は待つ側でもあるため利害は中立から賛成と見ています。C 社は退去による Major 罰点が増えるので反対する見込みで、2 社の賛成による採択は B 社の効用の変化次第です。",
+     "llm_flag": null,
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": true,
+      "seeds": true,
+      "vote": false
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 131.0,
+      "on_time_rate": 0.9909,
+      "p95_wait_s": 81.4,
+      "max_wait_s": 244.8,
+      "worst_company_p95_wait_s": 95.6,
+      "late_deliveries": 1.2,
+      "unfinished": 0.0,
+      "blocked_s": 985.4,
+      "road_violations": 34.0,
+      "violation_total": 35.2,
+      "min_company_on_time_rate": 0.9835,
+      "on_time_rate_gap": 0.0165,
+      "utility_gap": 26.4,
+      "sanction_total": 29.4
+     },
+     "utility": {
+      "A": 45.4,
+      "B": 37.2,
+      "C": 19.0
+     },
+     "gain": 9.2,
+     "seeds_better": 5,
+     "seeds": 5,
+     "votes": {
+      "A": true,
+      "B": false,
+      "C": false
+     },
+     "worse": [],
+     "escalation": [
+      "agreement"
+     ],
+     "escalation_text": "合意：主目標 on_time_deliveries が +9.2 よくなるが、B・C 社が反対して否決された",
+     "effect": null
+    },
+    {
+     "id": "2",
+     "kind": "amend",
+     "title": "道路上に止まってよい秒数 hold_limit を 60 秒から 50 秒に短くする",
+     "label": "hold_limit 60s → 50s",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "release の期限超過が 23.0 件あり、ふさがれた時間は合計 2404 秒です。止まってよい時間を短くすれば、1 回の駐車でほかの会社の通行をふさぐ時間が減り、A 社の待ち時間（worst_company_p95_wait_s 273 秒）と遅配 7.8 件が減って、on_time_deliveries が増える見込みです。投票では、A 社は賛成する見込みです。B 社と C 社は道路で待つ回数が多く、Minor の罰点が増えるので反対に回る可能性があります。block_k の案より採択の見込みは低いと考えます。",
+     "llm_flag": null,
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": false,
+      "seeds": false,
+      "vote": false
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 120.6,
+      "on_time_rate": 0.9123,
+      "p95_wait_s": 222.4,
+      "max_wait_s": 432.4,
+      "worst_company_p95_wait_s": 266.4,
+      "late_deliveries": 11.6,
+      "unfinished": 0.0,
+      "blocked_s": 2468.0,
+      "road_violations": 28.8,
+      "violation_total": 40.4,
+      "min_company_on_time_rate": 0.8572,
+      "on_time_rate_gap": 0.1428,
+      "utility_gap": 11.6,
+      "sanction_total": 17.0
+     },
+     "utility": {
+      "A": 38.8,
+      "B": 37.6,
+      "C": 27.2
+     },
+     "gain": -1.2,
+     "seeds_better": 2,
+     "seeds": 5,
+     "votes": {
+      "A": true,
+      "B": false,
+      "C": false
+     },
+     "worse": [],
+     "escalation": [],
+     "escalation_text": null,
+     "effect": null
+    }
+   ],
+   "auto_best": null,
+   "escalated": [
+    "1"
+   ],
+   "request": {
+    "question": "B・C 社が反対して否決された規則改正「block_k 3 → 2」を、町全体の定時配達と顧客の待ち時間が改善することを理由に採択するか、それとも現行 v1 のまま変えないかを決めてください。",
+    "recommendation": "1",
+    "recommendation_reason": "KPI の主目標 on_time_deliveries が 5/5 のシードで改善し（+9.2）、監視する目標の worst_company_p95_wait_s も 273 から 95.6 に大きく下がり、最低の定時率は 0.98 になります。これは KPI の「どの会社の顧客もひどく待たされることがないようにしたい」にも合い、顧客は投票に加わらないため、顧客の利害は人間が代わりに考える必要があります。ただし C 社の効用が 9.8 下がることと道路の違反が 25.8 から 34.0 に増えることは無視できないため、採択する場合は、C 社の損失の原因を確認し、次の期に道路の違反と各社の効用を監視することを条件とするよう勧めます。",
+    "unknowns": [
+     "B 社・C 社が反対した理由と、C 社の効用が 28.8 から 19.0 に下がる具体的な原因（どの評価項目が下がったか）",
+     "道路の違反が 25.8 から 34.0 に増える内容と、それが安全や他の利用者にどの程度影響するか",
+     "会社ごとの定時率と待ち時間の内訳（全体の数値以外は測っていません）",
+     "反対を押して採択した場合に、B 社・C 社が行動方針を変えるかどうか、また今後の投票や協力にどう影響するか",
+     "人間が投票の結果と異なる採択をすることが憲法・手続きのうえで認められる範囲",
+     "顧客が遅配の減少や待ち時間の短縮をどう受け止めるか",
+     "「ひどく待たされる」の水準（第 1 期の測定を見て決めるとされており、まだ決まっていません）",
+     "次の期の需要の量と分布が変わった場合にも、この改善が続くかどうか",
+     "5 つのシード以外の条件での結果"
+    ],
+    "options": [
+     {
+      "id": "1",
+      "summary": "blocking_guard の退去しきい値 block_k を 3 から 2 に下げます。定時配達は 121.8 から 131.0（+9.2、改善したシード 5/5）、遅配は 10.4 から 1.2、ふさがれた秒は 2404 から 985、最低の定時率は 0.84 から 0.98、worst_company_p95_wait_s は 273 から 95.6 になり、unfinished は 0.0 のままです。一方、道路の違反は 25.8 から 34.0 に増えます。投票は A 社が賛成、B・C 社が反対なので、採択するには反対を押して決めることになります。",
+      "stakeholders": "得をするのは、すべての会社の顧客（遅配が減り、最も待たされる会社の顧客の待ち時間の 95 パーセンタイルが 273 秒から 95.6 秒に下がります）と A 社（効用 38.4 → 45.4）です。損をするのは C 社（効用 28.8 → 19.0）と B 社（効用 38.9 → 37.2）です。道路の違反が増えるため、道路を使う他の利用者にも影響が出る可能性があります。"
+     },
+     {
+      "id": "keep",
+      "summary": "現行 v1 のまま変えません。定時配達 121.8、遅配 10.4、ふさがれた秒 2404、道路の違反 25.8、最低の定時率 0.84、worst_company_p95_wait_s 273、unfinished 0.0 が続きます。投票の結果どおりなので、各社の合意は保たれます。",
+      "stakeholders": "得をするのは B 社・C 社（現在の効用 38.9 と 28.8 を保ちます）です。損をするのは顧客で、遅配 10.4 と最も待たされる会社の顧客の 95 パーセンタイルの待ち時間 273 秒が残ります。A 社は案 1 で得られた効用の増加（+7.0）を得られません。"
+     }
+    ],
+    "file": "p1-request.md",
+    "llm_record": "llm/p1-request.json"
+   },
+   "llm_record": "llm/p1-propose.json",
+   "evidence_file": "p1-evidence.md",
+   "decision": {
+    "by": "human",
+    "choice": "1",
+    "outcome": "v2 block_k 3 → 2（規則、主目標 +9.2，賛成 A）。投票の結果を覆して採択",
+    "adopted": "1",
+    "adopted_kind": "amend",
+    "vote_overridden": true,
+    "followed_llm": true,
+    "reason": "交差点は 3 社が共有する道路で、そこで待ち続けることはどの会社の権利でもない。5 つのシードすべてで定時配達が増え、遅配が 10.4 件から 1.2 件に、最も待たせた会社の待ち時間の 95 パーセンタイルが 273 秒から 95.6 秒に下がるので、B・C 社の反対を覆して採る。C 社の効用が 28.8 から 19.0 に下がることと、道路の違反が 25.8 から 34.0 に増えることは、次の期にもう一度測る。",
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": "v2.cadl"
+   }
+  },
+  {
+   "id": "D2",
+   "type": "decision",
+   "period": 2,
+   "env": {
+    "label": "平常＋ラッシュ",
+    "order_interval_s": 75,
+    "rush": {
+     "from_s": 1200,
+     "to_s": 2400,
+     "order_interval_s": 25
+    },
+    "seeds": [
+     101,
+     102,
+     103,
+     104,
+     105
+    ]
+   },
+   "kpi": "K1",
+   "version_in_force": 2,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 223.8,
+     "on_time_rate": 0.9816,
+     "p95_wait_s": 110.0,
+     "max_wait_s": 201.0,
+     "worst_company_p95_wait_s": 109.0,
+     "late_deliveries": 4.2,
+     "unfinished": 0.0,
+     "blocked_s": 936.4,
+     "road_violations": 28.0,
+     "violation_total": 32.2,
+     "min_company_on_time_rate": 0.9674,
+     "on_time_rate_gap": 0.0326,
+     "utility_gap": 17.1,
+     "sanction_total": 28.6
+    },
+    "utility": {
+     "A": 73.4,
+     "B": 65.5,
+     "C": 56.3
+    }
+   },
+   "achievement": null,
+   "assessment": "現行の規則（block_k=2）のもとで、ラッシュを含むこの期でも定時配達は 223.8 / 228.0 件（定時率 0.98）で、未配達は 0 件、最も待ち時間の長い会社の 95 パーセンタイル（worst_company_p95_wait_s）は 109 秒です。主目標を伸ばせる余地は、遅配 4.2 件（大部分は集荷の遅れ 4.0 件）までと小さいです。一方で、ふさがれた時間は 936 秒と多く、その約半分の 476 秒は道路で一度も待っていない A 社が受けています。罰点は C 社が 21.1 点と B 社の 7.5 点より大きく、D1 で再測定するとした C 社の効用は 3 社のうち最も低い 56.3 です。なお、集荷の約束（120 秒）を緩めれば数字の上では定時件数が増えますが、顧客へのサービスは何も良くならず、KPI が明記している 120 秒の約束を変えることになるため、契約の改正案は出しません。",
+   "candidates": [
+    {
+     "id": "1",
+     "kind": "amend",
+     "title": "hold_limit 60s → 50s（道路上に止まってよい秒数を短くする）",
+     "label": "hold_limit 60s → 50s",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "ふさがれた時間が 936 秒あり、そのうち 476 秒は道路で待たない A 社が受けています。そこで、止まっているロボットが交差点を早く空けるようにして、ラッシュ時の集荷の遅れ（deadline:pickup 4.0 件）を減らし、主目標を +1 件以上増やすことを意図します。release の違反（Minor）は 13.4 件から増える見込みで、B・C 社の罰点が増えるため、賛成は A 社だけになる可能性が高いです。定時配達の改善が min_improvement の 1.0 に届くか、worst_company_p95_wait_s が悪化しないかは、同じシードでの測定で確かめます。",
+     "llm_flag": null,
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": false,
+      "seeds": false,
+      "vote": false
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 224.0,
+      "on_time_rate": 0.9825,
+      "p95_wait_s": 107.4,
+      "max_wait_s": 293.8,
+      "worst_company_p95_wait_s": 113.6,
+      "late_deliveries": 4.0,
+      "unfinished": 0.0,
+      "blocked_s": 1140.0,
+      "road_violations": 29.2,
+      "violation_total": 33.2,
+      "min_company_on_time_rate": 0.975,
+      "on_time_rate_gap": 0.025,
+      "utility_gap": 17.7,
+      "sanction_total": 29.2
+     },
+     "utility": {
+      "A": 72.8,
+      "B": 66.9,
+      "C": 55.1
+     },
+     "gain": 0.2,
+     "seeds_better": 1,
+     "seeds": 5,
+     "votes": {
+      "A": false,
+      "B": true,
+      "C": false
+     },
+     "worse": [],
+     "escalation": [],
+     "escalation_text": null,
+     "effect": null
+    },
+    {
+     "id": "2",
+     "kind": "amend",
+     "title": "block_k 2 → 1（後ろで 1 台待てば退去させる）",
+     "label": "block_k 2 → 1",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "第 1 期に block_k を 3 から 2 にしたことで遅配と待ち時間は大きく減りましたが、まだ blocking_guard の違反が 14.6 件、ふさがれた時間が 936 秒（A 社 476 秒）残っています。下限の 1 にすれば交差点のふさがりはさらに減り、集荷の遅れが減って主目標が増える見込みです。ただし、退去したロボットが注文から遠い場所へ離れて、かえって集荷が遅れる可能性もあります。退去（Major）が増えると、すでに罰点の大きい C 社（21.1 点）と B 社の効用が下がるため、両社は反対し、賛成は A 社だけになる見込みです。",
+     "llm_flag": "この案は、第 1 期に B・C 社の反対を覆して採った退去の規則を、下限の値までさらに厳しくするものです。主目標の残りの改善幅は最大でも約 4 件と小さく、それに対して C 社の罰点が増え、効用が下がる見込みです。このため、投票で否決されたときに再び覆すかどうかは、測った定時配達の増分と C 社の効用の低下とを比べる判断になり、人間が決める必要があります。判断のための情報として、定時配達・遅配・worst_company_p95_wait_s の変化、会社ごとの効用と罰点の変化、5 つのシードごとの結果の向きを示してください。",
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": true,
+      "seeds": false,
+      "vote": true
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 225.0,
+      "on_time_rate": 0.9868,
+      "p95_wait_s": 93.0,
+      "max_wait_s": 129.0,
+      "worst_company_p95_wait_s": 92.4,
+      "late_deliveries": 3.0,
+      "unfinished": 0.0,
+      "blocked_s": 129.6,
+      "road_violations": 29.8,
+      "violation_total": 32.8,
+      "min_company_on_time_rate": 0.9812,
+      "on_time_rate_gap": 0.0188,
+      "utility_gap": 34.1,
+      "sanction_total": 37.3
+     },
+     "utility": {
+      "A": 73.4,
+      "B": 74.2,
+      "C": 40.1
+     },
+     "gain": 1.2,
+     "seeds_better": 2,
+     "seeds": 5,
+     "votes": {
+      "A": true,
+      "B": true,
+      "C": false
+     },
+     "worse": [],
+     "escalation": [
+      "uncertain",
+      "llm"
+     ],
+     "escalation_text": "不確か：平均では +1.2 だが、改善したシードは 2/5；LLM：この案は、第 1 期に B・C 社の反対を覆して採った退去の規則を、下限の値までさらに厳しくするものです。主目標の残りの改善幅は最大でも約 4 件と小さく、それに対して C 社の罰点が増え、効用が下がる見込みです。このため、投票で否決されたときに再び覆すかどうかは、測った定時配達の増分と C 社の効用の低下とを比べる判断になり、人間が決める必要があります。判断のための情報として、定時配達・遅配・worst_company_p95_wait_s の変化、会社ごとの効用と罰点の変化、5 つのシードごとの結果の向きを示してください。",
+     "effect": null
+    }
+   ],
+   "auto_best": null,
+   "escalated": [
+    "2"
+   ],
+   "request": {
+    "question": "block_k を 2 から 1 に変える案（後ろで 1 台待てば退去させる）について、C 社が反対しても投票の結果を覆して採択するか、現行 v2 のままにするかを決めてください。",
+    "recommendation": "keep",
+    "recommendation_reason": "主目標 on_time_deliveries の改善は +1.2 と小さく、改善したシードも 2/5 で、増えると確かには言えません。それに対して C 社の効用の低下（56.3 → 40.1）は大きく、投票の結果を覆す根拠としては足りません。第 1 期の D1 は、5 つのシードすべてで改善し、主目標が +9.2 だったことを理由に覆しましたが、今回はその条件を満たしていません。また、道路の違反は第 1 期に次の期にもう一度測るとした項目で、この案ではさらに増えます。ただし、worst_company_p95_wait_s が 109 から 92.4 に下がることを重く見る場合は、2 を選ぶ理由になります。「ひどく」待たせる水準がまだ決まっていないので、その水準を決めてから判断し直すことも考えられます。",
+    "unknowns": [
+     "worst_company_p95_wait_s・遅配・ふさがれた秒について、5 つのシードごとの変化の向き（表には定時配達の改善したシード数しかありません）",
+     "会社ごとの罰点の内訳と、C 社の効用が下がる原因（退去の回数か、遅配か、ほかの罰点か）",
+     "worst_company_p95_wait_s がどの会社の値で、現行と案 2 で最も待たされる会社が同じかどうか",
+     "C 社の顧客の定時率と待ち時間が、案 2 でどう変わるか",
+     "道路の違反の増加（28.0 → 29.8）の中身と、安全や他社への影響",
+     "表の効用（C 社 56.3）と第 1 期の記録（C 社 19.0）とが同じ尺度かどうか",
+     "「ひどく」待たせるとみなす worst_company_p95_wait_s の水準（第 1 期の K1 で、あとで決めるとされたまま）",
+     "各社、特に C 社が、2 期続けて反対を覆されたときにどう行動を変えるか（運用の変更、撤退、規則への協力の度合い）",
+     "顧客が遅配 1.2 件の減少や待ち時間の変化をどう受け止めるか",
+     "次の期の需要の量と分布、そのもとでも同じ結果になるかどうか"
+    ],
+    "options": [
+     {
+      "id": "2",
+      "summary": "block_k 2 → 1 を採択します（投票は A ○、B ○、C × なので、採択には投票の結果を覆す判断が必要です）。検査と憲法は通っています。定時配達は 223.8 から 225.0（+1.2、改善したシードは 2/5）、遅配は 4.2 から 3.0、ふさがれた秒は 936 から 130、最低の定時率は 0.97 から 0.98、worst_company_p95_wait_s は 109 から 92.4 になり、unfinished は 0.0 のままです。一方、道路の違反は 28.0 から 29.8 に増えます。効用は A 73.4 → 73.4、B 65.5 → 74.2、C 56.3 → 40.1 です。",
+      "stakeholders": "得をするのは B 社（効用 +8.7）と、待ち時間の 95 パーセンタイルが下がることで最も待たされていた会社の顧客です。遅配が平均 1.2 件減るので、町全体の顧客にも小さな利益があります。損をするのは C 社で、効用が 16.2 下がり、第 1 期に続いて 2 期連続で反対を覆されることになります。A 社の効用は変わりません。C 社の顧客への影響は、会社ごとの数値を測っていないのでわかりません。道路の違反が 1.8 件増えることは、道路を使う 3 社すべてにかかわります。"
+     },
+     {
+      "id": "keep",
+      "summary": "現行 v2（block_k 2）のままにします。定時配達 223.8、遅配 4.2、ふさがれた秒 936、道路の違反 28.0、最低の定時率 0.97、worst_company_p95_wait_s 109、unfinished 0.0 が続きます。効用は A 73.4、B 65.5、C 56.3 のままです。",
+      "stakeholders": "C 社は効用の低下を避けられます。投票の結果を再び覆さないので、各社が規則の決め方を受け入れやすくなる可能性があります。ただし、B 社は効用が上がる機会を失います。最も待たされている会社の顧客は、待ち時間の 95 パーセンタイル 109 秒のままです。遅配 4.2 件の顧客の状況も変わりません。"
+     }
+    ],
+    "file": "p2-request.md",
+    "llm_record": "llm/p2-request.json"
+   },
+   "llm_record": "llm/p2-propose.json",
+   "evidence_file": "p2-evidence.md",
+   "decision": {
+    "by": "human",
+    "choice": "keep",
+    "outcome": "変えない",
+    "adopted": null,
+    "adopted_kind": null,
+    "vote_overridden": false,
+    "followed_llm": true,
+    "reason": "投票は A・B 社の賛成で定足数に届いているので、採っても覆すことにはならない。それでも、改善したのは 5 つのシードのうち 2 つだけで、確かでない改善のために C 社の効用を 56.3 から 40.1 に下げることはしない。最も待たせた会社の待ち時間の 95 パーセンタイルは 109 秒で、約束の 120 秒の内にある。",
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": null
+   }
+  },
+  {
+   "id": "D3",
+   "type": "decision",
+   "period": 3,
+   "env": {
+    "label": "繁忙期",
+    "order_interval_s": 45,
+    "rush": null,
+    "seeds": [
+     201,
+     202,
+     203,
+     204,
+     205
+    ]
+   },
+   "kpi": "K1",
+   "version_in_force": 2,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 219.4,
+     "on_time_rate": 0.9847,
+     "p95_wait_s": 93.2,
+     "max_wait_s": 223.6,
+     "worst_company_p95_wait_s": 95.4,
+     "late_deliveries": 3.4,
+     "unfinished": 0.0,
+     "blocked_s": 1217.4,
+     "road_violations": 34.8,
+     "violation_total": 38.2,
+     "min_company_on_time_rate": 0.9637,
+     "on_time_rate_gap": 0.0363,
+     "utility_gap": 28.7,
+     "sanction_total": 34.4
+    },
+    "utility": {
+     "A": 75.6,
+     "B": 62.5,
+     "C": 46.9
+    }
+   },
+   "achievement": null,
+   "assessment": "繁忙期（注文の平均間隔 45 秒）でも定時率は 0.98、未配達は 0 件で、最も待ち時間の長い会社の待ち時間の 95 パーセンタイルは 95.4 秒です。約束の 120 秒の内にあり、第 1 期の block_k の改正後の水準（95.6 秒）を保っています。残る遅配 3.4 件のうち 3.0 件は B 社で、B 社は道路で待った回数が 62 回、ふさがれた秒数が 521 秒と最も多くなっています。町全体のふさがれた時間は 1217 秒で、規則の metrics の目標 600 秒の約 2 倍です。一方、C 社は罰点 25.1、効用 46.9 で 3 社のうち最も低く、違反の大半は道路の規則（release 17.8 件、blocking_guard 17.0 件）です。",
+   "candidates": [
+    {
+     "id": "1",
+     "kind": "amend",
+     "title": "hold_limit 60 → 50（道路上に止まってよい秒数を 10 秒短くする）",
+     "label": "hold_limit 60s → 50s",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "ふさがれた時間 1217 秒（B 社 521 秒）と B 社の遅配 3.0 件（deadline:pickup 2.4 件）を観測し、道路上に止まる時間を短くして交差点が空くまでの待ちを減らし、B 社の集荷遅れを減らすことを意図しています。主目標の増加は最大でも遅配の 3.4 件分で、min_improvement 1.0 を超えるかどうかは同じシードで測るまで分かりません。worst_company_p95_wait_s は下がるか横ばいの見込みです。release 違反が増えて道路上で待つことの多い B・C 社の罰点が増えるため、C 社は反対、A 社は賛成、B 社は遅配の減少と罰点の増加のどちらが大きいかで決まる見込みです。D2 で人間が C 社の効用を重視して確かでない改善を退けたことを踏まえ、投票で定足数に届かない場合は、5 つのシードすべてで定時配達が増えたときだけ人間の判断に回すことを勧めます。",
+     "llm_flag": null,
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": false,
+      "seeds": false,
+      "vote": true
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 220.0,
+      "on_time_rate": 0.9874,
+      "p95_wait_s": 86.0,
+      "max_wait_s": 209.8,
+      "worst_company_p95_wait_s": 98.2,
+      "late_deliveries": 2.8,
+      "unfinished": 0.0,
+      "blocked_s": 1106.8,
+      "road_violations": 37.2,
+      "violation_total": 40.0,
+      "min_company_on_time_rate": 0.9683,
+      "on_time_rate_gap": 0.0317,
+      "utility_gap": 30.3,
+      "sanction_total": 35.2
+     },
+     "utility": {
+      "A": 75.8,
+      "B": 63.5,
+      "C": 45.5
+     },
+     "gain": 0.6,
+     "seeds_better": 2,
+     "seeds": 5,
+     "votes": {
+      "A": true,
+      "B": true,
+      "C": false
+     },
+     "worse": [],
+     "escalation": [],
+     "escalation_text": null,
+     "effect": null
+    }
+   ],
+   "auto_best": null,
+   "escalated": [],
+   "request": null,
+   "llm_record": "llm/p3-propose.json",
+   "evidence_file": "p3-evidence.md",
+   "decision": {
+    "by": "tool",
+    "choice": "keep",
+    "outcome": "変えない",
+    "adopted": null,
+    "adopted_kind": null,
+    "vote_overridden": false,
+    "followed_llm": null,
+    "reason": null,
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": null
+   }
+  },
+  {
+   "id": "D4",
+   "type": "decision",
+   "period": 4,
+   "env": {
+    "label": "繁忙期＋ラッシュ",
+    "order_interval_s": 45,
+    "rush": {
+     "from_s": 1200,
+     "to_s": 2400,
+     "order_interval_s": 25
+    },
+    "seeds": [
+     301,
+     302,
+     303,
+     304,
+     305
+    ]
+   },
+   "kpi": "K1",
+   "version_in_force": 2,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 272.6,
+     "on_time_rate": 0.9927,
+     "p95_wait_s": 90.0,
+     "max_wait_s": 212.2,
+     "worst_company_p95_wait_s": 98.2,
+     "late_deliveries": 2.0,
+     "unfinished": 0.0,
+     "blocked_s": 1101.8,
+     "road_violations": 29.6,
+     "violation_total": 31.6,
+     "min_company_on_time_rate": 0.9816,
+     "on_time_rate_gap": 0.0184,
+     "utility_gap": 28.6,
+     "sanction_total": 30.4
+    },
+    "utility": {
+     "A": 97.4,
+     "B": 76.0,
+     "C": 68.8
+    }
+   },
+   "achievement": null,
+   "assessment": "繁忙期とラッシュが重なった期ですが、定時配達は注文 274.6 件のうち 272.6 件で、未配達は 0 件、遅配は 2.0 件（A 社の集荷遅れ 1.8 件、B 社の配達遅れ 0.2 件）です。最も待ち時間の長い会社の 95 パーセンタイルは 98.2 秒で、約束の 120 秒の内にあります。主目標を伸ばせる余地は最大でも約 2 件で、採択に必要な改善量 1.0 とほぼ同じ大きさです。一方、道路の違反と罰点は B 社（9.0）と C 社（21.4）に偏っており、規則を厳しくすれば両社の効用がさらに下がる見込みです。",
+   "candidates": [],
+   "auto_best": null,
+   "escalated": [],
+   "request": null,
+   "llm_record": "llm/p4-propose.json",
+   "evidence_file": "p4-evidence.md",
+   "decision": {
+    "by": "tool",
+    "choice": "keep",
+    "outcome": "変えない",
+    "adopted": null,
+    "adopted_kind": null,
+    "vote_overridden": false,
+    "followed_llm": null,
+    "reason": null,
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": null
+   }
+  },
+  {
+   "id": "K5",
+   "type": "kpi",
+   "period": 5,
+   "since": 5,
+   "text": "閑散期に入り、注文が減る。定時の配達は引き続き大事だが、各社の協力を保つため、道路の使い方で特定の会社だけが得をしたり損をしたりしないようにしたい。",
+   "how": "llm",
+   "interpretation": "第 5 期の KPI は、注文が減る閑散期に、定時の配達を保ちながら、道路の規則によって特定の会社だけが得をしたり損をしたりしないことを求めていると読みます。直前の KPI では町全体の定時配達件数が主目標でしたが、今回の文で新しく加わった意図は会社の間の公平さなので、公平さを主目標にする読み方と、定時を主目標のまま公平さを監視する読み方の 2 通りがあります。「得をする・損をする」を、効用（定時配達件数 − 罰点）の差で測るか、定時率の差で測るかでも読み方が分かれます。KPI に達成の水準は書かれていないので、target と guards には水準を入れていません。注文件数が期によって変わるため、町全体の定時は件数ではなく定時率（on_time_rate）で監視します。",
+   "options": [
+    {
+     "id": "1",
+     "label": "公平さ（効用の差）を主目標にし、定時率と各社の定時率を監視する",
+     "measure_text": "主目標 utility_gap（減らす）、on_time_rate（増やす）、min_company_on_time_rate（増やす）、on_time_rate_gap（減らす）、worst_company_p95_wait_s（減らす）",
+     "note": "「得をする・損をする」を、道路の規則による罰点も含めた効用で測ります。D1 で C 社の効用が下がったことのように、これまでの判断で問題になった利害をそのまま測れます。ただし、会社ごとの注文件数が違うと、規則が公平でも効用の差が残ります。"
+    },
+    {
+     "id": "2",
+     "label": "公平さ（定時率の差）を主目標にし、最も低い会社の定時率と町全体の定時率を監視する",
+     "measure_text": "主目標 on_time_rate_gap（減らす）、min_company_on_time_rate（増やす）、on_time_rate（増やす）、utility_gap（減らす）、worst_company_p95_wait_s（減らす）",
+     "note": "定時率は注文件数で割るので、会社ごとの注文件数の違いに影響されにくい評価方法です。ただし罰点の偏りは主目標に入らないので、効用の差は監視する目標として置きます。閑散期は会社ごとの注文件数が少なく、定時率の差は 1 件の遅配で大きく動きます。"
+    },
+    {
+     "id": "3",
+     "label": "定時率を主目標のままにし、公平さは悪化しないことを監視する",
+     "measure_text": "主目標 on_time_rate（増やす）、utility_gap（減らす）、on_time_rate_gap（減らす）、min_company_on_time_rate（増やす）、worst_company_p95_wait_s（減らす）",
+     "note": "「定時の配達は引き続き大事」を主目標とする読み方です。公平さは改善の対象にならず、悪化だけを監視するので、今の規則にある偏り（D1 で生じた C 社の効用の低下など）を直す改正は提案されにくくなります。"
+    }
+   ],
+   "concerns": [
+    "KPI の文は「定時は引き続き大事だが」「公平にしたい」と 2 つの目標を挙げていて、どちらを主目標にするかで改善の判定が変わります。公平さを主目標にすると、定時率を少し下げてでも差を縮める改正が採られうるので、目標どうしがぶつかりえます。",
+    "効用の差や定時率の差は、公平さの代理指標です。差だけを追うと、良い会社の成績を下げて差を縮める改正でも改善と判定されます。これを見つけるために、最も低い会社の定時率と町全体の定時率を監視する目標に置いていますが、水準が書かれていないので guards にはしていません。悪化をどこまで許すかの水準を人間が決める必要があります。",
+    "効用（定時配達件数 − 罰点）は注文件数に比例するので、会社ごとの注文件数が違うと、道路の規則と関係なく差が生じます。閑散期に各社の注文件数がどう分かれるかの所見を確かめてから、option 1 と option 2 のどちらを使うか決めてください。",
+    "閑散期は会社ごとの注文件数が少なく、定時率の差や効用の差がシードによって大きく動きます。同じ乱数シードでの比較でも、改善が少数のシードだけで起きていないかを確かめる必要があります（D2 で問題になった点です）。",
+    "直前の KPI にあった「どの会社の顧客もひどく待たされることがない」は今回の文にありません。worst_company_p95_wait_s は監視する目標として残しましたが、K1 で「ひどく」の水準が決まらないままなので、続けて監視するか、水準を置くかを人間が決める必要があります。",
+    "注文件数が減るので、定時配達件数（on_time_deliveries）は期の間で比べられません。町全体の定時は定時率で監視するように変えています。"
+   ],
+   "revisit": [
+    {
+     "decision": "K1",
+     "why": "K1 は町全体の定時配達件数を主目標にする読み方でしたが、第 5 期の KPI は会社の間の公平さを新しく求めていて、注文件数も減るので、主目標と監視する目標の前提が変わりました。"
+    },
+    {
+     "decision": "D1",
+     "why": "D1 は町全体の定時配達の増加を理由に、B・C 社の反対を覆して block_k を 3 から 2 に下げ、C 社の効用が 28.8 から 19.0 に下がりました。今回の KPI は道路の使い方で特定の会社が損をしないことを求めているので、この規則が公平さを損なっていないかを、新しい評価方法でもう一度測る必要があります。D1 で次の期に測るとしていた道路の違反の増加（25.8 から 34.0）も、罰点を通じて効用の差に関わります。"
+    },
+    {
+     "decision": "D4",
+     "why": "D3・D4 の「変えない」は直前の KPI の評価方法で自動に決まったものです。第 5 期は評価方法が変わるので、直前の D4 の結論は今の規則が公平であることを示していません。"
+    }
+   ],
+   "recommended": "1",
+   "measure": {
+    "label": "公平さ（効用の差）を主目標にし、定時率と各社の定時率を監視する",
+    "goals": [
+     {
+      "metric": "utility_gap",
+      "text": "会社ごとの効用（定時配達件数 − 罰点）の最大と最小の差を小さくする"
+     },
+     {
+      "metric": "on_time_rate",
+      "text": "町全体の定時率が下がらないか監視する"
+     },
+     {
+      "metric": "min_company_on_time_rate",
+      "text": "最も低い会社の定時率が下がらないか監視する（差を縮めるために全社を悪くする改正を見つけるため）"
+     },
+     {
+      "metric": "on_time_rate_gap",
+      "text": "会社ごとの定時率の差が広がらないか監視する"
+     },
+     {
+      "metric": "worst_company_p95_wait_s",
+      "text": "最も待たせた会社の待ち時間の 95 パーセンタイルが長くならないか監視する"
+     }
+    ],
+    "guards": [],
+    "note": "「得をする・損をする」を、道路の規則による罰点も含めた効用で測ります。D1 で C 社の効用が下がったことのように、これまでの判断で問題になった利害をそのまま測れます。ただし、会社ごとの注文件数が違うと、規則が公平でも効用の差が残ります。"
+   },
+   "measure_text": "主目標 utility_gap（減らす）、on_time_rate（増やす）、min_company_on_time_rate（増やす）、on_time_rate_gap（減らす）、worst_company_p95_wait_s（減らす）",
+   "llm_record": "llm/p5-kpi.json",
+   "request_file": "p5-kpi-request.md",
+   "decision": {
+    "by": "human",
+    "choice": "1",
+    "followed_llm": true,
+    "reason": "閑散期は遅配がほとんどないので、各社の協力を保つため、会社ごとの効用の差を縮めることを主目標にする。差だけを縮めて定時率や最も低い会社の定時率、待ち時間が悪化する改正は、監視する目標で見つけ、そのつど判断する。D1 の block_k の改正が C 社に損をさせていないかも、この評価方法で測り直す。",
+    "assumptions": []
+   }
+  },
+  {
+   "id": "D5",
+   "type": "decision",
+   "period": 5,
+   "env": {
+    "label": "閑散期",
+    "order_interval_s": 120,
+    "rush": null,
+    "seeds": [
+     401,
+     402,
+     403,
+     404,
+     405
+    ]
+   },
+   "kpi": "K5",
+   "version_in_force": 2,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 80.8,
+     "on_time_rate": 0.9782,
+     "p95_wait_s": 116.4,
+     "max_wait_s": 320.6,
+     "worst_company_p95_wait_s": 178.4,
+     "late_deliveries": 1.8,
+     "unfinished": 0.0,
+     "blocked_s": 1046.4,
+     "road_violations": 26.0,
+     "violation_total": 27.8,
+     "min_company_on_time_rate": 0.961,
+     "on_time_rate_gap": 0.031,
+     "utility_gap": 15.2,
+     "sanction_total": 20.0
+    },
+    "utility": {
+     "A": 25.2,
+     "B": 25.4,
+     "C": 10.2
+    }
+   },
+   "achievement": null,
+   "assessment": "町全体の定時率は 0.98 と高く、C 社の定時率は 0.99 で 3 社のうち最も高いのに、効用は 10.2 で A 社（25.2）・B 社（25.4）より約 15 低くなっています。差の原因は罰点で、罰点の合計 20.0 のうち 18.2 が C 社に集中しています。違反は deadline:release の 19.0 件（Minor）と blocking_guard の 7.0 件（Major）で、D1 で下げた block_k=2 と hold_limit=60 秒が主に C 社の罰点になっていると読めます。一方、道路で待たない A 社はふさがれた秒数が 556 秒と最も長く、最も待たせた会社の待ち時間の 95 パーセンタイルも 178 秒で約束の 120 秒を超えています。罰点を減らす改正では、ふさがれる時間の不利益が A 社に移らないかを監視する必要があります。",
+   "candidates": [
+    {
+     "id": "1",
+     "kind": "amend",
+     "title": "block_k を 2 から 3 に戻す（D1 の再測定）",
+     "label": "block_k 2 → 3",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "C 社の罰点 18.2 の約半分は blocking_guard の退去 7.0 件（Major）によるもので、K5 で人間が求めた D1 の再測定を、閑散期の注文量で行う案です。退去が減れば C 社の効用が上がり、utility_gap（15.2）が縮む見込みです。ただし、交差点で待つ時間が延びて A 社のふさがれた秒数（556 秒）と worst_company_p95_wait_s（178 秒）が悪化するおそれがあり、これは監視する目標で確かめます。投票は B・C 社が賛成、A 社は定時配達が減れば反対と見込みます。",
+     "llm_flag": "D1 で人間が B・C 社の反対を覆して採択した改正を元に戻す案です。判定で効用の差が縮んでも、A 社のふさがれた秒数や待ち時間の 95 パーセンタイルが悪化する場合に公平さと定時配達のどちらを優先するかは、明らかには決められません。そのため、判定の結果とあわせて人間の判断を求めます。",
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": true,
+      "seeds": true,
+      "vote": false
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 74.8,
+      "on_time_rate": 0.9056,
+      "p95_wait_s": 269.2,
+      "max_wait_s": 532.8,
+      "worst_company_p95_wait_s": 389.8,
+      "late_deliveries": 7.8,
+      "unfinished": 0.0,
+      "blocked_s": 2396.2,
+      "road_violations": 20.6,
+      "violation_total": 28.4,
+      "min_company_on_time_rate": 0.826,
+      "on_time_rate_gap": 0.1594,
+      "utility_gap": 7.7,
+      "sanction_total": 12.3
+     },
+     "utility": {
+      "A": 23.0,
+      "B": 23.6,
+      "C": 15.9
+     },
+     "gain": 7.5,
+     "seeds_better": 4,
+     "seeds": 5,
+     "votes": {
+      "A": false,
+      "B": false,
+      "C": true
+     },
+     "worse": [
+      "on_time_rate",
+      "min_company_on_time_rate",
+      "on_time_rate_gap",
+      "worst_company_p95_wait_s"
+     ],
+     "escalation": [
+      "agreement",
+      "kpi_conflict",
+      "llm"
+     ],
+     "escalation_text": "合意：主目標 utility_gap が +7.5 よくなるが、A・B 社が反対して否決された；KPI の衝突：主目標は +7.5 よくなるが、on_time_rate が悪化する、min_company_on_time_rate が悪化する、on_time_rate_gap が悪化する、worst_company_p95_wait_s が悪化する；LLM：D1 で人間が B・C 社の反対を覆して採択した改正を元に戻す案です。判定で効用の差が縮んでも、A 社のふさがれた秒数や待ち時間の 95 パーセンタイルが悪化する場合に公平さと定時配達のどちらを優先するかは、明らかには決められません。そのため、判定の結果とあわせて人間の判断を求めます。",
+     "effect": null
+    },
+    {
+     "id": "2",
+     "kind": "amend",
+     "title": "hold_limit を 60 秒から 70 秒に延ばす",
+     "label": "hold_limit 60s → 70s",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "違反の最大の原因は deadline:release の 19.0 件で、その罰点の多くを C 社が負っています。道路上に止まってよい秒数を 10 秒延ばせば Overstay が減り、C 社の罰点が下がって utility_gap が縮む見込みです。ただし、止まる時間が延びれば A 社のふさがれた秒数と worst_company_p95_wait_s が悪化するおそれがあり、on_time_rate と min_company_on_time_rate とあわせて監視します。投票は B・C 社が賛成、A 社は定時配達が減らなければ賛成と見込みます。",
+     "llm_flag": null,
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": true,
+      "seeds": true,
+      "vote": true
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 80.2,
+      "on_time_rate": 0.9709,
+      "p95_wait_s": 158.2,
+      "max_wait_s": 322.6,
+      "worst_company_p95_wait_s": 211.6,
+      "late_deliveries": 2.4,
+      "unfinished": 0.0,
+      "blocked_s": 1193.0,
+      "road_violations": 23.6,
+      "violation_total": 26.0,
+      "min_company_on_time_rate": 0.9492,
+      "on_time_rate_gap": 0.0428,
+      "utility_gap": 13.5,
+      "sanction_total": 19.0
+     },
+     "utility": {
+      "A": 25.0,
+      "B": 24.7,
+      "C": 11.5
+     },
+     "gain": 1.7,
+     "seeds_better": 4,
+     "seeds": 5,
+     "votes": {
+      "A": true,
+      "B": false,
+      "C": true
+     },
+     "worse": [
+      "worst_company_p95_wait_s"
+     ],
+     "escalation": [
+      "kpi_conflict"
+     ],
+     "escalation_text": "KPI の衝突：主目標は +1.7 よくなるが、worst_company_p95_wait_s が悪化する",
+     "effect": null
+    },
+    {
+     "id": "3",
+     "kind": "amend",
+     "title": "sanction_lambda を 0.5 から 0.0 に下げる",
+     "label": "sanction_lambda 0.5 → 0",
+     "layer": "rule",
+     "safety": false,
+     "rationale": "utility_gap 15.2 のほぼすべては罰点の差（C 社 18.2、B 社 1.8、A 社 0.0）によるもので、罰点の倍率を 0 にすれば効用は定時配達件数だけになり、差は約 3 まで縮む見込みです。罰点が下がるだけの会社はないので、投票は 3 社とも賛成と見込みます。ただし、これは道路の使い方を変えずに評価方法の上で差を消す改正で、罰点による抑止がなくなり、Overstay や交差点での長い停止が増えて A 社のふさがれた秒数が増えるおそれがあります。",
+     "llm_flag": "罰点をなくすと、道路の使い方は変わらないまま、効用の評価方法の上でだけ差が消えます。KPI の「道路の使い方で特定の会社が得や損をしない」に本当に合うのか、それとも罰点のない A 社がふさがれる不利益を見えなくするだけなのかは、評価方法の意図に関わる判断です。そのため、判定の結果にかかわらず人間に判断を求めます。",
+     "gates": {
+      "check": true,
+      "const": true,
+      "inv": true,
+      "kpi_guard": true,
+      "gain": true,
+      "seeds": true,
+      "vote": true
+     },
+     "rejected_because": null,
+     "kpi_guard_note": null,
+     "metrics": {
+      "on_time_deliveries": 76.0,
+      "on_time_rate": 0.9201,
+      "p95_wait_s": 242.0,
+      "max_wait_s": 388.8,
+      "worst_company_p95_wait_s": 288.6,
+      "late_deliveries": 6.6,
+      "unfinished": 0.0,
+      "blocked_s": 1998.0,
+      "road_violations": 45.8,
+      "violation_total": 52.4,
+      "min_company_on_time_rate": 0.8883,
+      "on_time_rate_gap": 0.0725,
+      "utility_gap": 4.0,
+      "sanction_total": 0.0
+     },
+     "utility": {
+      "A": 23.2,
+      "B": 27.2,
+      "C": 25.6
+     },
+     "gain": 11.2,
+     "seeds_better": 4,
+     "seeds": 5,
+     "votes": {
+      "A": false,
+      "B": true,
+      "C": true
+     },
+     "worse": [
+      "on_time_rate",
+      "min_company_on_time_rate",
+      "on_time_rate_gap",
+      "worst_company_p95_wait_s"
+     ],
+     "escalation": [
+      "kpi_conflict",
+      "llm"
+     ],
+     "escalation_text": "KPI の衝突：主目標は +11.2 よくなるが、on_time_rate が悪化する、min_company_on_time_rate が悪化する、on_time_rate_gap が悪化する、worst_company_p95_wait_s が悪化する；LLM：罰点をなくすと、道路の使い方は変わらないまま、効用の評価方法の上でだけ差が消えます。KPI の「道路の使い方で特定の会社が得や損をしない」に本当に合うのか、それとも罰点のない A 社がふさがれる不利益を見えなくするだけなのかは、評価方法の意図に関わる判断です。そのため、判定の結果にかかわらず人間に判断を求めます。",
+     "effect": null
+    }
+   ],
+   "auto_best": null,
+   "escalated": [
+    "1",
+    "2",
+    "3"
+   ],
+   "request": {
+    "question": "第 5 期の規則改正として、block_k を 3 に戻す案、hold_limit を 70 秒に延ばす案、sanction_lambda を 0 にする案、変えない案のうち、どれを採るかを決めてください。",
+    "recommendation": "keep",
+    "recommendation_reason": "案 1 と案 3 は、主目標の改善と引き換えに定時配達・最低の定時率・待ち時間がすべて大きく悪化し、K5 で人間が示した「差だけを縮めて定時率や待ち時間が悪化する改正は採らない方向で判断する」という方針に反します。案 3 は道路の違反も 26.0 から 45.8 に増え、評価方法の上でだけ差を消す疑いがあります。案 2 は悪化が小さいものの、主目標の改善は +1.7 で C 社の効用は 10.2 から 11.5 にしか上がらず、すでに約束の 120 秒を超えている worst_company_p95_wait_s を 178 から 212 に悪化させます。そのため今期は変えず、C 社の効用が低い原因を調べ、待ち時間を悪化させずに差を縮める別の案を次の期に提案することを勧めます。ただし C 社の不利益が続くことを重く見るなら、案 2 は監視する目標の悪化が最も小さく投票も通っているので、次の候補になります。",
+    "unknowns": [
+     "C 社の効用が 10.2 と低い原因（D1 の block_k の改正によるものか、罰点によるものか、配送の需要の偏りによるものか）を分けて測っていません。",
+     "各社の行動方針が規則の改正後にどう変わるか（特に罰点をなくした場合に道路の違反がさらに増えるか）は測っていません。",
+     "顧客が待ち時間の 95 パーセンタイル 178 秒、212 秒、289 秒、390 秒をどう受け止めるか、K1 で保留された「ひどく」の水準をどこに置くかは決まっていません。",
+     "閑散期の次の期の注文量と、注文が減ったときに各案の結果がどう変わるかは測っていません。",
+     "B 社が案 2 に反対した理由と、A 社が案 3 に反対した理由は知らされていません。",
+     "改善したシードは 5 つのうち 4 つで、シードを増やしたときに改善が保たれるかは確かめていません。",
+     "効用の差が縮まらないことが、実際に各社の協力（投票や道路の共有）をどの程度損なうかは測っていません。"
+    ],
+    "options": [
+     {
+      "id": "1",
+      "summary": "block_k を 2 から 3 に戻します。主目標 utility_gap は +7.5 改善し（4/5 のシードで改善）、効用は A / B / C が 23.0 / 23.6 / 15.9 になります。一方で定時配達は 80.8 から 74.8、遅配は 1.8 から 7.8、ふさがれた秒は 1046 から 2396 になり、on_time_rate は 0.98 から 0.91、min_company_on_time_rate は 0.96 から 0.83、on_time_rate_gap は 0.03 から 0.16、worst_company_p95_wait_s は 178 から 390 に悪化します。道路の違反は 26.0 から 20.6 に減ります。投票は A × B × C ○ で否決されており、採るには人間が投票の結果を覆すことになります。",
+      "stakeholders": "C 社は効用が 10.2 から 15.9 に上がり得をします。A 社（25.2 → 23.0）と B 社（25.4 → 23.6）は効用が下がり損をします。顧客は遅配が 1.8 件から 7.8 件に増え、最も待たされる会社の顧客の待ち時間の 95 パーセンタイルが 390 秒になるので、大きく損をします。D1 で示した人間の判断理由とも反対の方向になります。"
+     },
+     {
+      "id": "2",
+      "summary": "hold_limit を 60 秒から 70 秒に延ばします。主目標 utility_gap は +1.7 改善し（4/5 のシードで改善）、効用は A / B / C が 25.0 / 24.7 / 11.5 になります。定時配達は 80.8 から 80.2、遅配は 1.8 から 2.4、ふさがれた秒は 1046 から 1193、道路の違反は 26.0 から 23.6 です。worst_company_p95_wait_s は 178 から 212 に悪化し、on_time_rate は 0.97、min_company_on_time_rate は 0.95、on_time_rate_gap は 0.04 と、悪化の判定には入らないもののわずかに下がっています。投票は A ○ B × C ○ です。",
+      "stakeholders": "C 社は効用が 10.2 から 11.5 に上がり少し得をします。A 社（25.2 → 25.0）と B 社（25.4 → 24.7）はわずかに損をし、B 社は反対しています。顧客は遅配がわずかに増え、最も待たされる会社の顧客の待ち時間の 95 パーセンタイルが、すでに約束の 120 秒を超えている 178 秒からさらに 212 秒に延びるので損をします。"
+     },
+     {
+      "id": "3",
+      "summary": "sanction_lambda を 0.5 から 0.0 に下げ、罰点をなくします。主目標 utility_gap は +11.2 改善し（4/5 のシードで改善）、効用は A / B / C が 23.2 / 27.2 / 25.6 になります。一方で定時配達は 80.8 から 76.0、遅配は 1.8 から 6.6、ふさがれた秒は 1046 から 1998、道路の違反は 26.0 から 45.8 に増え、on_time_rate は 0.92、min_company_on_time_rate は 0.89、on_time_rate_gap は 0.07、worst_company_p95_wait_s は 289 に悪化します。投票は A × B ○ C ○ です。",
+      "stakeholders": "罰点を受けていた B 社（25.4 → 27.2）と C 社（10.2 → 25.6）は効用が上がり得をします。罰点のない A 社は効用が 25.2 から 23.2 に下がり、ふさがれる不利益が効用の差に表れにくくなるので損をします。顧客は遅配が 1.8 件から 6.6 件に増え、待ち時間の 95 パーセンタイルが 289 秒になるので損をします。道路の違反がほぼ倍になることは、道路を共有する 3 社すべてに不利益になり得ます。"
+     },
+     {
+      "id": "keep",
+      "summary": "現行 v2 のままにします。定時配達 80.8、遅配 1.8、ふさがれた秒 1046、道路の違反 26.0、効用 A / B / C は 25.2 / 25.4 / 10.2、on_time_rate 0.98、min_company_on_time_rate 0.96、on_time_rate_gap 0.03、worst_company_p95_wait_s 178 が続きます。主目標 utility_gap は改善しません。",
+      "stakeholders": "顧客は 4 つの選択肢の中で最も定時配達が多く遅配が少ない状態を保ちます。A・B 社は現在の効用を保ちます。C 社は効用 10.2 のままで A・B 社との差が残るので損をし続け、KPI の「特定の会社だけが損をしない」は達成されないままです。"
+     }
+    ],
+    "file": "p5-request.md",
+    "llm_record": "llm/p5-request.json"
+   },
+   "llm_record": "llm/p5-propose.json",
+   "evidence_file": "p5-evidence.md",
+   "decision": {
+    "by": "human",
+    "choice": "keep",
+    "outcome": "変えない",
+    "adopted": null,
+    "adopted_kind": null,
+    "vote_overridden": false,
+    "followed_llm": true,
+    "reason": "block_k を 3 に戻す案（1）と罰点をなくす案（3）は、効用の差を縮めるが、遅配が 1.8 件から 7.8 件・6.6 件に増え、最も低い会社の定時率も下がる。差を縮めるためにサービスを悪くすることはしない。罰点をなくす案は、道路の違反もほぼ倍になる。hold_limit の案（2）は C 社の効用を 1.3 しか上げず、最も待たせた会社の待ち時間の 95 パーセンタイルを、約束の 120 秒を超えた 178 秒からさらに 212 秒に延ばす。C 社の効用が低い原因は、閑散期にもう一度測って考える。",
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": null
+   }
+  },
+  {
+   "id": "D6",
+   "type": "decision",
+   "period": 6,
+   "env": {
+    "label": "閑散期",
+    "order_interval_s": 120,
+    "rush": null,
+    "seeds": [
+     501,
+     502,
+     503,
+     504,
+     505
+    ]
+   },
+   "kpi": "K5",
+   "version_in_force": 2,
+   "constitution_version": 1,
+   "current": {
+    "metrics": {
+     "on_time_deliveries": 85.4,
+     "on_time_rate": 0.9771,
+     "p95_wait_s": 99.6,
+     "max_wait_s": 273.2,
+     "worst_company_p95_wait_s": 114.8,
+     "late_deliveries": 2.0,
+     "unfinished": 0.0,
+     "blocked_s": 903.4,
+     "road_violations": 28.2,
+     "violation_total": 30.2,
+     "min_company_on_time_rate": 0.9694,
+     "on_time_rate_gap": 0.0176,
+     "utility_gap": 16.3,
+     "sanction_total": 21.3
+    },
+    "utility": {
+     "A": 26.8,
+     "B": 26.8,
+     "C": 10.5
+    }
+   },
+   "achievement": null,
+   "assessment": "効用の差 16.3 は、注文件数の違いではなく罰点によるものです。C 社の定時配達は 30.6 件で 3 社のうち最も多く、定時率も 0.99 と最も高い一方、罰点が 20.1 あり、効用は 10.5 にとどまります。この罰点は、道路上に止まりすぎたこと（deadline:release 21.0 件、Minor）と、他社の通行をふさいだこと（blocking_guard 7.2 件、Major）によるもので、ふさがれた時間は道路で一度も待たない A 社に最も多くかかっています（431 秒）。つまり C 社は道路上で待つことで定時率を上げ、その代わりに罰点を負い、A 社はふさがれる時間を負っています。改正できるパラメータのうち、block_k を 3 に戻す案、罰点をなくす案、hold_limit を延ばす案は第 5 期に人間が退けており、そのときから条件は変わっていません。hold_limit を縮める案と罰点を重くする案は C 社の罰点をさらに増やして差を広げ、運用モードは分散に固定されていて、配達の約束（契約）は遅配がほとんどないため差に関係しません。このため今期は改正案を出しません。代わりに人間に判断していただきたいことがあります。C 社の罰点を「道路の規則で C 社が損をしている」とみなすのか、「C 社が道路上で待つことを選び、その利害を引き受けている」とみなすのかです。後者であれば、効用の差よりも、A 社がふさがれた時間を公平さの評価方法に加えることを検討する必要があります。",
+   "candidates": [],
+   "auto_best": null,
+   "escalated": [],
+   "request": null,
+   "llm_record": "llm/p6-propose.json",
+   "evidence_file": "p6-evidence.md",
+   "decision": {
+    "by": "tool",
+    "choice": "keep",
+    "outcome": "変えない",
+    "adopted": null,
+    "adopted_kind": null,
+    "vote_overridden": false,
+    "followed_llm": null,
+    "reason": null,
+    "assumptions": [],
+    "gsn": [],
+    "version_after": 2,
+    "constitution_version_after": 1,
+    "version_file": null
+   }
+  }
+ ],
+ "gsn": [
+  {
+   "id": "G0",
+   "type": "goal",
+   "text": "街の運用が、人間の定めた KPI を満たし続ける",
+   "supported_by": [
+    "S1"
+   ]
+  },
+  {
+   "id": "S1",
+   "type": "strategy",
+   "text": "KPI のバージョンごとに論じる",
+   "supported_by": [
+    "G1",
+    "G2"
+   ]
+  },
+  {
+   "id": "G1",
+   "type": "goal",
+   "text": "第 1 期からの KPI: 顧客に約束した時間（注文から集荷まで 120 秒、集荷から配達まで 120 秒）のうちに届く配達を、町全体でできるだけ増やしたい。どの会社の顧客も、ひどく待たされることがないようにしたい。",
+   "ref": "K1",
+   "in_context_of": [
+    "C1",
+    "J1",
+    "A1"
+   ],
+   "supported_by": [
+    "S2",
+    "S3",
+    "S4",
+    "S5"
+   ]
+  },
+  {
+   "id": "C1",
+   "type": "context",
+   "text": "評価方法（人間が選んだ）: 主目標 on_time_deliveries（増やす）、worst_company_p95_wait_s（減らす）、unfinished（減らす）"
+  },
+  {
+   "id": "J1",
+   "type": "justification",
+   "text": "KPI の文の順のとおり、町全体の定時配達を主目標にし、どの会社の顧客もひどく待たせないことは、会社ごとの待ち時間の 95 パーセンタイルで監視する。「ひどく」の水準は、第 1 期の測定を見てから決める。",
+   "by": "human"
+  },
+  {
+   "id": "A1",
+   "type": "assumption",
+   "text": "顧客は配送の会社を選べない",
+   "by": "human"
+  },
+  {
+   "id": "S2",
+   "type": "strategy",
+   "text": "第 1 期: v2 block_k 3 → 2（規則、主目標 +9.2，賛成 A）。投票の結果を覆して採択",
+   "ref": "D1",
+   "supported_by": [
+    "Sn1"
+   ],
+   "in_context_of": [
+    "C2",
+    "J2"
+   ]
+  },
+  {
+   "id": "Sn1",
+   "type": "solution",
+   "text": "同じシードで測った結果（p1-evidence.md）",
+   "file": "p1-evidence.md"
+  },
+  {
+   "id": "C2",
+   "type": "context",
+   "text": "第 1 期の環境: 平常（注文の平均間隔 75 秒）"
+  },
+  {
+   "id": "J2",
+   "type": "justification",
+   "text": "交差点は 3 社が共有する道路で、そこで待ち続けることはどの会社の権利でもない。5 つのシードすべてで定時配達が増え、遅配が 10.4 件から 1.2 件に、最も待たせた会社の待ち時間の 95 パーセンタイルが 273 秒から 95.6 秒に下がるので、B・C 社の反対を覆して採る。C 社の効用が 28.8 から 19.0 に下がることと、道路の違反が 25.8 から 34.0 に増えることは、次の期にもう一度測る。",
+   "by": "human"
+  },
+  {
+   "id": "S3",
+   "type": "strategy",
+   "text": "第 2 期: 変えない",
+   "ref": "D2",
+   "supported_by": [
+    "Sn2"
+   ],
+   "in_context_of": [
+    "C3",
+    "J3"
+   ]
+  },
+  {
+   "id": "Sn2",
+   "type": "solution",
+   "text": "同じシードで測った結果（p2-evidence.md）",
+   "file": "p2-evidence.md"
+  },
+  {
+   "id": "C3",
+   "type": "context",
+   "text": "第 2 期の環境: 平常＋ラッシュ（注文の平均間隔 75 秒）"
+  },
+  {
+   "id": "J3",
+   "type": "justification",
+   "text": "投票は A・B 社の賛成で定足数に届いているので、採っても覆すことにはならない。それでも、改善したのは 5 つのシードのうち 2 つだけで、確かでない改善のために C 社の効用を 56.3 から 40.1 に下げることはしない。最も待たせた会社の待ち時間の 95 パーセンタイルは 109 秒で、約束の 120 秒の内にある。",
+   "by": "human"
+  },
+  {
+   "id": "S4",
+   "type": "strategy",
+   "text": "第 3 期: 変えない",
+   "ref": "D3",
+   "supported_by": [
+    "Sn3"
+   ],
+   "in_context_of": [
+    "C4",
+    "J4"
+   ]
+  },
+  {
+   "id": "Sn3",
+   "type": "solution",
+   "text": "同じシードで測った結果（p3-evidence.md）",
+   "file": "p3-evidence.md"
+  },
+  {
+   "id": "C4",
+   "type": "context",
+   "text": "第 3 期の環境: 繁忙期（注文の平均間隔 45 秒）"
+  },
+  {
+   "id": "J4",
+   "type": "justification",
+   "text": "採択できる案がなく、判断を求める条件にも当たらない",
+   "by": "tool"
+  },
+  {
+   "id": "S5",
+   "type": "strategy",
+   "text": "第 4 期: 変えない",
+   "ref": "D4",
+   "supported_by": [
+    "Sn4"
+   ],
+   "in_context_of": [
+    "C5",
+    "J5"
+   ]
+  },
+  {
+   "id": "Sn4",
+   "type": "solution",
+   "text": "同じシードで測った結果（p4-evidence.md）",
+   "file": "p4-evidence.md"
+  },
+  {
+   "id": "C5",
+   "type": "context",
+   "text": "第 4 期の環境: 繁忙期＋ラッシュ（注文の平均間隔 45 秒）"
+  },
+  {
+   "id": "J5",
+   "type": "justification",
+   "text": "採択できる案がなく、判断を求める条件にも当たらない",
+   "by": "tool"
+  },
+  {
+   "id": "G2",
+   "type": "goal",
+   "text": "第 5 期からの KPI: 閑散期に入り、注文が減る。定時の配達は引き続き大事だが、各社の協力を保つため、道路の使い方で特定の会社だけが得をしたり損をしたりしないようにしたい。",
+   "ref": "K5",
+   "in_context_of": [
+    "C6",
+    "J6"
+   ],
+   "supported_by": [
+    "S6",
+    "S7"
+   ]
+  },
+  {
+   "id": "C6",
+   "type": "context",
+   "text": "評価方法（人間が選んだ）: 主目標 utility_gap（減らす）、on_time_rate（増やす）、min_company_on_time_rate（増やす）、on_time_rate_gap（減らす）、worst_company_p95_wait_s（減らす）"
+  },
+  {
+   "id": "J6",
+   "type": "justification",
+   "text": "閑散期は遅配がほとんどないので、各社の協力を保つため、会社ごとの効用の差を縮めることを主目標にする。差だけを縮めて定時率や最も低い会社の定時率、待ち時間が悪化する改正は、監視する目標で見つけ、そのつど判断する。D1 の block_k の改正が C 社に損をさせていないかも、この評価方法で測り直す。",
+   "by": "human"
+  },
+  {
+   "id": "S6",
+   "type": "strategy",
+   "text": "第 5 期: 変えない",
+   "ref": "D5",
+   "supported_by": [
+    "Sn5"
+   ],
+   "in_context_of": [
+    "C7",
+    "J7"
+   ]
+  },
+  {
+   "id": "Sn5",
+   "type": "solution",
+   "text": "同じシードで測った結果（p5-evidence.md）",
+   "file": "p5-evidence.md"
+  },
+  {
+   "id": "C7",
+   "type": "context",
+   "text": "第 5 期の環境: 閑散期（注文の平均間隔 120 秒）"
+  },
+  {
+   "id": "J7",
+   "type": "justification",
+   "text": "block_k を 3 に戻す案（1）と罰点をなくす案（3）は、効用の差を縮めるが、遅配が 1.8 件から 7.8 件・6.6 件に増え、最も低い会社の定時率も下がる。差を縮めるためにサービスを悪くすることはしない。罰点をなくす案は、道路の違反もほぼ倍になる。hold_limit の案（2）は C 社の効用を 1.3 しか上げず、最も待たせた会社の待ち時間の 95 パーセンタイルを、約束の 120 秒を超えた 178 秒からさらに 212 秒に延ばす。C 社の効用が低い原因は、閑散期にもう一度測って考える。",
+   "by": "human"
+  },
+  {
+   "id": "S7",
+   "type": "strategy",
+   "text": "第 6 期: 変えない",
+   "ref": "D6",
+   "supported_by": [
+    "Sn6"
+   ],
+   "in_context_of": [
+    "C8",
+    "J8"
+   ]
+  },
+  {
+   "id": "Sn6",
+   "type": "solution",
+   "text": "同じシードで測った結果（p6-evidence.md）",
+   "file": "p6-evidence.md"
+  },
+  {
+   "id": "C8",
+   "type": "context",
+   "text": "第 6 期の環境: 閑散期（注文の平均間隔 120 秒）"
+  },
+  {
+   "id": "J8",
+   "type": "justification",
+   "text": "採択できる案がなく、判断を求める条件にも当たらない",
+   "by": "tool"
+  }
+ ],
+ "artifacts": [
+  {
+   "path": "answers.yaml",
+   "sha256": "05cdc323a390213f14015082bf27ad447aee8a134b7f04c027b2a4df1c97ed21",
+   "bytes": 2491
+  },
+  {
+   "path": "decisions.md",
+   "sha256": "ac00a4b9e51fb27558fbd71b2da5fc3f69e6ab94ff9e36f73c3874060ce164c8",
+   "bytes": 32015
+  },
+  {
+   "path": "gsn.md",
+   "sha256": "a96f0935e4fcd758396b4029b5caa5a7d571d47ea179491be6367e61cebce533",
+   "bytes": 3589
+  },
+  {
+   "path": "gsn.yaml",
+   "sha256": "d252830c23db826e4133ec6b23fd6f10f9dd38530e63e41de24be2badf4de041",
+   "bytes": 6569
+  },
+  {
+   "path": "history.md",
+   "sha256": "f21921ef3777a2be0fc4c5eaa2db16c5949f1b0e799dcb9b01bc78deacf0ef43",
+   "bytes": 439
+  },
+  {
+   "path": "llm/p1-kpi.json",
+   "sha256": "80ca3c8b4369464e3dfe8693a6405df00dad3aa4679ed594a32562f699d38261",
+   "bytes": 6156
+  },
+  {
+   "path": "llm/p1-propose.json",
+   "sha256": "c45d02a5777eff287fd233794d0b8b7648c468eabbd1a04588f2cfb6ff98852b",
+   "bytes": 15431
+  },
+  {
+   "path": "llm/p1-request.json",
+   "sha256": "1cee79a191da191c46bfd9f26856d07f81400be04fae71206be296f18f0877e8",
+   "bytes": 4696
+  },
+  {
+   "path": "llm/p2-propose.json",
+   "sha256": "8a455a9d381e74c9d55f8cb1b1026870e0404303151b2695e632f7446b9d535c",
+   "bytes": 16096
+  },
+  {
+   "path": "llm/p2-request.json",
+   "sha256": "e64e9671858f95e21e901201e3a758e9f81910fbe582b2181c1b5682c6cb93c9",
+   "bytes": 5384
+  },
+  {
+   "path": "llm/p3-propose.json",
+   "sha256": "4507dd7770595b5a64eefcf3b9b7efc5400bc57c62d858a46e7b67b283200d17",
+   "bytes": 8380
+  },
+  {
+   "path": "llm/p4-propose.json",
+   "sha256": "1d003063e6c73c3658ea14202002d0e8ed11e06359c47c509f2c792edee9c541",
+   "bytes": 843
+  },
+  {
+   "path": "llm/p5-kpi.json",
+   "sha256": "75f9b74a9788adb28e720781bfa521ec2dce1b9b5137a373d9013e7d0edcb4f3",
+   "bytes": 8602
+  },
+  {
+   "path": "llm/p5-propose.json",
+   "sha256": "70121a9230193f9b5bd094404278edc7f992672e127337d3a9d919ec9431c68f",
+   "bytes": 22881
+  },
+  {
+   "path": "llm/p5-request.json",
+   "sha256": "15a51525018df3745dad9bf689e3cdd43852bd405a28b7a5edd5123e9f003a01",
+   "bytes": 7481
+  },
+  {
+   "path": "llm/p6-propose.json",
+   "sha256": "fb3d65c0cf00776236044c2567bdc02a04b72add7a2c0dea6e6df98089971095",
+   "bytes": 1874
+  },
+  {
+   "path": "p1-evidence.md",
+   "sha256": "ec7671707bafb7fff50c61db52769b5dd7bf0b90de3dbb1410d9c6aa0c35ecb1",
+   "bytes": 2554
+  },
+  {
+   "path": "p1-kpi-request.md",
+   "sha256": "91a7f95dce7fad1ec9e6c446ba58e3b7b9277fcd8c9d3d0e60dccb75ad16096a",
+   "bytes": 4729
+  },
+  {
+   "path": "p1-request.md",
+   "sha256": "266d2bbc322af66e717c0a3d7ac82854e5515ec91693182cc857d35233b9d721",
+   "bytes": 5506
+  },
+  {
+   "path": "p2-evidence.md",
+   "sha256": "82aecf35715cc6b94474d34f46bda22f078dfb4f8482c2a1cd8d5c838ab24c65",
+   "bytes": 2609
+  },
+  {
+   "path": "p2-request.md",
+   "sha256": "4be2d34659d892fad77cbbbdb703b520f48efbbb13b250450aa565a49613b115",
+   "bytes": 6884
+  },
+  {
+   "path": "p3-evidence.md",
+   "sha256": "8e354eb41d7a784a8777cd6bec27c758b5a540cb8ad9a48c9e501f978adef54b",
+   "bytes": 1980
+  },
+  {
+   "path": "p4-evidence.md",
+   "sha256": "048311685ace28630fb07c4f43482de98ff0e43b50d7c6fd2cb2114546c0cdb5",
+   "bytes": 718
+  },
+  {
+   "path": "p5-evidence.md",
+   "sha256": "da59f1e674bd78ea736e26820ef6cedc82ee180a825dbee3712bb2c70b903f59",
+   "bytes": 3722
+  },
+  {
+   "path": "p5-kpi-request.md",
+   "sha256": "e6832f4e4ba942e539af7f3488e31bc77e8e747ce426da693f2823e0a96150c3",
+   "bytes": 6404
+  },
+  {
+   "path": "p5-request.md",
+   "sha256": "a89844ab732086f05079ad61ba2e63a09607357323ba5a7a4a4b4d313eb63a7c",
+   "bytes": 10322
+  },
+  {
+   "path": "p6-evidence.md",
+   "sha256": "b845ef60e559ed40cbbc602bd1221150c2a020a4ceb07506baceede655a74d83",
+   "bytes": 823
+  },
+  {
+   "path": "v1.cadl",
+   "sha256": "7d1a1d4980988b251b6c777d28a23f02a31497c3736ad57e7042ad94e4f8e45d",
+   "bytes": 6000
+  },
+  {
+   "path": "v2.cadl",
+   "sha256": "28865bfe32c1662d6b380eb70383a574b2d3d1049e4f6990027e74af0c3f9a9e",
+   "bytes": 6000
+  }
+ ],
+ "chain": [
+  {
+   "id": "K1",
+   "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+   "hash": "ed1ff800249c0b0ee4e5cfcd4821264895e00b254e04b905038c0053c7636a24"
+  },
+  {
+   "id": "D1",
+   "prev": "ed1ff800249c0b0ee4e5cfcd4821264895e00b254e04b905038c0053c7636a24",
+   "hash": "815fbf0faab0d44c6ee8135a50de4277e50c32e57e5ea3d670129e9e182df79d"
+  },
+  {
+   "id": "D2",
+   "prev": "815fbf0faab0d44c6ee8135a50de4277e50c32e57e5ea3d670129e9e182df79d",
+   "hash": "37a70cce5cc4fbbfaac7f73156189925ca4c45eb04d7be3fb2f63842af505a65"
+  },
+  {
+   "id": "D3",
+   "prev": "37a70cce5cc4fbbfaac7f73156189925ca4c45eb04d7be3fb2f63842af505a65",
+   "hash": "f950948b705226896ee221efe73daaf2fb428b8b1332f1a097022cc76b5e29b7"
+  },
+  {
+   "id": "D4",
+   "prev": "f950948b705226896ee221efe73daaf2fb428b8b1332f1a097022cc76b5e29b7",
+   "hash": "4729ec86ae087fda26c08a91f9a8bd76b69345a9f3702c9eedc9c221f73ad701"
+  },
+  {
+   "id": "K5",
+   "prev": "4729ec86ae087fda26c08a91f9a8bd76b69345a9f3702c9eedc9c221f73ad701",
+   "hash": "1aee111d321ceeca4af9d04365f3797c6099bd3fc54dc9982dc5798fc5d49876"
+  },
+  {
+   "id": "D5",
+   "prev": "1aee111d321ceeca4af9d04365f3797c6099bd3fc54dc9982dc5798fc5d49876",
+   "hash": "2f1ed65283a796e67bb91cf98eb5c71c25ce081a6aedf0fc8785380559c35a57"
+  },
+  {
+   "id": "D6",
+   "prev": "2f1ed65283a796e67bb91cf98eb5c71c25ce081a6aedf0fc8785380559c35a57",
+   "hash": "1a70bb516fd370ef646405a35b225899d455a5278633077e8874130bc3766640"
+  }
+ ]
+}

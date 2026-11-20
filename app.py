@@ -5,6 +5,7 @@ Routes between the pages in views/:
   Explorer            — compare two governance designs end to end
   Designer            — author and check a full CADL design
   Contract Lifecycle  — SoS-DSL contract lifecycle state machines
+  Decision Evidence   — the record of an amendment loop as evidence of consensus
   About               — glossary, scenario and model notes
 """
 
@@ -49,6 +50,7 @@ page = st.navigation([
     st.Page("views/explorer.py", title="Explorer", default=True),
     st.Page("views/designer.py", title="Designer", url_path="designer"),
     st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
+    st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
     st.Page("views/about.py", title="About & Glossary", url_path="about"),
 ])
 if st.session_state.get("lang") not in LANGUAGES:
