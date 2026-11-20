@@ -3,7 +3,7 @@
 # (as in v0.5.0, which renamed the templates in backend/services/cadl_service.py,
 # v0.5.1, which changed the profile validation in the same module, and v0.5.2,
 # which changed backend/services/design_service.py; v0.5.4 changed it again;
-# v0.5.5 to v1.4.2 changed backend/version.py, which every page imports):
+# v0.5.5 to v1.5.0 changed backend/version.py, which every page imports):
 # the running process otherwise keeps the old module beside the new pages.
 streamlit>=1.50.0
 plotly>=5.18.0
@@ -46,8 +46,10 @@ pandas>=2.0.0
 # `metrics-eval`, which Measurements runs. 0.3.35 runs the versions in
 # `agents-run`, which Agents passes, and infers `previous:`; 0.3.36 lets every
 # target follow the regimes, takes `codegen --version`, which Export passes,
-# and `norms-check --version` with `keep` and `in_states:`.
-cadl-lang>=0.3.36
+# and `norms-check --version` with `keep` and `in_states:`. 0.3.37 adds the
+# decision records of Appendix L (`cadl.decisions`), which Decision Evidence
+# verifies.
+cadl-lang>=0.3.37
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.
