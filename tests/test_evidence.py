@@ -1,6 +1,4 @@
-"""The evidence bundle of cadl-robot-town: chain, flags and views."""
-import copy
-import json
+"""Decision records (Appendix L): reading them and the views of the Decision Evidence page."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,62 +8,65 @@ import pytest
 from cadl_sim import evidence as E
 
 EXAMPLES = sorted((Path(__file__).resolve().parent.parent / "cadl_sim" / "evidence" / "examples")
-                  .glob("*.evidence.json"))
+                  .glob("*.decisions.jsonl"))
 
 
 @pytest.fixture(params=EXAMPLES, ids=lambda p: p.name)
-def doc(request):
-    return E.load(request.param.read_text(encoding="utf-8"))
+def rec(request):
+    return E.load(request.param.read_bytes())
 
 
 def test_examples_bundled():
-    assert len(EXAMPLES) >= 2
+    assert len(EXAMPLES) >= 3
 
 
-def test_chain_intact(doc):
-    assert E.chain_ok(doc)
-
-
-def test_changing_a_record_breaks_the_chain(doc):
-    bad = copy.deepcopy(doc)
-    d1 = E.record(bad, "D1")
-    d1["decision"]["reason"] = "changed afterwards"
-    assert not E.chain_ok(bad)
-    rows = E.verify_chain(bad)
-    assert [r["id"] for r in rows if not r["ok"]][0] == "D1"
-    assert any(f["level"] == "error" for f in E.flags(bad))
-
-
-def test_not_a_bundle():
+def test_not_a_record():
     with pytest.raises(ValueError):
-        E.load(json.dumps({"format": "something else"}))
+        E.load(b'{"format": "something else"}\n')
+    with pytest.raises(ValueError):
+        E.load(b"")
 
 
-def test_vote_override_is_flagged(doc):
-    d1 = E.record(doc, "D1")
-    assert d1["decision"]["vote_overridden"]           # both records adopt block_k 3 → 2 against B and C
-    kinds = {(f["record"], f["kind"]) for f in E.flags(doc)}
-    assert ("D1", "vote overridden") in kinds
+def test_examples_verify(rec):
+    pytest.importorskip("cadl.decisions")
+    result = E.check(rec)
+    assert result["valid"], result["errors"]
+    assert result["complete"]
 
 
-def test_missing_reason_is_flagged(doc):
-    bad = copy.deepcopy(doc)
-    E.record(bad, "D2")["decision"]["reason"] = None
-    assert ("D2", "missing reason") in {(f["record"], f["kind"]) for f in E.flags(bad)}
+def test_a_changed_line_is_an_error(rec):
+    pytest.importorskip("cadl.decisions")
+    lines = rec.raw.decode("utf-8").splitlines()
+    lines[2] = lines[2].replace('"written": "', '"written": "1', 1)
+    bad = E.check(E.load(("\n".join(lines) + "\n").encode("utf-8")))
+    assert not bad["valid"]
 
 
-def test_timeline_one_row_per_period(doc):
-    rows = E.timeline(doc)
-    assert [r["period"] for r in rows] == list(range(1, len(rows) + 1))
-    assert rows[0]["kpi"] == "K1"
-    assert rows[-1]["version"] >= 2
+def test_timeline_and_party_evidence(rec):
+    rows = E.timeline(rec, E.check(rec))
+    assert rows and all(r["kind"] in E.KINDS for r in rows)
+    ev = E.evidence_by_party(rec)
+    assert ev and all(r["with reason"] <= r["entries"] for r in ev)
+    assert E.series(rec)
+
+
+def test_steward_records_show_the_override(rec):
+    pytest.importorskip("cadl.decisions")
+    if "steward" not in {p for p in rec.parties}:
+        pytest.skip("not a steward record")
+    if "llm-decider" in rec.parties:
+        pytest.skip("decided by the LLM")
+    rows = E.timeline(rec, E.check(rec))
+    assert "override" in rows[0]["findings"]          # D1: block_k 3 → 2 against B and C
 
 
 @pytest.mark.skipif(not shutil.which("dot"), reason="Graphviz is not installed")
-def test_dot_renders(doc):
-    for r in doc["records"]:
+def test_dot_renders(rec):
+    result = E.check(rec)
+    nodes = E.gsn(rec)
+    for did in [e["id"] for e in rec.of_type("decision")][:8]:
         for dark in (False, True):
-            dot = E.decision_dot(doc, r["id"], dark)
+            dot = E.trail_dot(rec, did, dark, result)
             assert subprocess.run(["dot", "-Tsvg"], input=dot.encode(), capture_output=True).returncode == 0
-    gsn = E.gsn_dot(doc, highlight="D1")
-    assert subprocess.run(["dot", "-Tsvg"], input=gsn.encode(), capture_output=True).returncode == 0
+        g = E.gsn_dot(nodes, focus=did)
+        assert subprocess.run(["dot", "-Tsvg"], input=g.encode(), capture_output=True).returncode == 0

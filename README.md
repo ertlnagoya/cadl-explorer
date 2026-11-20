@@ -116,6 +116,7 @@ cadl-explorer/
 │   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
+│   ├── evidence.py                 # Decision Evidence page (decision records of Appendix L)
 │   └── about.py                    # Glossary, scenario and model notes
 ├── cli.py                          # Batch CLI runner
 ├── mcp_server.py                   # Design tools for AI assistants (Model Context Protocol)
@@ -266,6 +267,14 @@ The app has four pages:
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
   compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
+- **Decision Evidence** (`views/evidence.py`) shows a decision record of
+  Appendix L of the specification (`decisions.jsonl`, written by
+  cadl-robot-town's `town.steward` and `town.council`): a timeline of who
+  decided each amendment and how the parties voted, the trail of each decision
+  with what it rests on, the evidence of each party counted the same way for a
+  person, an LLM and a tool, a GSN derived from the record, the errors and
+  findings of `cadl decisions-verify`, and the hash chain with an anchor check.
+  It needs cadl 0.3.37 or later for the checks; three records are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 
