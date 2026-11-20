@@ -48,8 +48,9 @@ pandas>=2.0.0
 # target follow the regimes, takes `codegen --version`, which Export passes,
 # and `norms-check --version` with `keep` and `in_states:`. 0.3.37 adds the
 # decision records of Appendix L (`cadl.decisions`), which Decision Evidence
-# verifies.
-cadl-lang>=0.3.37
+# verifies; 0.3.38 reads decisions 0.2 (the layers of a party, what fulfils a
+# follow-up).
+cadl-lang>=0.3.38
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.

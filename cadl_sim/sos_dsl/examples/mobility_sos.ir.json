@@ -1,0 +1,232 @@
+{
+  "name": "MobilitySoS",
+  "sos_type": "Acknowledged",
+  "description": "",
+  "environment": {
+    "grid_size": 5,
+    "num_taxis": 10,
+    "time_step_ms": 1000
+  },
+  "institution": {
+    "actors": [
+      {
+        "id": "PLATFORM",
+        "role": "central_matching_platform",
+        "autonomy": "low",
+        "count": null,
+        "capabilities": [
+          "match_request",
+          "dispatch_taxi"
+        ],
+        "inputs": [
+          "ride_request",
+          "position_report",
+          "status_update"
+        ],
+        "outputs": [
+          "match_assignment"
+        ]
+      },
+      {
+        "id": "TAXI",
+        "role": "autonomous_driver",
+        "autonomy": "high",
+        "count": null,
+        "capabilities": [
+          "move",
+          "pickup",
+          "dropoff",
+          "accept_or_reject"
+        ],
+        "inputs": [
+          "match_assignment"
+        ],
+        "outputs": [
+          "position_report",
+          "status_update"
+        ]
+      },
+      {
+        "id": "PASSENGER",
+        "role": "service_requester",
+        "autonomy": "medium",
+        "count": null,
+        "capabilities": [
+          "request_ride",
+          "board",
+          "alight"
+        ],
+        "inputs": [
+          "match_assignment",
+          "arrival_notification"
+        ],
+        "outputs": [
+          "ride_request"
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "RIDE_SLA",
+        "parties": [
+          "PLATFORM",
+          "TAXI[*]",
+          "PASSENGER[*]"
+        ],
+        "assume": [
+          "TAXI[i].available == true",
+          "TAXI[i].battery > 20"
+        ],
+        "guarantee": [
+          "waiting_time <= 300s",
+          "ride_time <= 1800s"
+        ],
+        "governance": {
+          "alpha": null,
+          "beta": null,
+          "decision_holder": null,
+          "sharing_mode": null,
+          "incentive_type": "ride_completion",
+          "lambda": 0.5
+        },
+        "violation_detect": null,
+        "violation_action": null,
+        "lifecycle": {
+          "states": [
+            "Requested",
+            "Matched",
+            "Accepted",
+            "PickedUp",
+            "Delivered",
+            "Violated",
+            "Cancelled",
+            "Terminated"
+          ],
+          "initial": "Requested",
+          "terminal": [
+            "Delivered",
+            "Violated",
+            "Cancelled",
+            "Terminated"
+          ],
+          "transitions": [
+            {
+              "id": "match",
+              "from_states": [
+                "Requested"
+              ],
+              "to_state": "Matched",
+              "on": "PLATFORM -> TAXI[i] : match_assignment",
+              "when": null,
+              "deadline_ms": 30000,
+              "on_violation_transition": "Violated",
+              "on_violation_severity": "Major",
+              "emit": []
+            },
+            {
+              "id": "accept",
+              "from_states": [
+                "Matched"
+              ],
+              "to_state": "Accepted",
+              "on": "TAXI[i] -> PLATFORM : ack(accepted)",
+              "when": null,
+              "deadline_ms": 5000,
+              "on_violation_transition": "Violated",
+              "on_violation_severity": "Major",
+              "emit": []
+            },
+            {
+              "id": "pickup",
+              "from_states": [
+                "Accepted"
+              ],
+              "to_state": "PickedUp",
+              "on": "TAXI[i].status == Boarded",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            },
+            {
+              "id": "deliver",
+              "from_states": [
+                "PickedUp"
+              ],
+              "to_state": "Delivered",
+              "on": "TAXI[i].status == Arrived",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            },
+            {
+              "id": "cancel",
+              "from_states": [
+                "Requested"
+              ],
+              "to_state": "Cancelled",
+              "on": "PASSENGER[j] -> PLATFORM : cancel",
+              "when": null,
+              "deadline_ms": null,
+              "on_violation_transition": null,
+              "on_violation_severity": null,
+              "emit": []
+            }
+          ]
+        },
+        "monitors": [
+          {
+            "id": "waiting_too_long",
+            "observe": [
+              "PASSENGER[j].waiting_time"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 1000,
+            "rule": "PASSENGER[j].waiting_time > 300 AND state == Matched",
+            "on_match_violation": null,
+            "on_match_transition": "Violated",
+            "on_match_severity": "Major"
+          },
+          {
+            "id": "low_battery_guard",
+            "observe": [
+              "TAXI[i].battery"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 500,
+            "rule": "TAXI[i].battery < 15 AND state == Accepted",
+            "on_match_violation": null,
+            "on_match_transition": "Violated",
+            "on_match_severity": "Critical"
+          },
+          {
+            "id": "detour_guard",
+            "observe": [
+              "TAXI[i].route_deviation_ratio"
+            ],
+            "sampling_kind": "periodic",
+            "sampling_period_ms": 2000,
+            "rule": "TAXI[i].route_deviation_ratio > 1.5 AND state == PickedUp",
+            "on_match_violation": null,
+            "on_match_transition": "Violated",
+            "on_match_severity": "Minor"
+          }
+        ]
+      }
+    ]
+  },
+  "protocol": {
+    "protocols": [],
+    "events": []
+  },
+  "algorithm": {
+    "algorithms": []
+  },
+  "metrics": [],
+  "transitions": [],
+  "task_arbitration": null,
+  "motivation": null
+}

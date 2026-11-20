@@ -1,14 +1,16 @@
 """Decision records (Appendix L of the CADL specification): read and show them.
 
-A decision record (``decisions.jsonl``, format ``cadl-decisions/1``) records
+A decision record (``decisions.jsonl``, format ``cadl-decisions/2``, or
+``cadl-decisions/1`` of decisions 0.1) records
 how the amendments of a model were decided: the parties with their roles,
 then entries (objectives, proposals, measurements, checks, votes, requests,
 recommendations, decisions, versions, follow-ups), each with the earlier
 entries it rests on (``basis``). Every line carries the hash chain of
 Appendix G, G.8. cadl-robot-town writes one in each run of ``town.steward``
-and ``town.council``.
+and ``town.council``. In decisions 0.2 each deciding party gives the layers
+on which it decides, and each follow-up says what fulfils it.
 
-The checks and findings come from ``cadl.decisions.verify`` (cadl 0.3.37 or
+The checks and findings come from ``cadl.decisions.verify`` (cadl 0.3.38 or
 later); this module turns a record into views and has no Streamlit
 dependency. Text that a page shows is passed through ``t``.
 """
@@ -21,7 +23,8 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Optional
 
-FORMAT = "cadl-decisions/1"
+FORMAT = "cadl-decisions/2"
+FORMATS = ("cadl-decisions/1", FORMAT)
 KEEP = "keep"
 INTEGRITY = ("seq", "prev", "digest")
 
@@ -88,9 +91,9 @@ def load(raw) -> Record:
             raise ValueError(f"line {n} is not a JSON object")
         objs.append({k: v for k, v in obj.items() if k not in INTEGRITY})
     head = objs[0]
-    if head.get("decisions_format") != FORMAT:
+    if head.get("decisions_format") not in FORMATS:
         raise ValueError(f"not a decision record (format {head.get('decisions_format')!r}, "
-                         f"expected {FORMAT!r})")
+                         f"expected {' or '.join(map(repr, FORMATS))})")
     complete = len(objs) > 1 and "decisions_end" in objs[-1]
     entries = [o for o in (objs[1:-1] if complete else objs[1:]) if isinstance(o.get("id"), str)]
     return Record(head, entries, complete, data)
@@ -137,6 +140,16 @@ def is_amendment_decision(rec: Record, d: dict) -> bool:
     return True
 
 
+def layers_of(rec: Record, d: dict) -> list:
+    """The layers of the changes among the options of a decision."""
+    out = []
+    for o in d.get("options") or []:
+        for c in (rec.by_id.get(o) or {}).get("changes") or []:
+            if isinstance(c, dict) and c.get("layer") and c["layer"] not in out:
+                out.append(c["layer"])
+    return out
+
+
 def voted_on(d: dict):
     if d.get("choice") != KEEP:
         return d.get("choice")
@@ -171,6 +184,7 @@ def timeline(rec: Record, result: Optional[dict] = None) -> list:
                         and not is_amendment_decision(rec, x)), None)
         rows.append({
             "id": e.get("id"), "period": k if k is not None else len(rows) + 1,
+            "layers": layers_of(rec, e),
             "objective": objective.get("id") if objective else None,
             "objective_new": bool(objective and period(objective) == k),
             "reading_by": rec.kind(reading.get("by")) if reading else None,
@@ -206,6 +220,58 @@ def series(rec: Record) -> list:
     return out
 
 
+# --- follow-ups -------------------------------------------------------------------
+
+def _not_shown(result: Optional[dict]) -> set:
+    """(entry, follow-up) pairs whose fulfilment the verifier did not accept."""
+    out = set()
+    for f in (result or {}).get("findings", []):
+        if f["finding"] == "fulfilment not shown":
+            words = str(f.get("text") or "").split()
+            if len(words) > 1 and words[0] == "names":
+                out.add((f.get("entry"), words[1]))
+    return out
+
+
+def asks(f: dict) -> str:
+    """What fulfils a follow-up, in words (decisions 0.2), or '' for any later entry."""
+    fb = f.get("fulfilled_by")
+    if not isinstance(fb, dict):
+        return ""
+    if fb.get("type") != "measurement":
+        return str(fb.get("type") or "")
+    parts = ["measurement"]
+    if fb.get("of"):
+        parts.append(f"of {fb['of']}")
+    if fb.get("same_method_as"):
+        parts.append(f"as {fb['same_method_as']}")
+    if fb.get("subjects"):
+        parts.append(", ".join(s.replace("metric:", "") for s in fb["subjects"]))
+    return " ".join(parts)
+
+
+def follow_ups(rec: Record, result: Optional[dict] = None) -> list:
+    """Each follow-up, who made it, what fulfils it, and whether it was fulfilled."""
+    open_ = {f.get("entry") for f in (result or {}).get("findings", [])
+             if f["finding"] == "open follow-up"}
+    rejected = _not_shown(result)
+    rows = []
+    for f in rec.of_type("follow_up"):
+        fid = f["id"]
+        claims = [e for e in rec.entries if fid in (e.get("fulfils") or [])]
+        good = [e["id"] for e in claims if (e["id"], fid) not in rejected]
+        bad = [e["id"] for e in claims if (e["id"], fid) in rejected]
+        status = ("fulfilled" if good else "open" if fid in open_ else
+                  "claimed, not shown" if bad else "pending")
+        due = f.get("due") or {}
+        rows.append({"id": fid, "by": f.get("by"), "kind": rec.kind(f.get("by")),
+                     "decision": f.get("decision"), "text": f.get("text"),
+                     "due": due.get("period") if isinstance(due, dict) else None,
+                     "asks": asks(f), "status": status, "fulfilled by": good,
+                     "not shown": bad})
+    return rows
+
+
 # --- evidence by party --------------------------------------------------------------
 
 def evidence_by_party(rec: Record, result: Optional[dict] = None) -> list:
@@ -215,13 +281,17 @@ def evidence_by_party(rec: Record, result: Optional[dict] = None) -> list:
         if f["finding"] == "prediction missed":
             missed[f["entry"]] = missed.get(f["entry"], 0) + 1
     rows = []
+    fus = follow_ups(rec, result)
     for pid, p in rec.parties.items():
         mine = [e for e in rec.entries if e.get("by") == pid
                 and e.get("type") in ("proposal", "recommendation", "decision")]
         if not mine:
             continue
+        promised = [f for f in fus if f["by"] == pid]
+        layers = p.get("layers")
         rows.append({
             "party": pid, "kind": p.get("kind"), "on_behalf_of": p.get("on_behalf_of"),
+            "layers": "any" if layers is None else ", ".join(layers),
             "entries": len(mine),
             "decisions": sum(e.get("type") == "decision" for e in mine),
             "with reason": sum(bool(str(e.get("reason") or "").strip()) for e in mine),
@@ -229,6 +299,8 @@ def evidence_by_party(rec: Record, result: Optional[dict] = None) -> list:
             "with unknowns": sum(bool(e.get("unknowns")) for e in mine),
             "predictions": sum(len(e.get("predictions") or []) for e in mine),
             "predictions missed": sum(missed.get(e.get("id"), 0) for e in mine),
+            "follow-ups": len(promised),
+            "fulfilled": sum(f["status"] == "fulfilled" for f in promised),
         })
     return rows
 
@@ -307,8 +379,15 @@ def trail_dot(rec: Record, did: str, dark: bool = False, result: Optional[dict] 
     votes = rec.basis(d, "vote")
     after = [e for e in rec.entries if e.get("decision") == did
              and e.get("type") in ("follow_up", "version")]
+    fus = {f["id"]: f for f in follow_ups(rec, result)}
+    later = []
+    for f in [e for e in after if e.get("type") == "follow_up"]:
+        row = fus.get(f["id"]) or {}
+        for x in row.get("fulfilled by", []) + row.get("not shown", []):
+            if x in rec.by_id and rec.by_id[x] not in later:
+                later.append(rec.by_id[x])
     lines = _head(dark)
-    for e in shown + after:
+    for e in shown + after + later:
         shape = {"follow_up": "note", "version": "folder"}.get(e.get("type"), "box")
         lines.append(f'  {_nid(e["id"])} [label="{label(rec, e, t)}" color="{colour(rec.kind(e.get("by")), dark)}" '
                      f'penwidth=1.6 shape={shape} style="{"rounded" if shape == "box" else "solid"}"];')
@@ -342,6 +421,14 @@ def trail_dot(rec: Record, did: str, dark: bool = False, result: Optional[dict] 
                  f'color="{colour("alert" if alert else rec.kind(d.get("by")), dark)}"];')
     for e in after:
         lines.append(f"  {_nid(did)} -> {_nid(e['id'])};")
+    for fid, row in fus.items():
+        if rec.by_id.get(fid, {}).get("decision") != did:
+            continue
+        for x in row["fulfilled by"]:
+            lines.append(f'  {_nid(fid)} -> {_nid(x)} [label="{t("fulfils")}" fontsize=9 dir=back];')
+        for x in row["not shown"]:
+            lines.append(f'  {_nid(fid)} -> {_nid(x)} [label="{t("fulfilment not shown")}" '
+                         f'fontsize=9 dir=back style=dashed color="{colour("alert", dark)}"];')
     lines.append("}")
     return "\n".join(lines)
 
@@ -350,7 +437,7 @@ GSN_SHAPE = {"goal": "box", "strategy": "parallelogram", "solution": "circle",
              "context": "box", "assumption": "ellipse", "justification": "ellipse"}
 
 
-def gsn(rec: Record, t: Callable = _id) -> list:
+def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
     """The GSN argument derived from the record, as Appendix L, L.8 maps it."""
     nodes = [{"id": "G0", "type": "goal", "by": "tool", "ref": None, "children": [], "context": [],
               "text": t("The system keeps meeting the objectives of its owner")}]
@@ -368,6 +455,7 @@ def gsn(rec: Record, t: Callable = _id) -> list:
         return nid
 
     goal = None
+    fulfilled = {r["id"]: r for r in follow_ups(rec, result)}
     for e in rec.entries:
         typ = e.get("type")
         if typ == "objective":
@@ -389,8 +477,11 @@ def gsn(rec: Record, t: Callable = _id) -> list:
                 add("assumption", "A", a, s, "context", by=kind)
             for f in rec.of_type("follow_up"):
                 if f.get("decision") == e.get("id"):
-                    add("goal", "G", f"{f.get('id')}: {f.get('text')}", s,
-                        by=rec.kind(f.get("by")), ref=f.get("id"))
+                    g = add("goal", "G", f"{f.get('id')}: {f.get('text')}", s,
+                            by=rec.kind(f.get("by")), ref=f.get("id"))
+                    row = fulfilled.get(f.get("id")) or {}
+                    for x in row.get("fulfilled by", []):
+                        add("solution", "Sn", x, g, by=rec.kind((rec.by_id.get(x) or {}).get("by")), ref=x)
     return nodes
 
 
