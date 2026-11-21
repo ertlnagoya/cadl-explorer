@@ -58,7 +58,7 @@ if st.session_state.get("lang") not in LANGUAGES:
 # Before page.run(): a page may end the run with st.stop().
 with st.sidebar:
     st.segmented_control(t("Language"), LANGUAGES, key="lang", label_visibility="collapsed",
-                         on_change=lambda: st.session_state.lang or st.session_state.update(
+                         on_change=lambda: st.session_state.get("lang") or st.session_state.update(
                              lang=LANGUAGES[0]))
     # On Streamlit Community Cloud, PRISM is downloaded in the background.
     setup = prism_setup.ensure_prism()
