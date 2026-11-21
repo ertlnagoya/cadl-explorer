@@ -440,11 +440,27 @@ def test_the_version_of_prism_is_read_from_any_casing(monkeypatch):
     monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **k: Done())
     import cadl.norms_check
     monkeypatch.setattr(cadl.norms_check, "find_checker", lambda: "/bin/prism")
-    runtime.toolchain.cache_clear()
-    try:
-        assert runtime.toolchain()["prism"] == "4.11"
-    finally:
-        runtime.toolchain.cache_clear()
+    monkeypatch.setattr(runtime, "_TOOLCHAIN", None)
+    assert runtime.toolchain()["prism"] == "4.11"
+
+
+def test_prism_installed_after_the_first_run_is_found(monkeypatch):
+    """On Streamlit Cloud PRISM is installed in the background: a first "not installed"
+    must not be kept."""
+    from backend.services import design_runtime as runtime
+
+    class Done:
+        stdout = "PRISM\nVersion: 4.11\n"
+
+    import cadl.norms_check
+    monkeypatch.setattr(runtime, "_TOOLCHAIN", None)
+    monkeypatch.setattr(cadl.norms_check, "find_checker", lambda: None)
+    assert runtime.toolchain()["prism"] is None
+    monkeypatch.setattr(runtime.subprocess, "run", lambda *a, **k: Done())
+    monkeypatch.setattr(cadl.norms_check, "find_checker", lambda: "/bin/prism")
+    assert runtime.toolchain()["prism"] == "4.11"
+    monkeypatch.setattr(cadl.norms_check, "find_checker", lambda: None)
+    assert runtime.toolchain()["prism"] == "4.11"
 
 
 def test_a_stopped_run_is_not_taken_again(monkeypatch):
