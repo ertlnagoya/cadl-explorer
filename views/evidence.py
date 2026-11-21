@@ -29,6 +29,13 @@ EXAMPLES_DIR = _ROOT / "cadl_sim" / "evidence" / "examples"
 BUNDLED = sorted(EXAMPLES_DIR.glob("*.decisions.jsonl")) if EXAMPLES_DIR.exists() else []
 
 
+def _versions_of(record_path: Path) -> dict:
+    """The CADL files of the versions of a bundled record: <name>.decisions.jsonl keeps them
+    in the folder <name>.versions/ next to it."""
+    folder = record_path.with_name(record_path.name.replace(".decisions.jsonl", ".versions"))
+    return {f.name: f.read_bytes() for f in sorted(folder.glob("*.cadl"))} if folder.is_dir() else {}
+
+
 def _dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"
@@ -50,6 +57,12 @@ with st.sidebar:
     st.header(t("Decision record"))
     upload = st.file_uploader(t("Upload a decisions.jsonl"), type=["jsonl", "json"],
                               key="evidence_upload")
+    version_uploads = st.file_uploader(
+        t("CADL files of the versions (optional)"), type=["cadl", "yaml", "yml"],
+        accept_multiple_files=True, key="evidence_versions",
+        help=t("The files that the version entries attach (v1.cadl, v2.cadl, …). With them the "
+               "verifier also checks the versions, the amendable parameters and who may decide "
+               "(L-9 to L-11)."))
     pick = None
     if BUNDLED:
         names = [p.name for p in BUNDLED]
@@ -61,9 +74,11 @@ try:
     if upload is not None:
         rec = E.load(upload.getvalue())
         source = upload.name
+        version_files = {f.name: f.getvalue() for f in version_uploads or []}
     elif pick:
         rec = E.load((EXAMPLES_DIR / pick).read_bytes())
         source = pick
+        version_files = _versions_of(EXAMPLES_DIR / pick)
     else:
         st.info(t("Upload a decisions.jsonl in the sidebar."))
         st.stop()
@@ -72,7 +87,7 @@ except (ValueError, UnicodeDecodeError) as e:
     st.stop()
 
 dark = _dark()
-result = E.check(rec)
+result = E.check(rec, files=version_files)
 rows = E.timeline(rec, result)
 found = E.findings_by_entry(result)
 model = rec.header.get("model") or {}
@@ -304,6 +319,15 @@ with tab_check:
                          width="stretch", hide_index=True)
         else:
             st.success(t("No findings."))
+        wanted = E.attached(rec)
+        got = [Path(v).name for v in result.get("versions_checked") or []]
+        if got:
+            st.caption(t("Checked against the CADL files of the versions: {files}.").format(
+                files=", ".join(got)))
+        elif wanted:
+            st.info(t("The version entries attach {files}. Upload these files in the sidebar to "
+                      "check the versions, the amendable parameters and who may decide "
+                      "(L-9 to L-11).").format(files=", ".join(wanted)))
         if result["not_checked"]:
             with st.expander(t("Not checked ({n})").format(n=len(result["not_checked"]))):
                 for n in result["not_checked"]:

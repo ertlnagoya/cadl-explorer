@@ -1166,6 +1166,12 @@ JA: dict = {
     'entry': '項目',
     'what': '内容',
     'Not checked ({n})': '検査していないもの（{n}）',
+    'CADL files of the versions (optional)': 'バージョンの CADL ファイル（任意）',
+    'The files that the version entries attach (v1.cadl, v2.cadl, …). With them the verifier also checks the versions, the amendable parameters and who may decide (L-9 to L-11).':
+        'version の項目が添付するファイル（v1.cadl、v2.cadl など）。これがあると、検証器はバージョン、改正してよいパラメータ、誰が決めてよいか（L-9〜L-11）も確かめます。',
+    'Checked against the CADL files of the versions: {files}.': 'バージョンの CADL ファイルと照合しました：{files}。',
+    'The version entries attach {files}. Upload these files in the sidebar to check the versions, the amendable parameters and who may decide (L-9 to L-11).':
+        'version の項目は {files} を添付しています。サイドバーからこれらのファイルをアップロードすると、バージョン、改正してよいパラメータ、誰が決めてよいか（L-9〜L-11）も確かめます。',
     'The system keeps meeting the objectives of its owner': 'システムは所有者の目的を満たし続ける',
     'all passed': 'すべて通過',
     'chose': '選択',

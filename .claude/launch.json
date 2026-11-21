@@ -1,0 +1,80 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cadl-explorer",
+      "runtimeExecutable": ".venv/bin/streamlit",
+      "runtimeArgs": [
+        "run",
+        "app.py",
+        "--server.port",
+        "8765",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "cadl-explorer-workspace",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "CADL_WORKSPACE=/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/tb/ws",
+        ".venv/bin/streamlit",
+        "run",
+        "app.py",
+        "--server.port",
+        "8766",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "cadl-explorer-0331",
+      "runtimeExecutable": "/private/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/v331/bin/streamlit",
+      "runtimeArgs": [
+        "run",
+        "app.py",
+        "--server.port",
+        "8767",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8767
+    },
+    {
+      "name": "cadl-explorer-v1",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PATH=/Users/yutaka/.local/prism-4.11/bin:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+        "CADL_WORKSPACE=/private/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/ws",
+        "CADL_WORKSPACE_GIT=1",
+        "/private/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/v331/bin/streamlit",
+        "run",
+        "app.py",
+        "--server.port",
+        "8768",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8768
+    },
+    {
+      "name": "cadl-explorer-0336",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PATH=/Users/yutaka/.local/prism-4.11/bin:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+        "CADL_WORKSPACE=/private/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/ws",
+        "CADL_WORKSPACE_GIT=1",
+        "/private/tmp/claude-501/-Users-yutaka-program-cadl-explorer/98c41543-4e3f-4936-940b-480a4fe8649e/scratchpad/v336/bin/streamlit",
+        "run",
+        "app.py",
+        "--server.port",
+        "8769",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8769
+    }
+  ]
+}

@@ -277,8 +277,11 @@ The app has four pages:
   From v1.6.0 it reads decisions 0.2: the layers on which each party decides
   (the operator on the rules and the contract, the regulator on the
   regulation), and each follow-up with what fulfils it and whether it was
-  fulfilled. It needs cadl 0.3.38 or later for the checks; records of the
-  robot town are bundled.
+  fulfilled. From v1.7.0 it also takes the CADL files of the versions that
+  the record attaches (`v1.cadl`, `v2.cadl`, …; the bundled records come with
+  theirs), so that the verifier checks the versions, the amendable parameters
+  and who may decide (L-9 to L-11). It needs cadl 0.3.38 or later for the
+  checks; records of the robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 

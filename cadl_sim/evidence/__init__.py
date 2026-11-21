@@ -99,8 +99,13 @@ def load(raw) -> Record:
     return Record(head, entries, complete, data)
 
 
-def check(rec: Record, key: Optional[bytes] = None) -> Optional[dict]:
-    """The result of ``cadl.decisions.verify``, or None when cadl has no verifier."""
+def check(rec: Record, key: Optional[bytes] = None,
+          files: Optional[dict] = None) -> Optional[dict]:
+    """The result of ``cadl.decisions.verify``, or None when cadl has no verifier.
+
+    ``files`` maps file names to bytes: the CADL files of the versions, put next to the
+    record so that the paths in the ``attachments`` of its ``version`` entries resolve (with
+    them the verifier also checks L-9 to L-11 and the outcome of the votes)."""
     try:
         from cadl.decisions import verify
     except ImportError:
@@ -108,15 +113,26 @@ def check(rec: Record, key: Optional[bytes] = None) -> Optional[dict]:
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "decisions.jsonl"
         p.write_bytes(rec.raw)
+        for name, data in (files or {}).items():
+            name = Path(name).name                 # no directories: a file next to the record
+            if name and name != p.name:
+                (Path(d) / name).write_bytes(data)
         try:
             return verify(p, key=key)
         except Exception as e:           # a keyed record without its key
             return {"valid": False, "errors": [{"rule": "key", "line": 1, "entry": None,
                                                 "what": str(e)}],
-                    "findings": [], "not_checked": [], "complete": rec.complete,
+                    "findings": [], "not_checked": [], "versions_checked": [],
+                    "complete": rec.complete,
                     "run_id": rec.header.get("run_id"), "last_digest": None, "lines": 0,
                     "entries": len(rec.entries), "parties": len(rec.parties),
                     "hash": rec.header.get("hash"), "key_id": rec.header.get("key_id")}
+
+
+def attached(rec: Record) -> list:
+    """The paths of the CADL files that the ``version`` entries attach."""
+    return [a["path"] for e in rec.of_type("version") for a in e.get("attachments") or []
+            if isinstance(a, dict) and str(a.get("path", "")).endswith(".cadl")]
 
 
 def findings_by_entry(result: Optional[dict]) -> dict:

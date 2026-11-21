@@ -106,9 +106,51 @@ def test_follow_ups_and_their_status():
 def test_regulation_decisions_are_on_the_timeline():
     rec = _load("robot-town-steward-regulation-ja.decisions.jsonl")
     rows = {r["id"]: r for r in E.timeline(rec)}
-    assert rows["R5"]["layers"] == ["regulation"] and rows["R5"]["adopted"]
-    assert rows["R5"]["by"] == "llm-regulator"
+    assert rows["R3"]["layers"] == ["regulation"] and not rows["R3"]["adopted"]
+    assert rows["R3"]["by"] == "llm-regulator"
     assert rec.parties["regulator"]["layers"] == ["regulation"]
+    # the regulation proposal is measured before the decision (cadl-robot-town v0.5.0)
+    assert "P3.R1.m" in rec.by_id["R3"]["basis"]
+
+
+# --- the CADL files of the versions (v1.7.0) --------------------------------------
+
+def _versions(name):
+    folder = EXDIR / name.replace(".decisions.jsonl", ".versions")
+    return {f.name: f.read_bytes() for f in folder.glob("*.cadl")}
+
+
+@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
+def test_bundled_records_are_checked_against_their_versions(path):
+    pytest.importorskip("cadl.decisions")
+    rec = E.load(path.read_bytes())
+    files = _versions(path.name)
+    assert files and set(E.attached(rec)) == set(files)
+    bare = E.check(rec)
+    assert bare["valid"] and not bare["versions_checked"]
+    assert any("no CADL file" in n for n in bare["not_checked"])
+    full = E.check(rec, files=files)
+    assert full["valid"], full["errors"]
+    assert sorted(Path(v).name for v in full["versions_checked"]) == sorted(files)
+    assert not any("L-9" in n or "L-10" in n or "L-11" in n for n in full["not_checked"])
+
+
+def test_a_changed_version_file_is_an_error():
+    pytest.importorskip("cadl.decisions")
+    name = "robot-town-steward-d-en.decisions.jsonl"
+    files = _versions(name)
+    files["v2.cadl"] = files["v2.cadl"].replace(b"block_k", b"block_k ", 1)
+    result = E.check(_load(name), files=files)
+    assert not result["valid"]
+    assert any(e["rule"] == "L-9" for e in result["errors"])
+
+
+def test_a_file_is_put_next_to_the_record_only():
+    pytest.importorskip("cadl.decisions")
+    name = "robot-town-council.decisions.jsonl"
+    files = {"../../" + k: v for k, v in _versions(name).items()}
+    result = E.check(_load(name), files=files)
+    assert result["valid"] and result["versions_checked"]
 
 
 def test_a_claim_not_shown_is_not_a_fulfilment(tmp_path):
