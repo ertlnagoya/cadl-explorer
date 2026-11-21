@@ -19,7 +19,6 @@ small before it is written to a temporary file.
 
 from __future__ import annotations
 
-import functools
 import json
 import os
 import re
@@ -270,9 +269,24 @@ def sim_validate(source: str) -> dict:
     return {"ok": run["status"] == 0, "text": text}
 
 
-@functools.lru_cache(maxsize=1)
+_TOOLCHAIN: dict | None = None
+
+
 def toolchain() -> dict:
-    """{"cadl": version or None, "prism": version or None} of the tools that run here."""
+    """{"cadl": version or None, "prism": version or None} of the tools that run here.
+
+    Kept once PRISM is found. Until then it is read again on every call: on Streamlit
+    Community Cloud PRISM is installed in the background after the first run."""
+    global _TOOLCHAIN
+    if _TOOLCHAIN is None:
+        found = _read_toolchain()
+        if found["prism"]:
+            _TOOLCHAIN = found
+        return found
+    return _TOOLCHAIN
+
+
+def _read_toolchain() -> dict:
     try:
         from importlib.metadata import version
         cadl = version("cadl-lang")
