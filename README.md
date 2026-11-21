@@ -274,7 +274,11 @@ The app has four pages:
   with what it rests on, the evidence of each party counted the same way for a
   person, an LLM and a tool, a GSN derived from the record, the errors and
   findings of `cadl decisions-verify`, and the hash chain with an anchor check.
-  It needs cadl 0.3.37 or later for the checks; three records are bundled.
+  From v1.6.0 it reads decisions 0.2: the layers on which each party decides
+  (the operator on the rules and the contract, the regulator on the
+  regulation), and each follow-up with what fulfils it and whether it was
+  fulfilled. It needs cadl 0.3.38 or later for the checks; records of the
+  robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 

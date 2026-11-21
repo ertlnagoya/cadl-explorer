@@ -5,7 +5,7 @@ Shows a decision record of Appendix L of the CADL specification
 objective each amendment was judged, what was measured, how the parties voted,
 what was recommended, and who decided, by which procedure and with which
 reason. The same evidence is shown for a person, an LLM and a tool. The checks
-and findings are those of ``cadl decisions-verify`` (cadl 0.3.37 or later).
+and findings are those of ``cadl decisions-verify`` (cadl 0.3.38 or later).
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ st.markdown(t(
 st.caption(t(
     "Input is `decisions.jsonl`, written by `town.steward` and `town.council` in "
     "[cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town). The checks and findings "
-    "are those of `cadl decisions-verify` (cadl 0.3.37 or later). "
+    "are those of `cadl decisions-verify` (cadl 0.3.38 or later). "
     "[Appendix L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)"))
 
 with st.sidebar:
@@ -89,8 +89,8 @@ c2.metric(t("Decided by a person"), sum(r["kind"] == "human" for r in rows))
 c3.metric(t("Decided by an LLM"), sum(r["kind"] == "llm" for r in rows))
 c4.metric(t("Changes adopted"), sum(r["adopted"] for r in rows))
 if result is None:
-    c5.metric(t("Verification"), "—", help=t("Install cadl 0.3.37 or later to verify the record."))
-    st.warning(t("This environment has no cadl 0.3.37 or later: the record is shown without its "
+    c5.metric(t("Verification"), "—", help=t("Install cadl 0.3.38 or later to verify the record."))
+    st.warning(t("This environment has no cadl 0.3.38 or later: the record is shown without its "
                  "checks and findings."))
 else:
     c5.metric(t("Verification"), t("valid") if result["valid"] else
@@ -140,8 +140,9 @@ with tab_time:
                   for r in rows],
          rings=[E.colour("alert", dark) if "override" in r["findings"] else
                 "#ffa657" if "against recommendation" in r["findings"] else None for r in rows],
-         hover=[f"{r['choice']} — {r['by']} ({t(r['kind'])}, {r['procedure']})<br>"
-                f"{str(r['reason'] or '')[:160]}" for r in rows])
+         hover=[f"{r['choice']} — {r['by']} ({t(r['kind'])}, {r['procedure']})"
+                + (f" · {t('layer')}: {', '.join(t(x) for x in r['layers'])}" if r['layers'] else "")
+                + f"<br>{str(r['reason'] or '')[:160]}" for r in rows])
     lane(lanes[4], [r["version"] or "" for r in rows], [E.colour("tool", dark)] * len(rows),
          symbols="square")
     fig.update_yaxes(categoryorder="array", categoryarray=list(reversed(lanes)), showgrid=False)
@@ -228,9 +229,13 @@ with tab_trail:
             fl = found.get(did, [])
             if fl:
                 st.markdown(t("**Findings**: {f}").format(f=", ".join(t(x) for x in fl)))
+            fstate = {f["id"]: f for f in E.follow_ups(rec, result)}
             after = [e for e in rec.entries if e.get("decision") == did and e.get("type") == "follow_up"]
             for f in after:
-                st.markdown(t("**Follow-up** {id}: {text}").format(id=f["id"], text=f.get("text")))
+                s = fstate.get(f["id"], {})
+                st.markdown(t("**Follow-up** {id}: {text}").format(id=f["id"], text=f.get("text"))
+                            + (f" — {t(s['status'])}" if s.get("status") else "")
+                            + (" (" + ", ".join(s["fulfilled by"]) + ")" if s.get("fulfilled by") else ""))
         with st.expander(t("Show DOT source")):
             st.code(dot, language="dot")
 
@@ -250,6 +255,8 @@ with tab_party:
                      hide_index=True)
     parties = pd.DataFrame([{t("party"): p["id"], t("kind"): t(p.get("kind")),
                              t("roles"): ", ".join(p.get("roles") or []),
+                             t("layers"): t("any") if p.get("layers") is None
+                             else ", ".join(t(x) for x in p["layers"]),
                              t("on behalf of"): p.get("on_behalf_of") or "",
                              t("model"): p.get("model") or ""} for p in rec.parties.values()])
     st.subheader(t("Parties"))
@@ -263,7 +270,7 @@ with tab_gsn:
         "strategy per decision, its measurements and checks as solutions, its reason as the "
         "justification, its assumptions, and a follow-up as a goal to develop. The colour is the "
         "kind of the party."))
-    nodes = E.gsn(rec, t)
+    nodes = E.gsn(rec, t, result)
     g1, g2 = st.columns([3, 1])
     gfirst = next((i for i, d in enumerate(decisions) if E.is_amendment_decision(rec, d)), 0)
     focus = g1.selectbox(t("Decision"), [d["id"] for d in decisions] or ["—"], key="evidence_gsn",
@@ -278,7 +285,7 @@ with tab_gsn:
 
 with tab_check:
     if result is None:
-        st.info(t("Install cadl 0.3.37 or later to check the record."))
+        st.info(t("Install cadl 0.3.38 or later to check the record."))
     else:
         st.markdown(t(
             "Errors (L-1 to L-11) mean the record cannot be relied on as it stands. Findings are "
@@ -301,6 +308,22 @@ with tab_check:
             with st.expander(t("Not checked ({n})").format(n=len(result["not_checked"]))):
                 for n in result["not_checked"]:
                     st.markdown(f"- {n}")
+    st.subheader(t("Follow-ups"))
+    st.markdown(t(
+        "Each promise to check or do something later, what fulfils it (decisions 0.2: for a "
+        "re-measurement, a measurement under the same conditions as the one it re-checks), and "
+        "whether a later entry fulfilled it. A claim that the verifier does not accept leaves the "
+        "promise open."))
+    fu = E.follow_ups(rec, result)
+    if fu:
+        st.dataframe(pd.DataFrame([{
+            "id": f["id"], t("by"): f"{f['by']} ({t(f['kind'])})", t("decision"): f["decision"],
+            t("text"): f["text"], t("due"): f["due"] or "—", t("fulfilled by (asks)"): f["asks"] or t("any later entry"),
+            t("status"): t(f["status"]), t("fulfilling entries"): ", ".join(f["fulfilled by"]),
+            t("claims not shown"): ", ".join(f["not shown"])} for f in fu]),
+            width="stretch", hide_index=True)
+    else:
+        st.info(t("The record has no follow-up."))
     st.subheader(t("Reasons on record"))
     st.dataframe(pd.DataFrame([
         {t("decision"): d["id"], t("by"): d.get("by"), t("kind"): t(rec.kind(d.get("by"))),
