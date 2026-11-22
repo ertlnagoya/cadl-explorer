@@ -166,7 +166,7 @@ sos:
 
   amendment:
     previous: "v1"
-    effective: { period: 4 }
+    effective: { period: 6 }
     transitional:
       default: keep
     layers:

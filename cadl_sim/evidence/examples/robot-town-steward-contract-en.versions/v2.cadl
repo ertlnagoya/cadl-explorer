@@ -102,7 +102,7 @@ sos:
         alpha: 1.0                    # 規則と違反記録は全社に公開
       incentives:
         type: sanction
-        lambda: 1.0                   # @amend:sanction_lambda
+        lambda: 0.5                   # @amend:sanction_lambda
         rules:
           - "penalty(ROBOT[i], lambda) when overstay"
       lifecycle:
@@ -120,7 +120,7 @@ sos:
         - id: blocking_guard
           observe: "ROBOT[i].blocking"
           sampling: periodic(1000ms)
-          rule: "ROBOT.blocking >= 3 AND state IN [Holding, Overstay]"  # @amend:block_k
+          rule: "ROBOT.blocking >= 2 AND state IN [Holding, Overstay]"  # @amend:block_k
           on_match: { transition: Evicted, severity: Major }
 
   # ── 運用モード：分散（各社が道路上で待つ）⇄ 集中（管理者が待避所を割り当てる） ──
@@ -166,7 +166,7 @@ sos:
 
   amendment:
     previous: "v1"
-    effective: { period: 2 }
+    effective: { period: 3 }
     transitional:
       default: keep
     layers:
@@ -184,7 +184,7 @@ sos:
           - "contracts.ROAD_USE.lifecycle.transitions.release.deadline"
       - id: block_k
         layer: rule
-        value: 3
+        value: 2
         min: 1
         max: 4
         step: 1
@@ -192,7 +192,7 @@ sos:
           - "contracts.ROAD_USE.monitors.blocking_guard.rule"
       - id: sanction_lambda
         layer: rule
-        value: 1
+        value: 0.5
         min: 0
         max: 1
         step: 0.5

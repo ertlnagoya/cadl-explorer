@@ -280,8 +280,13 @@ The app has four pages:
   fulfilled. From v1.7.0 it also takes the CADL files of the versions that
   the record attaches (`v1.cadl`, `v2.cadl`, …; the bundled records come with
   theirs), so that the verifier checks the versions, the amendable parameters
-  and who may decide (L-9 to L-11). It needs cadl 0.3.38 or later for the
-  checks; records of the robot town are bundled.
+  and who may decide (L-9 to L-11). From v1.8.0 it reads decisions 0.3: the
+  delegations (who let whom decide in their place, on which layers, by which
+  procedures and under which conditions) are listed with the decisions made
+  within each, shown as a diamond on the timeline and as a context in the GSN;
+  a decision made in another's place outside every delegation stays a square
+  and the finding delegated. It needs cadl 0.3.39 or later for the checks;
+  records of the robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 

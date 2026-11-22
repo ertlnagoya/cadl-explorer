@@ -50,7 +50,7 @@ pandas>=2.0.0
 # decision records of Appendix L (`cadl.decisions`), which Decision Evidence
 # verifies; 0.3.38 reads decisions 0.2 (the layers of a party, what fulfils a
 # follow-up).
-cadl-lang>=0.3.38
+cadl-lang>=0.3.39
 
 # Code editor with line numbers and YAML highlighting on the Designer page.
 # The page falls back to a plain text area when it is missing.

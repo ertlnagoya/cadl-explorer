@@ -95,7 +95,8 @@ def test_follow_ups_and_their_status():
     result = E.check(rec)
     rows = E.follow_ups(rec, result)
     status = {r["status"] for r in rows}
-    assert "fulfilled" in status and "open" in status
+    # cadl-robot-town v0.6.0 puts every open question to a decision when it falls due
+    assert status == {"fulfilled"}
     remeasured = [r for r in rows if r["asks"].startswith("measurement")]
     assert remeasured and all(r["status"] == "fulfilled" and r["fulfilled by"][0].startswith("F")
                               for r in remeasured)
@@ -106,11 +107,40 @@ def test_follow_ups_and_their_status():
 def test_regulation_decisions_are_on_the_timeline():
     rec = _load("robot-town-steward-regulation-ja.decisions.jsonl")
     rows = {r["id"]: r for r in E.timeline(rec)}
-    assert rows["R3"]["layers"] == ["regulation"] and not rows["R3"]["adopted"]
-    assert rows["R3"]["by"] == "llm-regulator"
+    assert rows["R2"]["layers"] == ["regulation"] and not rows["R2"]["adopted"]
+    assert rows["R2"]["by"] == "llm-regulator"
     assert rec.parties["regulator"]["layers"] == ["regulation"]
-    # the regulation proposal is measured before the decision (cadl-robot-town v0.5.0)
-    assert "P3.R1.m" in rec.by_id["R3"]["basis"]
+    # the regulation proposal is measured before the decision (cadl-robot-town v0.5.0), over
+    # every period and for each company (v0.6.0)
+    assert "P2.R1.m" in rec.by_id["R2"]["basis"]
+    m = rec.by_id["P2.R1.m"]
+    assert "proposals_passing_vote_all" in m["values"]
+    assert "passing_against" in m["per_party"]["A"]
+    # the answer to a question that fell due is not an amendment decision
+    assert "QR4" in rec.by_id and "QR4" not in rows
+
+
+# --- delegations (decisions 0.3, v1.8.0) ------------------------------------------
+
+def test_decisions_within_a_delegation():
+    pytest.importorskip("cadl.decisions")
+    rec = _load("robot-town-steward-regulation-en.decisions.jsonl")
+    result = E.check(rec)
+    assert result["valid"] and not [f for f in result["findings"] if f["finding"] == "delegated"]
+    rows = {g["id"]: g for g in E.delegations(rec, result)}
+    assert set(rows) == {"G.llm-decider", "G.llm-regulator", "G.steward"}
+    assert rows["G.steward"]["procedures"] == "automatic" and rows["G.steward"]["layers"] == "rule"
+    assert "R2" in rows["G.llm-regulator"]["decisions"]
+    line = {r["id"]: r for r in E.timeline(rec, result)}
+    assert line["D1"]["delegation"] == "G.llm-decider"
+    nodes = E.gsn(rec, result=result)
+    assert any(n["type"] == "context" and n["ref"] == "G.llm-decider" for n in nodes)
+
+
+def test_without_a_verification_no_decision_is_listed_under_a_delegation():
+    rec = _load("robot-town-steward-d-en.decisions.jsonl")
+    assert rec.header["decisions_format"] == "cadl-decisions/3"
+    assert E.delegations(rec) and all(not g["decisions"] for g in E.delegations(rec))
 
 
 # --- the CADL files of the versions (v1.7.0) --------------------------------------
