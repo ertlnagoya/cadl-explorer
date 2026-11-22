@@ -102,7 +102,7 @@ sos:
         alpha: 1.0                    # 規則と違反記録は全社に公開
       incentives:
         type: sanction
-        lambda: 1.0                   # @amend:sanction_lambda
+        lambda: 0.5                   # @amend:sanction_lambda
         rules:
           - "penalty(ROBOT[i], lambda) when overstay"
       lifecycle:
@@ -114,7 +114,7 @@ sos:
             from: [Holding, Overstay]
             to:   Released
             on:   "ROBOT[i] -> TOWN_STEWARD : node_released"
-            deadline: 60s             # @amend:hold_limit
+            deadline: 50s             # @amend:hold_limit
             on_violation: { transition: Overstay, severity: Minor }
       monitors:
         - id: blocking_guard
@@ -166,7 +166,7 @@ sos:
 
   amendment:
     previous: "v1"
-    effective: { period: 3 }
+    effective: { period: 4 }
     transitional:
       default: keep
     layers:
@@ -176,7 +176,7 @@ sos:
     parameters:
       - id: hold_limit
         layer: rule
-        value: 60s
+        value: 50s
         min: 10s
         max: 120s
         step: 10s
@@ -192,7 +192,7 @@ sos:
           - "contracts.ROAD_USE.monitors.blocking_guard.rule"
       - id: sanction_lambda
         layer: rule
-        value: 1
+        value: 0.5
         min: 0
         max: 1
         step: 0.5

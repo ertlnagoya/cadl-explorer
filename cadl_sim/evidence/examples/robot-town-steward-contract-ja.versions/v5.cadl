@@ -1,0 +1,257 @@
+# =====================================================================
+# robot_town.cadl ─── ロボットの街：3 社の配送ロボットが道路を共有する
+#
+# 道路網はラズパイマウスのシミュレータと同じ 11 ノード・17 エッジ。
+# 3 社（A / B / C）が 2 台ずつロボットを走らせ、ノードは 1 台ずつしか
+# 使えない。仕事のないロボットは車庫に戻るか、道路上（中央の交差点 8）
+# に止まって次の注文を待つ。止まったロボットは他社の通行をふさぐ。
+#
+# `# @amend:<名前>` が付いた行は、改正してよいパラメータ。どの層（規則・
+# 契約）に属し、どこまで動かしてよいかは constitution.yaml が決める。
+# 委員会（COUNCIL）が自分で改正できるのは規則の層だけで、契約の層を
+# 変えるには人間の判断が要る。
+# =====================================================================
+
+sos:
+  name: "RobotTown"
+  type: Collaborative             # 独立した 3 社が共通の規則を決める
+  version: "v5"
+
+  extensions:
+    - amendment: 0.1
+
+  context:
+    environment:
+      num_robots:   6
+      num_companies: 3
+      time_step_ms: 1000
+      vote_quorum: 2
+      min_company_on_time_rate: 0.6
+      max_unfinished_orders: 2
+
+  actors:
+    - id: TOWN_STEWARD
+      role: "road_steward"
+      autonomy: low
+      capabilities: [assign_order, record_violation, evict]
+      interface:
+        input:  [order_request, position_report, node_released, rule_update]
+        output: [order_assignment, eviction_notice, regime_notice, violation_report]
+
+    - id: "ROBOT[1..N]"
+      role: "delivery_robot"
+      autonomy: high
+      capabilities: [move, park, pickup, dropoff]
+      interface:
+        input:  [order_assignment, eviction_notice, regime_notice, amendment_proposal]
+        output: [position_report, node_released, ballot]
+
+    - id: COUNCIL
+      role: "rule_amendment_body"
+      autonomy: medium
+      capabilities: [propose_amendment, tally_ballots]
+      interface:
+        input:  [violation_report, ballot]
+        output: [amendment_proposal, rule_update]
+
+    - id: OPERATOR
+      role: "service_operator"        # 街のサービスを運営する人間
+      autonomy: high
+      capabilities: [decide_amendment]
+
+    - id: REGULATOR
+      role: "regulator"               # 規制（憲法の値）を決める人間
+      autonomy: high
+      capabilities: [decide_regulation]
+
+  contracts:
+    # ── 顧客への約束：注文 1 件ごとのインスタンス（契約の層。人間が決める） ──
+    - id: DELIVERY_SLA
+      parties: [TOWN_STEWARD, "ROBOT[*]"]
+      guarantee:
+        - "pickup_time <= 120s"         # @amend:pickup_deadline
+        - "dropoff_time <= 120s"        # @amend:dropoff_deadline
+      lifecycle:
+        states: [Assigned, PickedUp, Delivered, Late]
+        initial: Assigned
+        terminal: [Delivered, Late]
+        transitions:
+          - id: pickup
+            from: Assigned
+            to:   PickedUp
+            on:   "ROBOT[i].status == PickedUp"
+            deadline: 120s            # @amend:pickup_deadline
+            on_violation: { transition: Late, severity: Major }
+          - id: dropoff
+            from: PickedUp
+            to:   Delivered
+            on:   "ROBOT[i].status == Delivered"
+            deadline: 120s            # @amend:dropoff_deadline
+            on_violation: { transition: Late, severity: Major }
+
+    # ── 道路の使い方：道路上に止まるたびに 1 インスタンス ──
+    - id: ROAD_USE
+      parties: [TOWN_STEWARD, "ROBOT[*]", COUNCIL]
+      guarantee:
+        - "hold_time <= hold_limit"
+      authority:
+        decision_holder: COUNCIL
+        beta: 0.5
+        mode: "collective"
+      information:
+        alpha: 1.0                    # 規則と違反記録は全社に公開
+      incentives:
+        type: sanction
+        lambda: 0.5                   # @amend:sanction_lambda
+        rules:
+          - "penalty(ROBOT[i], lambda) when overstay"
+      lifecycle:
+        states: [Holding, Overstay, Released, Evicted]
+        initial: Holding
+        terminal: [Released, Evicted]
+        transitions:
+          - id: release
+            from: [Holding, Overstay]
+            to:   Released
+            on:   "ROBOT[i] -> TOWN_STEWARD : node_released"
+            deadline: 40s             # @amend:hold_limit
+            on_violation: { transition: Overstay, severity: Minor }
+      monitors:
+        - id: blocking_guard
+          observe: "ROBOT[i].blocking"
+          sampling: periodic(1000ms)
+          rule: "ROBOT.blocking >= 1 AND state IN [Holding, Overstay]"  # @amend:block_k
+          on_match: { transition: Evicted, severity: Major }
+
+  # ── 運用モード：分散（各社が道路上で待つ）⇄ 集中（管理者が待避所を割り当てる） ──
+  # 条件は 5 分ごとに、直前 5 分の観測で判定する。
+  #   orders_in_window : 3 社の注文の合計件数
+  #   blocked_pct      : ロボットが止まっているロボットにふさがれていた時間の割合（%）
+  # 集中管理は交差点をふさがれない反面、エッジを 1 台ずつ割り当てるので、
+  # 注文が非常に多いと許可待ちが積み重なる。そのときだけ分散に戻す。
+  transitions:
+    - from: DISTRIBUTED
+      to: CENTRALIZED
+      condition: "orders_in_window < 22"      # @amend:to_central
+      protocol: SWITCH
+      safety_invariant: "robots_on_road == 0"
+    - from: CENTRALIZED
+      to: DISTRIBUTED
+      condition: "orders_in_window >= 26"     # @amend:to_distributed
+      protocol: SWITCH
+
+  protocols:
+    - id: SWITCH
+      trigger: "regime_condition_holds"
+      steps:
+        - "TOWN_STEWARD -> ROBOT[*] : regime_notice"
+        - "ROBOT[*] -> TOWN_STEWARD : node_released"
+        - "TOWN_STEWARD : activate_regime"
+    - id: AMEND
+      trigger: "period_end"
+      steps:
+        - "TOWN_STEWARD -> COUNCIL : violation_report"
+        - "COUNCIL -> ROBOT[*] : amendment_proposal"
+        - "ROBOT[*] -> COUNCIL : ballot"
+        - "COUNCIL : tally_ballots"
+        - "COUNCIL -> TOWN_STEWARD : rule_update"
+
+  metrics:
+    - id: on_time_deliveries
+      formula: "count(Delivered)"
+      target: ">= 0.9 * count(orders)"
+    - id: blocked_time
+      formula: "sum(blocked_robot_seconds)"
+      target: "<= 600s"
+
+  amendment:
+    previous: "v4"
+    effective: { period: 7 }
+    transitional:
+      default: keep
+    layers:
+      rule:       { decided_by: OPERATOR, procedure: vote, quorum: 2 }
+      contract:   { decided_by: OPERATOR }
+      regulation: { decided_by: REGULATOR }
+    parameters:
+      - id: hold_limit
+        layer: rule
+        value: 40s
+        min: 10s
+        max: 120s
+        step: 10s
+        at:
+          - "contracts.ROAD_USE.lifecycle.transitions.release.deadline"
+      - id: block_k
+        layer: rule
+        value: 1
+        min: 1
+        max: 4
+        step: 1
+        at:
+          - "contracts.ROAD_USE.monitors.blocking_guard.rule"
+      - id: sanction_lambda
+        layer: rule
+        value: 0.5
+        min: 0
+        max: 1
+        step: 0.5
+        at:
+          - "contracts.ROAD_USE.incentives.lambda"
+      - id: to_central
+        layer: rule
+        safety: true
+        value: 22
+        min: 10
+        max: 30
+        step: 2
+        at:
+          - "transitions.DISTRIBUTED->CENTRALIZED.condition"
+      - id: to_distributed
+        layer: rule
+        safety: true
+        value: 26
+        min: 14
+        max: 40
+        step: 2
+        at:
+          - "transitions.CENTRALIZED->DISTRIBUTED.condition"
+      - id: pickup_deadline
+        layer: contract
+        value: 120s
+        min: 60s
+        max: 180s
+        step: 30s
+        at:
+          - "contracts.DELIVERY_SLA.lifecycle.transitions.pickup.deadline"
+          - "contracts.DELIVERY_SLA.guarantee.0"
+      - id: dropoff_deadline
+        layer: contract
+        value: 120s
+        min: 60s
+        max: 180s
+        step: 30s
+        at:
+          - "contracts.DELIVERY_SLA.lifecycle.transitions.dropoff.deadline"
+          - "contracts.DELIVERY_SLA.guarantee.1"
+      - id: vote_quorum
+        layer: regulation
+        value: 2
+        min: 1
+        max: 3
+        step: 1
+        at: [environment.vote_quorum]
+      - id: min_company_on_time_rate
+        layer: regulation
+        value: 0.6
+        min: 0.5
+        max: 0.95
+        step: 0.05
+        at: [environment.min_company_on_time_rate]
+      - id: max_unfinished_orders
+        layer: regulation
+        value: 2
+        min: 0
+        max: 5
+        step: 1
+        at: [environment.max_unfinished_orders]

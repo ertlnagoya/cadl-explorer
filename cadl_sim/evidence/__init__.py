@@ -23,8 +23,8 @@ import textwrap
 from pathlib import Path
 from typing import Callable, Optional
 
-FORMAT = "cadl-decisions/2"
-FORMATS = ("cadl-decisions/1", FORMAT)
+FORMAT = "cadl-decisions/3"
+FORMATS = ("cadl-decisions/1", "cadl-decisions/2", FORMAT)
 KEEP = "keep"
 INTEGRITY = ("seq", "prev", "digest")
 
@@ -123,6 +123,7 @@ def check(rec: Record, key: Optional[bytes] = None,
             return {"valid": False, "errors": [{"rule": "key", "line": 1, "entry": None,
                                                 "what": str(e)}],
                     "findings": [], "not_checked": [], "versions_checked": [],
+                    "delegated_under": {},
                     "complete": rec.complete,
                     "run_id": rec.header.get("run_id"), "last_digest": None, "lines": 0,
                     "entries": len(rec.entries), "parties": len(rec.parties),
@@ -148,7 +149,10 @@ def period(e: dict) -> Optional[int]:
 
 
 def is_amendment_decision(rec: Record, d: dict) -> bool:
-    """A decision on amendments, not on a reading of an objective."""
+    """A decision on amendments, not on a reading of an objective, nor an answer to the
+    questions promised in follow-ups (only `keep` among its options, and it fulfils them)."""
+    if d.get("fulfils") and all(o == KEEP for o in d.get("options") or []):
+        return False
     for o in d.get("options") or []:
         p = rec.by_id.get(o)
         if p is not None and p.get("kind") == "measure":
@@ -216,6 +220,27 @@ def timeline(rec: Record, result: Optional[dict] = None) -> list:
             "version": versions.get(e.get("id")) or e.get("result"),
             "reason": e.get("reason") or e.get("rule"),
             "findings": found.get(e.get("id"), []),
+            "delegation": ((result or {}).get("delegated_under") or {}).get(e.get("id")),
+        })
+    return rows
+
+
+def delegations(rec: Record, result: Optional[dict] = None) -> list:
+    """The delegations of the record (decisions 0.3), with the decisions each covers."""
+    under = (result or {}).get("delegated_under") or {}
+    rows = []
+    for g in rec.of_type("delegation"):
+        layers, procs = g.get("layers"), g.get("procedures")
+        until = g.get("until")
+        rows.append({
+            "id": g.get("id"), "by": g.get("by"), "to": g.get("to"), "period": period(g),
+            "layers": "all" if layers is None else ", ".join(layers) or "none",
+            "procedures": "any" if procs is None else ", ".join(procs),
+            "until": "—" if until is None else str(until.get("period", until.get("at", until)))
+            if isinstance(until, dict) else str(until),
+            "conditions": "; ".join(g.get("conditions") or []),
+            "reason": g.get("reason"),
+            "decisions": [d for d, x in under.items() if x == g.get("id")],
         })
     return rows
 
@@ -487,6 +512,12 @@ def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
                 elif b.get("type") == "recommendation":
                     add("context", "C", f"{t('recommends')} {rec.title(b.get('recommends'))}", s,
                         "context", by=rec.kind(b.get("by")), ref=b.get("id"))
+            g_id = ((result or {}).get("delegated_under") or {}).get(e.get("id"))
+            if g_id:
+                g_e = rec.by_id.get(g_id) or {}
+                add("context", "C", f"{g_id}: {t('within the delegation of')} {g_e.get('by')}"
+                    + (f" — {'; '.join(g_e.get('conditions') or [])}" if g_e.get("conditions") else ""),
+                    s, "context", by=rec.kind(g_e.get("by")), ref=g_id)
             if e.get("reason") or e.get("rule"):
                 add("justification", "J", e.get("reason") or e.get("rule"), s, "context", by=kind)
             for a in e.get("assumptions") or []:

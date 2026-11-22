@@ -5,7 +5,7 @@ Shows a decision record of Appendix L of the CADL specification
 objective each amendment was judged, what was measured, how the parties voted,
 what was recommended, and who decided, by which procedure and with which
 reason. The same evidence is shown for a person, an LLM and a tool. The checks
-and findings are those of ``cadl decisions-verify`` (cadl 0.3.38 or later).
+and findings are those of ``cadl decisions-verify`` (cadl 0.3.39 or later).
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ st.markdown(t(
 st.caption(t(
     "Input is `decisions.jsonl`, written by `town.steward` and `town.council` in "
     "[cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town). The checks and findings "
-    "are those of `cadl decisions-verify` (cadl 0.3.38 or later). "
+    "are those of `cadl decisions-verify` (cadl 0.3.39 or later). "
     "[Appendix L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)"))
 
 with st.sidebar:
@@ -104,8 +104,8 @@ c2.metric(t("Decided by a person"), sum(r["kind"] == "human" for r in rows))
 c3.metric(t("Decided by an LLM"), sum(r["kind"] == "llm" for r in rows))
 c4.metric(t("Changes adopted"), sum(r["adopted"] for r in rows))
 if result is None:
-    c5.metric(t("Verification"), "—", help=t("Install cadl 0.3.38 or later to verify the record."))
-    st.warning(t("This environment has no cadl 0.3.38 or later: the record is shown without its "
+    c5.metric(t("Verification"), "—", help=t("Install cadl 0.3.39 or later to verify the record."))
+    st.warning(t("This environment has no cadl 0.3.39 or later: the record is shown without its "
                  "checks and findings."))
 else:
     c5.metric(t("Verification"), t("valid") if result["valid"] else
@@ -128,7 +128,8 @@ with tab_time:
         "its reading), the votes on the proposal decided, the recommendation, the decision and "
         "the version in force after it. The colour of a decision is the kind of its party "
         "(person, LLM, tool). A red ring marks an override of the votes; an orange ring a decision "
-        "against the recommendation; a square a decision made on behalf of another party."))
+        "against the recommendation; a square a decision made on behalf of another party without a "
+        "delegation that covers it; a diamond a decision made within a delegation."))
     lanes = [t("Objective"), t("Votes"), t("Recommends"), t("Decision"), t("Version")]
     x = [f"{r['id']}" for r in rows]
     fig = go.Figure()
@@ -151,12 +152,14 @@ with tab_time:
     lane(lanes[2], [r["recommends"] or "" for r in rows],
          [E.colour("llm", dark) if r["recommends"] else none for r in rows])
     lane(lanes[3], [r["choice"] for r in rows], [E.colour(r["kind"], dark) for r in rows],
-         symbols=["square" if "delegated" in r["findings"] else "star" if r["adopted"] else "circle"
+         symbols=["square" if "delegated" in r["findings"] else "diamond" if r["delegation"]
+                  else "star" if r["adopted"] else "circle"
                   for r in rows],
          rings=[E.colour("alert", dark) if "override" in r["findings"] else
                 "#ffa657" if "against recommendation" in r["findings"] else None for r in rows],
          hover=[f"{r['choice']} — {r['by']} ({t(r['kind'])}, {r['procedure']})"
                 + (f" · {t('layer')}: {', '.join(t(x) for x in r['layers'])}" if r['layers'] else "")
+                + (f" · {t('within')} {r['delegation']}" if r["delegation"] else "")
                 + f"<br>{str(r['reason'] or '')[:160]}" for r in rows])
     lane(lanes[4], [r["version"] or "" for r in rows], [E.colour("tool", dark)] * len(rows),
          symbols="square")
@@ -208,6 +211,11 @@ with tab_trail:
                 by=d.get("by"), kind=t(rec.kind(d.get("by"))), p=d.get("procedure"),
                 obo=(", " + t("on behalf of") + f" `{rec.parties[d['by']]['on_behalf_of']}`")
                 if (rec.parties.get(d.get("by")) or {}).get("on_behalf_of") else ""))
+            g_id = ((result or {}).get("delegated_under") or {}).get(did)
+            if g_id:
+                g_e = rec.by_id.get(g_id) or {}
+                st.markdown(t("**Within the delegation** `{g}` of `{by}`: {c}").format(
+                    g=g_id, by=g_e.get("by"), c="; ".join(g_e.get("conditions") or []) or "—"))
             st.markdown(t("**Reason**: {r}").format(r=d.get("reason") or d.get("rule") or "—"))
             for f, name in (("assumptions", "Assumption"), ("unknowns", "Not known")):
                 for a in d.get(f) or []:
@@ -276,6 +284,20 @@ with tab_party:
                              t("model"): p.get("model") or ""} for p in rec.parties.values()])
     st.subheader(t("Parties"))
     st.dataframe(parties, width="stretch", hide_index=True)
+    dl = E.delegations(rec, result)
+    if dl:
+        st.subheader(t("Delegations"))
+        st.markdown(t(
+            "Who let whom decide in their place, on which layers, by which procedures and under "
+            "which conditions (decisions 0.3). A decision within a delegation is not reported as "
+            "delegated; one outside it is."))
+        st.dataframe(pd.DataFrame([{
+            "id": g["id"], t("by"): g["by"], t("to"): g["to"], t("period"): g["period"],
+            t("layers"): t(g["layers"]) if g["layers"] in ("all", "none") else
+            ", ".join(t(x) for x in g["layers"].split(", ")),
+            t("procedures"): t(g["procedures"]), t("until"): g["until"],
+            t("conditions"): g["conditions"], t("decisions within it"): ", ".join(g["decisions"]),
+        } for g in dl]), width="stretch", hide_index=True)
 
 # --- GSN -------------------------------------------------------------------------
 
@@ -300,7 +322,7 @@ with tab_gsn:
 
 with tab_check:
     if result is None:
-        st.info(t("Install cadl 0.3.38 or later to check the record."))
+        st.info(t("Install cadl 0.3.39 or later to check the record."))
     else:
         st.markdown(t(
             "Errors (L-1 to L-11) mean the record cannot be relied on as it stands. Findings are "
