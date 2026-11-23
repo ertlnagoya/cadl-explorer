@@ -18,6 +18,7 @@ dependency. Text that a page shows is passed through ``t``.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import textwrap
 from pathlib import Path
@@ -475,14 +476,39 @@ def trail_dot(rec: Record, did: str, dark: bool = False, result: Optional[dict] 
 
 
 GSN_SHAPE = {"goal": "box", "strategy": "parallelogram", "solution": "circle",
-             "context": "box", "assumption": "ellipse", "justification": "ellipse"}
+             "context": "box", "assumption": "ellipse", "justification": "ellipse",
+             "counter": "box"}
+
+
+def _point_text(p, t: Callable = lambda x: x) -> str:
+    if isinstance(p, dict):
+        if p.get("period") is not None:
+            return t("period {k}").format(k=p["period"])
+        if p.get("at") is not None:
+            return str(p["at"])
+    return "—"
+
+
+def _measure_text(measure) -> str:
+    parts = []
+    for m in measure or []:
+        extra = ", ".join(str(m[k]) for k in ("role", "direction") if m.get(k))
+        if m.get("target") is not None:
+            extra += f", target {m['target']}"
+        parts.append(f"{m.get('metric')}" + (f" ({extra})" if extra else ""))
+    return "; ".join(parts)
+
+
+def _missed_ref(text: str) -> Optional[str]:
+    m = re.search(r"\(([^()]+)\)\s*$", text or "")
+    return m.group(1) if m else None
 
 
 def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
     """The GSN argument derived from the record, as Appendix L, L.8 maps it."""
     nodes = [{"id": "G0", "type": "goal", "by": "tool", "ref": None, "children": [], "context": [],
               "text": t("The system keeps meeting the objectives of its owner")}]
-    count = {"G": 0, "S": 0, "Sn": 0, "C": 0, "A": 0, "J": 0}
+    count = {"G": 0, "S": 0, "Sn": 0, "C": 0, "A": 0, "J": 0, "X": 0}
     index = {"G0": nodes[0]}
 
     def add(kind, prefix, text, parent, link="children", by="tool", ref=None):
@@ -497,11 +523,24 @@ def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
 
     goal = None
     fulfilled = {r["id"]: r for r in follow_ups(rec, result)}
+    missed: dict = {}
+    for f in (result or {}).get("findings") or []:
+        if f.get("finding") == "prediction missed" and f.get("entry"):
+            missed.setdefault(f["entry"], []).append(f.get("text") or "")
+    chosen = {d.get("choice") for d in rec.of_type("decision")}
     for e in rec.entries:
         typ = e.get("type")
         if typ == "objective":
             goal = add("goal", "G", f"{e.get('id')}: {e.get('text')}", "G0",
                        by=rec.kind(e.get("by")), ref=e.get("id"))
+            measure, ref = e.get("measure"), e.get("id")
+            if measure is None:                 # the reading that a later decision chose
+                p = next((x for x in rec.of_type("proposal") if x.get("kind") == "measure"
+                          and x.get("objective") == e.get("id") and x.get("id") in chosen), None)
+                measure, ref = (p.get("measure"), p.get("id")) if p else (None, None)
+            if measure:
+                add("context", "C", f"{t('measure')}: {_measure_text(measure)}", goal, "context",
+                    by=rec.kind(e.get("by")), ref=ref)
         elif typ == "decision" and goal is not None:
             kind = rec.kind(e.get("by"))
             s = add("strategy", "S", f"{e.get('id')}: {t('chose')} {rec.title(e.get('choice'))} "
@@ -518,10 +557,22 @@ def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
                 add("context", "C", f"{g_id}: {t('within the delegation of')} {g_e.get('by')}"
                     + (f" — {'; '.join(g_e.get('conditions') or [])}" if g_e.get("conditions") else ""),
                     s, "context", by=rec.kind(g_e.get("by")), ref=g_id)
+            add("context", "C", f"{t('point')}: {_point_text(e.get('point'), t)}", s, "context",
+                by=kind, ref=e.get("id"))
             if e.get("reason") or e.get("rule"):
                 add("justification", "J", e.get("reason") or e.get("rule"), s, "context", by=kind)
             for a in e.get("assumptions") or []:
                 add("assumption", "A", a, s, "context", by=kind)
+            if e.get("unknowns"):
+                add("context", "C", f"{t('unknowns')}: " + "; ".join(e["unknowns"]), s, "context",
+                    by=kind, ref=e.get("id"))
+            if e.get("predictions"):
+                add("context", "C", f"{t('predictions')}: " + "; ".join(
+                    f"{rec.title(p.get('option'))}: {p.get('subject')} {p.get('expected')}"
+                    for p in e["predictions"]), s, "context", by=kind, ref=e.get("id"))
+            for text in missed.get(e.get("id"), []):
+                add("counter", "X", f"{t('counter-evidence')}: {text}", s, "context",
+                    ref=_missed_ref(text))
             for f in rec.of_type("follow_up"):
                 if f.get("decision") == e.get("id"):
                     g = add("goal", "G", f"{f.get('id')}: {f.get('text')}", s,
@@ -529,6 +580,7 @@ def gsn(rec: Record, t: Callable = _id, result: Optional[dict] = None) -> list:
                     row = fulfilled.get(f.get("id")) or {}
                     for x in row.get("fulfilled by", []):
                         add("solution", "Sn", x, g, by=rec.kind((rec.by_id.get(x) or {}).get("by")), ref=x)
+                    index[g]["undeveloped"] = not index[g]["children"]
     return nodes
 
 
@@ -553,17 +605,25 @@ def gsn_dot(nodes: list, dark: bool = False, focus: Optional[str] = None, width:
         if n["id"] not in keep:
             continue
         col = colour(n["by"], dark) if n["by"] != "tool" else ink
+        if n["type"] == "counter":
+            col = colour("alert", dark)
         letter = {"assumption": "\\nA", "justification": "\\nJ"}.get(n["type"], "")
         small = n["type"] == "solution"
+        style = {"context": "rounded", "counter": "dashed"}.get(n["type"], "solid")
         lines.append(f'  {n["id"]} [label="{n["id"]}: {_q(n["text"], 16 if small else width, 2 if small else 5)}'
-                     f'{letter}" shape={GSN_SHAPE[n["type"]]} style="{"rounded" if n["type"] == "context" else "solid"}" '
+                     f'{letter}" shape={GSN_SHAPE[n["type"]]} style="{style}" '
                      f'color="{col}" penwidth=1.6];')
+        if n.get("undeveloped"):            # GSN: a hollow diamond under an undeveloped goal
+            lines.append(f'  {n["id"]}_u [label="" shape=diamond width=0.25 height=0.25 '
+                         f'color="{col}"];')
+            lines.append(f'  {n["id"]} -> {n["id"]}_u [arrowhead=none color="{col}"];')
     for n in nodes:
         for c in n["children"]:
             if n["id"] in keep and c in keep:
                 lines.append(f"  {n['id']} -> {c};")
         for c in n["context"]:
             if n["id"] in keep and c in keep:
-                lines.append(f"  {n['id']} -> {c} [style=dashed arrowhead=empty];")
+                red = f' color="{colour("alert", dark)}"' if by_id[c]["type"] == "counter" else ""
+                lines.append(f"  {n['id']} -> {c} [style=dashed arrowhead=empty{red}];")
     lines.append("}")
     return "\n".join(lines)

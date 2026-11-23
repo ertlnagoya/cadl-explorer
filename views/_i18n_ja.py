@@ -1123,7 +1123,7 @@ JA: dict = {
     'Recommends': '推奨',
     'What was measured under the version in force': '有効なバージョンのもとで測った値',
     'The evidence each party gave in its proposals, recommendations and decisions, counted the same way for a person, an LLM and a tool: how many give a reason, assumptions, things not known and predictions, and how many predictions a later vote or measurement contradicted.': '各当事者が提案，推奨，判断で示した証拠を，人，LLM，ツールで同じ方法で数えます。理由，前提，分からないこと，予測を示した数と，後の投票や測定と食い違った予測の数です。',
-    'The record as a GSN argument, derived as Appendix L, L.8 maps it: a goal per objective, a strategy per decision, its measurements and checks as solutions, its reason as the justification, its assumptions, and a follow-up as a goal to develop. The colour is the kind of the party.': '記録を，付録LのL.8の対応に従ってGSNの論証として示します。目的ごとにゴール，判断ごとにストラテジ，その測定と検査をソリューション，理由をジャスティフィケーション，前提をアサンプション，後で確かめる約束を未展開のゴールとします。色は当事者の種類です。',
+    'The record as a GSN argument, derived as Appendix L, L.8 maps it: a goal per objective, with the measure in force as its context; a strategy per decision, with its point, the recommendation, the delegation, its unknowns and its predictions as context, its measurements and checks as solutions, its reason as the justification, and its assumptions; a prediction that a later measurement contradicts as a counter-evidence (red, dashed); and a follow-up as a goal, undeveloped (a diamond) until a later entry fulfils it. The colour is the kind of the party.': '記録を，付録LのL.8の対応に従ってGSNの論証として示します。目的ごとにゴールを置き，有効な測り方をその文脈とします。判断ごとに戦略を置き，その時点，推奨，委任，分からないこと，予測を文脈，測定と検査を解決，理由を正当化，前提を仮定とします。後の測定が反する予測は反証（赤の破線）です。後で確かめる約束はゴールとし，後の項目が果たすまでは未展開（ひし形）です。色は当事者の種類です。',
     'Whole argument': '論証の全体',
     'Every line carries the hash chain of Appendix G, G.8: its sequence number, the digest of the line before it, and its own digest. A change of any line breaks the chain from there on. Keep the digest of the last line outside the record (an anchor): a record rewritten from a changed line on, with a new chain, is detected only against the anchor or with a key.': '各行は，付録GのG.8のハッシュの連鎖を持ちます。行の番号，前の行のダイジェスト，その行のダイジェストです。どの行を変えても，そこから後の連鎖が合わなくなります。最後の行のダイジェストを記録の外に残してください（アンカー）。変えた行から後を連鎖ごと書き直した記録は，アンカーと照合するか，鍵を使うときだけ検出できます。',
     'Download this decision record': 'この判断の記録をダウンロード',
@@ -1243,4 +1243,11 @@ JA: dict = {
     'none': 'なし',
     'not amendable': '改正できない案',
     'period': '期',
+    # GSN of Appendix L, L.8 (v1.9.0)
+    'measure': '測り方',
+    'point': '時点',
+    'period {k}': '第{k}期',
+    'counter-evidence': '反証',
+    'Predictions: {total}; checked by a later entry: {checked} (missed: {missed}); not checked: {rest} (about keep: {keep}, no later measurement or vote: {none}, cannot be compared: {cannot}).':
+        '予測：{total}件。後の項目で確かめられたもの：{checked}件（外れた：{missed}件）。確かめられていないもの：{rest}件（現状維持についての予測：{keep}件，後の測定や投票がない：{none}件，比べられない：{cannot}件）。',
 }

@@ -285,8 +285,13 @@ The app has four pages:
   procedures and under which conditions) are listed with the decisions made
   within each, shown as a diamond on the timeline and as a context in the GSN;
   a decision made in another's place outside every delegation stays a square
-  and the finding delegated. It needs cadl 0.3.39 or later for the checks;
-  records of the robot town are bundled.
+  and the finding delegated. From v1.9.0 the GSN maps every field of L.8:
+  the measure in force as the context of an objective, the point, unknowns
+  and predictions of a decision as context of its strategy, a prediction that
+  a later measurement contradicts as a counter-evidence, and a follow-up not
+  yet fulfilled as an undeveloped goal; with cadl 0.3.41 or later the check
+  also says how many predictions a later entry checked. It needs cadl 0.3.39
+  or later for the checks; records of the robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 

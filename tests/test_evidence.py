@@ -209,6 +209,8 @@ def test_a_claim_not_shown_is_not_a_fulfilment(tmp_path):
     gsn = E.gsn(rec2, result=result)
     goal = [n for n in gsn if n["ref"] == "D1.f1"][0]
     assert goal["children"] == []          # no solution: the promise is not fulfilled
+    assert goal["undeveloped"]
+    assert goal["id"] + "_u" in E.gsn_dot(gsn)
 
 
 def test_a_fulfilled_follow_up_has_its_solution_in_the_gsn():
@@ -220,3 +222,42 @@ def test_a_fulfilled_follow_up_has_its_solution_in_the_gsn():
     done = [r["id"] for r in E.follow_ups(rec, result) if r["status"] == "fulfilled"]
     goals = [n for n in nodes if n["ref"] in done]
     assert goals and all(any(by_id[c]["type"] == "solution" for c in g["children"]) for g in goals)
+
+
+def _rechain(rec, ents):
+    from cadl.decisions import DecisionChain
+    h = rec.header
+    ch = DecisionChain(run_id=h["run_id"])
+    lines = [ch.header(h["model"], h["parties"], h["started"], h["time_base"], h["previous"])]
+    lines += [ch.entry(e) for e in ents] + [ch.end()]
+    return E.load(("\n".join(lines) + "\n").encode())
+
+
+def test_the_gsn_maps_every_field_of_l8():
+    """The measure in force, the point, the unknowns and the predictions are context of their
+    goal or strategy; a prediction that a later measurement contradicts is a counter-evidence."""
+    pytest.importorskip("cadl.decisions")
+    rec = _load("robot-town-steward-d-en.decisions.jsonl")
+    ents = [dict(e) for e in rec.entries]
+    d1 = next(e for e in ents if e["id"] == "D1")
+    d1["unknowns"] = ["How C's robots respond"]
+    d1["predictions"] = [{"option": "P1.2", "subject": "metric:blocked_s", "expected": "increase",
+                          "note": None}]
+    again = dict(next(e for e in ents if e["id"] == "P1.2.m"), id="P1.2.m2")
+    ents.insert(ents.index(d1) + 1, again)
+    rec2 = _rechain(rec, ents)
+    result = E.check(rec2)
+    assert result["valid"], result["errors"]
+    nodes = E.gsn(rec2, result=result)
+    by_id = {n["id"]: n for n in nodes}
+    s = next(n for n in nodes if n["type"] == "strategy" and n["ref"] == "D1")
+    texts = [by_id[c]["text"] for c in s["context"]]
+    assert any(x.startswith("point: period 1") for x in texts)
+    assert any(x.startswith("unknowns: How C") for x in texts)
+    assert any(x.startswith("predictions: ") and "blocked_s increase" in x for x in texts)
+    counter = [by_id[c] for c in s["context"] if by_id[c]["type"] == "counter"]
+    assert len(counter) == 1 and counter[0]["ref"] == "P1.2.m2"
+    k1 = next(n for n in nodes if n["type"] == "goal" and n["ref"] == "K1")
+    assert any(by_id[c]["text"].startswith("measure: ") for c in k1["context"])
+    dot = E.gsn_dot(nodes, focus="D1")
+    assert counter[0]["id"] in dot and "dashed" in dot
