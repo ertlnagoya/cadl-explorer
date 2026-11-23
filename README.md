@@ -293,7 +293,8 @@ The app has four pages:
   also says how many predictions a later entry checked. From v1.9.1 the
   bundled records of the steward are those of cadl-robot-town v0.7.0, which
   measures an adopted amendment under the next period's conditions, so their
-  GSN shows counter-evidence. It needs cadl 0.3.39 or later for the checks;
+  GSN shows counter-evidence; from v1.9.2 they are those of v0.7.1, whose
+  next-period measurements name the scenario period they use. It needs cadl 0.3.39 or later for the checks;
   records of the robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
