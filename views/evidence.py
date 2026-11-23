@@ -303,10 +303,13 @@ with tab_party:
 
 with tab_gsn:
     st.markdown(t(
-        "The record as a GSN argument, derived as Appendix L, L.8 maps it: a goal per objective, a "
-        "strategy per decision, its measurements and checks as solutions, its reason as the "
-        "justification, its assumptions, and a follow-up as a goal to develop. The colour is the "
-        "kind of the party."))
+        "The record as a GSN argument, derived as Appendix L, L.8 maps it: a goal per objective, with "
+        "the measure in force as its context; a strategy per decision, with its point, the "
+        "recommendation, the delegation, its unknowns and its predictions as context, its "
+        "measurements and checks as solutions, its reason as the justification, and its assumptions; "
+        "a prediction that a later measurement contradicts as a counter-evidence (red, dashed); and a "
+        "follow-up as a goal, undeveloped (a diamond) until a later entry fulfils it. The colour is "
+        "the kind of the party."))
     nodes = E.gsn(rec, t, result)
     g1, g2 = st.columns([3, 1])
     gfirst = next((i for i, d in enumerate(decisions) if E.is_amendment_decision(rec, d)), 0)
@@ -350,6 +353,15 @@ with tab_check:
             st.info(t("The version entries attach {files}. Upload these files in the sidebar to "
                       "check the versions, the amendable parameters and who may decide "
                       "(L-9 to L-11).").format(files=", ".join(wanted)))
+        pr = result.get("predictions") or {}       # cadl 0.3.41 or later
+        if pr.get("total"):
+            nc = pr["not_checked"]
+            st.caption(t("Predictions: {total}; checked by a later entry: {checked} (missed: "
+                         "{missed}); not checked: {rest} (about keep: {keep}, no later measurement "
+                         "or vote: {none}, cannot be compared: {cannot}).").format(
+                total=pr["total"], checked=pr["checked"], missed=pr["missed"],
+                rest=sum(nc.values()), keep=nc.get("keep", 0), none=nc.get("no later entry", 0),
+                cannot=nc.get("cannot compare", 0)))
         if result["not_checked"]:
             with st.expander(t("Not checked ({n})").format(n=len(result["not_checked"]))):
                 for n in result["not_checked"]:
