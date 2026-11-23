@@ -243,8 +243,6 @@ def test_the_gsn_maps_every_field_of_l8():
     d1["unknowns"] = ["How C's robots respond"]
     d1["predictions"] = [{"option": "P1.2", "subject": "metric:blocked_s", "expected": "increase",
                           "note": None}]
-    again = dict(next(e for e in ents if e["id"] == "P1.2.m"), id="P1.2.m2")
-    ents.insert(ents.index(d1) + 1, again)
     rec2 = _rechain(rec, ents)
     result = E.check(rec2)
     assert result["valid"], result["errors"]
@@ -256,8 +254,20 @@ def test_the_gsn_maps_every_field_of_l8():
     assert any(x.startswith("unknowns: How C") for x in texts)
     assert any(x.startswith("predictions: ") and "blocked_s increase" in x for x in texts)
     counter = [by_id[c] for c in s["context"] if by_id[c]["type"] == "counter"]
-    assert len(counter) == 1 and counter[0]["ref"] == "P1.2.m2"
+    # D1.n: the steward measured the adopted P1.2 under the conditions of period 2
+    assert len(counter) == 1 and counter[0]["ref"] == "D1.n"
     k1 = next(n for n in nodes if n["type"] == "goal" and n["ref"] == "K1")
     assert any(by_id[c]["text"].startswith("measure: ") for c in k1["context"])
     dot = E.gsn_dot(nodes, focus="D1")
     assert counter[0]["id"] in dot and "dashed" in dot
+
+
+def test_a_bundled_record_has_counter_evidence():
+    """cadl-robot-town v0.7.0 measures an adopted amendment under the next period's conditions:
+    D3 of the Japanese contract record adopted P3.2, which did not hold up in period 4."""
+    pytest.importorskip("cadl.decisions")
+    rec = _load("robot-town-steward-contract-ja.decisions.jsonl")
+    result = E.check(rec)
+    assert result["valid"], result["errors"]
+    counter = [n for n in E.gsn(rec, result=result) if n["type"] == "counter"]
+    assert counter and {n["ref"] for n in counter} == {"D3.n", "D4.n"}

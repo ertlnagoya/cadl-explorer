@@ -290,8 +290,11 @@ The app has four pages:
   and predictions of a decision as context of its strategy, a prediction that
   a later measurement contradicts as a counter-evidence, and a follow-up not
   yet fulfilled as an undeveloped goal; with cadl 0.3.41 or later the check
-  also says how many predictions a later entry checked. It needs cadl 0.3.39
-  or later for the checks; records of the robot town are bundled.
+  also says how many predictions a later entry checked. From v1.9.1 the
+  bundled records of the steward are those of cadl-robot-town v0.7.0, which
+  measures an adopted amendment under the next period's conditions, so their
+  GSN shows counter-evidence. It needs cadl 0.3.39 or later for the checks;
+  records of the robot town are bundled.
 - **About & Glossary** (`views/about.py`) explains the templates, parameters,
   metrics and the fixed scenario.
 
