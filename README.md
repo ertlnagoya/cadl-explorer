@@ -74,6 +74,13 @@ changed or copied: the **Run** tab loads it from the path given there or in
 does not take violation transitions. Without the runtime, the other tabs work
 on logs.
 
+In the navigation the pages are grouped by the stage of a design's life:
+*Explore* (Explorer: compare institutions), *Design* (Designer and Contract
+Lifecycle: write the design and check it statically), *Verify by running*
+(Violation Timeline: run it with injected faults and check that the runtime's
+report names the fault) and *Record the decisions* (Decision Evidence). The
+Designer's **Deliver** stage opens the design in the Violation Timeline.
+
 How to carry out A1–A3 of the research plan with this page, step by step:
 [docs/violation-timeline-guide.ja.md](docs/violation-timeline-guide.ja.md) (in Japanese).
 

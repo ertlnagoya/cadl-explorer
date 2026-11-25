@@ -1415,4 +1415,13 @@ JA: dict = {
         '実行の中でこれらの契約のインスタンスがどう進んだか，ランタイムの報告にどの違反が現れなかったかは，**Violation Timeline** で見られます。',
     'How to carry out A1–A3 of the research plan with this page: [the guide]({url}) (in Japanese).':
         'このページで研究計画の A1〜A3 を進める手順は，[説明書]({url}) にあります。',
+    'Explore': '探る',
+    'Design': '設計する',
+    'Verify by running': '動かして確かめる',
+    'Record the decisions': '記録する',
+    'About': '説明',
+    'Run with injected faults': '故障を注入して動かす',
+    'Open this design in the Violation Timeline': 'この設計を Violation Timeline で開く',
+    'The Violation Timeline runs the SoS-DSL runtime on this design\'s IR with injected faults and shows whether the runtime\'s report names the fault. It needs a contract with `lifecycle:` and `monitors:`. To adopt one of its proposals of deadlines and monitor periods, change the value in the source here and check the design again.':
+        'Violation Timeline は，この設計の IR で SoS-DSL のランタイムを故障を注入して動かし，ランタイムの報告がその故障を指すかを示します。`lifecycle:` と `monitors:` を持つ契約が必要です。期限や監視周期の提案を採用するときは，ここでソースの値を変更し，設計を検査し直してください。',
 }

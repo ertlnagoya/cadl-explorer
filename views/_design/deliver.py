@@ -86,10 +86,22 @@ def _preview(archive: bytes, target: str):
                 st.caption(t("Only the beginning of the file is shown."))
 
 
+def _to_violations():
+    ss.vt_ir_source = "designer"
+    ss.design_go_violations = True
+
+
+def _has_lifecycle(analysis) -> bool:
+    contracts = ((analysis.ir or {}).get("institution") or {}).get("contracts") or []
+    return any(c.get("lifecycle") for c in contracts)
+
+
 def export(c):
     source, analysis, file_stem = c.source, c.analysis, c.file_stem
     if ss.pop("design_go_explorer", False):
         st.switch_page("views/explorer.py")
+    if ss.pop("design_go_violations", False):
+        st.switch_page("views/violations.py")
     if not analysis.ok:
         st.warning(t("The design has errors; generated files may be incomplete."))
     st.markdown(t("**Design**"))
@@ -148,6 +160,17 @@ def export(c):
         "**Versions**."))
     if ss.get("design_to_explorer_error"):
         st.error(ss.pop("design_to_explorer_error"))
+
+    st.markdown("**" + t("Run with injected faults") + "**")
+    v1, v2 = st.columns([2, 3], vertical_alignment="center")
+    v1.button(t("Open this design in the Violation Timeline"), on_click=_to_violations,
+              width="stretch", icon=":material/timeline:",
+              disabled=not (analysis.parsed and _has_lifecycle(analysis)))
+    v2.caption(t(
+        "The Violation Timeline runs the SoS-DSL runtime on this design's IR with injected "
+        "faults and shows whether the runtime's report names the fault. It needs a contract "
+        "with `lifecycle:` and `monitors:`. To adopt one of its proposals of deadlines and "
+        "monitor periods, change the value in the source here and check the design again."))
 
     st.markdown(t("**Runtime code**"))
     extensions = ds.extensions_in_effect(source)

@@ -91,22 +91,24 @@ def _designer_ir():
 
 with st.sidebar:
     st.header(t("Simulator IR"))
-    ir_sources = [t("Bundled example"), t("Upload")]
+    ir_labels = {"bundled": t("Bundled example"), "upload": t("Upload"),
+                 "designer": t("The Designer's design")}
     designer_ir = _designer_ir()
-    if designer_ir is not None:
-        ir_sources.append(t("The Designer's design"))
-    ir_source = st.segmented_control(t("IR from"), ir_sources, default=ir_sources[0],
-                                     key="vt_ir_source") or ir_sources[0]
+    ir_sources = ["bundled", "upload"] + (["designer"] if designer_ir is not None else [])
+    if st.session_state.get("vt_ir_source") not in ir_sources:
+        st.session_state.vt_ir_source = "bundled"
+    ir_source = st.segmented_control(t("IR from"), ir_sources, key="vt_ir_source",
+                                     format_func=ir_labels.get) or "bundled"
     ir_doc = None
     ir_name = ""
-    if ir_source == t("Upload"):
+    if ir_source == "upload":
         up = st.file_uploader(t("Sim-IR JSON"), type=["json"], key="vt_ir_upload")
         if up is not None:
             try:
                 ir_doc, ir_name = json.loads(up.getvalue().decode("utf-8")), up.name
             except json.JSONDecodeError as e:
                 st.error(t("Failed to parse JSON: {e}").format(e=e))
-    elif ir_source == t("The Designer's design"):
+    elif ir_source == "designer":
         ir_doc, ir_name = designer_ir, t("the Designer's design")
     if ir_doc is None:
         names = [p.name for p in IR_EXAMPLES]

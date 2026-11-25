@@ -1,13 +1,13 @@
 """
 CADL Explorer — Streamlit entry point.
 
-Routes between the pages in views/:
-  Explorer            — compare two governance designs end to end
-  Designer            — author and check a full CADL design
-  Contract Lifecycle  — SoS-DSL contract lifecycle state machines
-  Violation Timeline  — violations of contract instances against injected faults
-  Decision Evidence   — the record of an amendment loop as evidence of consensus
-  About               — glossary, scenario and model notes
+Routes between the pages in views/, grouped by the stage of a design's life:
+  Explore            Explorer            — compare two governance designs end to end
+  Design             Designer            — author and check a full CADL design
+                     Contract Lifecycle  — SoS-DSL contract lifecycle state machines
+  Verify by running  Violation Timeline  — whether the runtime's report names the injected fault
+  Record the decisions  Decision Evidence   — the record of an amendment loop as evidence of consensus
+  About              About & Glossary    — glossary, scenario and model notes
 """
 
 import os
@@ -49,16 +49,28 @@ for _key in PERSISTENT_KEYS:
     if _key in st.session_state:
         st.session_state[_key] = st.session_state[_key]
 
-page = st.navigation([
-    st.Page("views/explorer.py", title="Explorer", default=True),
-    st.Page("views/designer.py", title="Designer", url_path="designer"),
-    st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
-    st.Page("views/violations.py", title="Violation Timeline", url_path="violations"),
-    st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
-    st.Page("views/about.py", title="About & Glossary", url_path="about"),
-])
 if st.session_state.get("lang") not in LANGUAGES:
     st.session_state.lang = default_language()
+# The pages by the stage of a design's life: compare institutions, write and
+# check the design, run it with injected faults, record why it was changed.
+page = st.navigation({
+    t("Explore"): [
+        st.Page("views/explorer.py", title="Explorer", default=True),
+    ],
+    t("Design"): [
+        st.Page("views/designer.py", title="Designer", url_path="designer"),
+        st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
+    ],
+    t("Verify by running"): [
+        st.Page("views/violations.py", title="Violation Timeline", url_path="violations"),
+    ],
+    t("Record the decisions"): [
+        st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
+    ],
+    t("About"): [
+        st.Page("views/about.py", title="About & Glossary", url_path="about"),
+    ],
+})
 # Before page.run(): a page may end the run with st.stop().
 with st.sidebar:
     st.segmented_control(t("Language"), LANGUAGES, key="lang", label_visibility="collapsed",
