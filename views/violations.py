@@ -19,6 +19,7 @@ cadl_sim/sos_dsl/violation_trace.py for the optional records.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -423,8 +424,8 @@ with tab_a3:
                 for name, k in (("resolution", "resolution k/n"), ("side effect", "side effect k/n"),
                                 ("coverage", "coverage k/n")):
                     val = summary[name]
-                    st.metric(t(name), "—" if val is None else f"{val:.0%}", summary[k],
-                              delta_color="off", border=True)
+                    st.metric(t(name), "—" if val is None else f"{val:.0%} ({summary[k]})",
+                              border=True)
             st.caption(t("Resolution: of the targeted instances whose report named a wrong "
                          "cause, the share whose report names the injected fault after the "
                          "change. Side effect: of the instances without a fault, the share whose "
@@ -434,7 +435,10 @@ with tab_a3:
             if summary["without a proposal"]:
                 st.caption(t("Trials without a proposal: {ids}").format(
                     ids=", ".join(summary["without a proposal"][:20])))
-            st.dataframe(pd.DataFrame(rows_cmp), hide_index=True, width="stretch")
+            cols = ["instance", "fault", "reported before", "reported after", "matches before",
+                    "matches after", "final before", "final after", "targeted", "trial"]
+            st.dataframe(pd.DataFrame(rows_cmp)[cols].rename(columns=lambda c: t(c)),
+                         hide_index=True, width="stretch")
             a_by = {v.trial.trial_id: v for v in after_views}
             cmp_ids = [v.trial.trial_id for v in views_ if v.trial.trial_id in a_by]
             if cmp_ids:
@@ -472,6 +476,12 @@ with tab_run:
                                            .get("lifecycle") or {}).get("transitions") or [])]
         mon_ids = [m.get("id") for m in (vt.find_contract(ir_doc, "DELIVERY_SLA") or {})
                    .get("monitors") or [] if m.get("sampling_kind") == "periodic"]
+        # the form starts from the IR's own values, and overrides only what is changed
+        acc0 = int((vt.find_transition(ir_doc, "DELIVERY_SLA", "accept") or {}).get("deadline_ms")
+                   or 5000)
+        per0 = int((vt.find_monitor(ir_doc, "DELIVERY_SLA", "battery_guard") or {})
+                   .get("sampling_period_ms") or 500)
+        ir_key = hashlib.sha1(f"{ir_name}|{acc0}|{per0}".encode()).hexdigest()[:8]
         with one:
             with st.form("vt_one"):
                 scenario = st.segmented_control(
@@ -479,9 +489,10 @@ with tab_run:
                     format_func=lambda s: t("multi_robot_demo (its own faults)") if s == "demo"
                     else t("baseline (no faults; inject below)"))
                 c1, c2, c3 = st.columns(3)
-                acc = c1.number_input(t("accept deadline (ms)"), 50, 60000, 5000, 50, key="vt_acc")
-                per = c2.number_input(t("battery_guard period (ms)"), 50, 10000, 500, 50,
-                                      key="vt_per")
+                acc = c1.number_input(t("accept deadline (ms)"), 50, 60000, acc0, 50,
+                                      key=f"vt_acc_{ir_key}")
+                per = c2.number_input(t("battery_guard period (ms)"), 50, 10000, per0, 50,
+                                      key=f"vt_per_{ir_key}")
                 dwell = c3.number_input(t("dwell in Assigned (ms, baseline)"), 0, 10000, 700, 50,
                                         key="vt_dwell")
                 inj_df = st.data_editor(
@@ -497,10 +508,10 @@ with tab_run:
                 go = st.form_submit_button(t("Run"), type="primary")
             if go:
                 ov = []
-                if "accept" in tr_ids:
+                if "accept" in tr_ids and int(acc) != acc0:
                     ov.append({"contract": "DELIVERY_SLA", "kind": "transition", "id": "accept",
                                "field": "deadline_ms", "value": int(acc)})
-                if "battery_guard" in mon_ids:
+                if "battery_guard" in mon_ids and int(per) != per0:
                     ov.append({"contract": "DELIVERY_SLA", "kind": "monitor",
                                "id": "battery_guard", "field": "sampling_period_ms",
                                "value": int(per)})

@@ -110,7 +110,7 @@ def timeline_chart(view: TrialView, instances: Sequence[str],
         x=alt.X("start:Q", scale=x_scale, title=t("time (ms)")),
         x2="end:Q", y=y,
         color=alt.Color("state:N", scale=_state_scale(states, dark), title=t("state"),
-                        legend=alt.Legend(orient="bottom")),
+                        legend=alt.Legend(orient="bottom", columns=4)),
         tooltip=["lane", "state", "from (ms)", "to (ms)"])
     layers = [band]
     ink = "#f0efec" if dark else "#0b0b0b"
@@ -127,7 +127,7 @@ def timeline_chart(view: TrialView, instances: Sequence[str],
             yOffset=alt.YOffset("off:Q", scale=None),
             shape=alt.Shape("mark:N", scale=alt.Scale(domain=mk, range=[
                 MARK_SHAPES[k] for k in MARKS]), title=t("mark"),
-                legend=alt.Legend(orient="top", labelLimit=400)),
+                legend=alt.Legend(orient="top", columns=2, labelLimit=400)),
             stroke=alt.Stroke("mark:N", scale=alt.Scale(domain=mk, range=[
                 ink, "#d95926" if dark else "#eb6834", "#d55181" if dark else "#c2185b"]),
                 legend=None),
