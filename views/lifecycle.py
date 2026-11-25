@@ -44,10 +44,11 @@ from views._i18n import t
 
 st.title(t("Contract Lifecycle"))
 st.markdown(
-    t("Where the Explorer follows one design change through the pipeline, "
-    "this page looks inside a single institution: each contract's "
-    "`lifecycle:` section (SoS-DSL extension, Appendix E) is drawn as a "
-    "state machine, with its `monitors:` listed below.")
+    t("This page shows the contracts as the runtime runs them: each contract's "
+    "`lifecycle:` section (SoS-DSL extension, Appendix E) in the simulator IR is drawn as a "
+    "state machine, with its `monitors:` listed below. The Violation Timeline runs the same "
+    "IR with injected faults; the Designer's **Read** stage draws the lifecycles from the "
+    "CADL source while you write it.")
 )
 st.caption(
     t("Input is a simulator IR produced by the `cadl` compiler: "
@@ -62,6 +63,22 @@ BUNDLED = sorted(
     EXAMPLES_DIR.glob("*.ir.json")
 ) if EXAMPLES_DIR.exists() else []
 
+DESIGNER = "__designer__"     # the IR of the design open in the Designer
+
+
+def _designer_ir():
+    src = st.session_state.get("design_src")
+    if not src:
+        return None
+    try:
+        from views._design.cache import cached_analyze
+        analysis = cached_analyze(src)
+        return analysis.ir if analysis.parsed else None
+    except Exception:
+        return None
+
+
+designer_ir = _designer_ir()
 with st.sidebar:
     st.header(t("IR source"))
     upload = st.file_uploader(
@@ -70,12 +87,15 @@ with st.sidebar:
         accept_multiple_files=False,
     )
     bundled_pick = None
-    if BUNDLED:
+    names = ([DESIGNER] if designer_ir is not None else []) + [p.name for p in BUNDLED]
+    if names:
         bundled_pick = st.selectbox(
-            t("Bundled example"),
-            [p.name for p in BUNDLED],
+            t("IR shown"),
+            names,
             disabled=upload is not None,
-            help=t("Used when no file is uploaded."),
+            format_func=lambda n: t("The Designer's design") if n == DESIGNER else n,
+            help=t("Used when no file is uploaded: the design open in the Designer, or a "
+                   "bundled example."),
         )
 
 # --- Load IR ---------------------------------------------------------------
@@ -86,6 +106,9 @@ try:
     if upload is not None:
         ir_doc = json.loads(upload.read().decode("utf-8"))
         source_label = t("upload: {name}").format(name=upload.name)
+    elif bundled_pick == DESIGNER:
+        ir_doc = designer_ir
+        source_label = t("the Designer's design")
     elif bundled_pick:
         path = EXAMPLES_DIR / bundled_pick
         ir_doc = json.loads(path.read_text(encoding="utf-8"))

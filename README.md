@@ -57,10 +57,14 @@ a report that names the wrong cause can be seen and measured.
 
 | Tab | What it is for |
 |---|---|
-| Timeline (A2) | Per contract instance, the states reported and the states of continued evaluation as bands; reported violations, unreported ones and injected faults as marks; the window in which a periodic monitor's condition may have begun; the candidate cause; the path on the lifecycle diagram of the Contract Lifecycle page |
-| Measurements (A1) | Over many trials and per condition: recall of the record, how often the report and the candidate cause name the injected fault, the masking rate, with 95% Wilson intervals; why the report missed the fault |
-| Improvements (A3) | Changes of deadlines and monitor periods proposed by rules from the candidate causes (never from the ground truth), written as in the CADL source; assumptions on the robots; the trials run again with the changes, and resolution, side effect and coverage |
 | Run | The reference runtime run here with injected faults (`battery_drop`, `over_speed`, `ack_missing`, `ack_delay`) and continued evaluation: one run, or a batch over deadlines, periods and dwell times |
+| Timeline | Per contract instance, the states reported and the states of continued evaluation as bands; reported violations, unreported ones and injected faults as marks; the window in which a periodic monitor's condition may have begun; the candidate cause; the path on the lifecycle diagram of the Contract Lifecycle page |
+| Measurements | Over many trials and per condition: recall of the record, how often the report and the candidate cause name the injected fault, the masking rate, with 95% Wilson intervals; why the report missed the fault |
+| Improvements | Changes of deadlines and monitor periods proposed by rules from the candidate causes (never from the ground truth), written as in the CADL source; assumptions on the robots; the trials run again with the changes, and resolution, side effect and coverage; the chosen changes proposed to the Designer |
+
+The tabs follow the order of the work; the page opens on the timeline of the
+log shown. In the research plan, Timeline is A2, Measurements A1 and
+Improvements A3.
 
 Input is the NDJSON log of the runtime (`multi_robot_demo --log`) and the
 simulator IR. A plain log of the runtime is shown as it is; the records for
@@ -75,11 +79,26 @@ does not take violation transitions. Without the runtime, the other tabs work
 on logs.
 
 In the navigation the pages are grouped by the stage of a design's life:
-*Explore* (Explorer: compare institutions), *Design* (Designer and Contract
-Lifecycle: write the design and check it statically), *Verify by running*
-(Violation Timeline: run it with injected faults and check that the runtime's
-report names the fault) and *Record the decisions* (Decision Evidence). The
-Designer's **Deliver** stage opens the design in the Violation Timeline.
+*Explore* (Explorer: compare institutions), *Design* (Designer: write, read,
+check, change and deliver the design), *Verify by running* (Violation
+Timeline: run it with injected faults and check that the runtime's report
+names the fault; Contract Lifecycle: the lifecycles in the IR the runtime
+runs) and *Record the decisions* (Decision Evidence). The Designer's
+**Verify** stage also checks recorded runs (Traces, Measurements, Agents);
+About lists which page answers which question at each stage.
+
+The pages hand the design on. The Designer's **Verify** › Summary and
+**Deliver** open the design in the Violation Timeline. **Propose the chosen
+changes to the Designer** sends its proposals back to the Designer's
+**Change** stage, which shows them with the problems the checks find; applied
+with the reason for the decision, they save the design before them as a
+version and go into the decision record. Only the changed lines are rewritten,
+so the comments stay; when such a line cannot be found the design is rewritten
+as a whole, without comments, and the page says so. A value marked
+`# @amend:` is not changed this way: it is amended under the amendable
+parameters, where the constitution checks it. The
+record downloads as `decisions.jsonl` (Appendix L) with the CADL files of its
+versions, and opens in Decision Evidence.
 
 How to carry out A1–A3 of the research plan with this page, step by step:
 [docs/violation-timeline-guide.ja.md](docs/violation-timeline-guide.ja.md) (in Japanese).
@@ -172,6 +191,8 @@ cadl-explorer/
 │   │   ├── design_stamp.py         # STAMP control structure (inferred) and the STPA table
 │   │   ├── design_contracts.py     # What watches each promise; dependencies between contracts
 │   │   ├── design_amend.py         # # @amend: values, the constitution's gate, in-place amendments
+│   │   ├── design_tuning.py        # Proposals of the Violation Timeline written into the CADL source
+│   │   ├── design_record.py        # The Designer's decisions as a decision record of Appendix L
 │   │   ├── design_workspace.py     # Folder of designs shared with an AI assistant (optionally in git)
 │   │   ├── design_jobs.py          # Long checks of cadl in a background thread, with cancel
 │   │   ├── design_runtime.py       # norms-eval, agents-run, audit-verify, sim-validate; versions of cadl and PRISM
@@ -309,10 +330,12 @@ The app has four pages:
   norms-check are offered for download up to 10 MB.
 - **Contract Lifecycle** (`views/lifecycle.py`) draws the contract lifecycle of
   the SoS-DSL extension. It reads a simulator IR produced by the `cadl`
-  compiler (`cadl sim-ir <file>.cadl --format json`), or a bundled sample.
+  compiler (`cadl sim-ir <file>.cadl --format json`), the design open in the
+  Designer, or a bundled sample.
 - **Decision Evidence** (`views/evidence.py`) shows a decision record of
   Appendix L of the specification (`decisions.jsonl`, written by
-  cadl-robot-town's `town.steward` and `town.council`): a timeline of who
+  cadl-robot-town's `town.steward` and `town.council`, or by the Designer from
+  the decisions of its Change stage, `backend/services/design_record.py`): a timeline of who
   decided each amendment and how the parties voted, the trail of each decision
   with what it rests on, the evidence of each party counted the same way for a
   person, an LLM and a tool, a GSN derived from the record, the errors and

@@ -20,6 +20,7 @@ cadl_sim/sos_dsl/violation_trace.py for the optional records.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -53,6 +54,49 @@ st.session_state.setdefault("vt_library", {})    # name -> list of records
 st.session_state.setdefault("vt_after", {})      # name of a log -> records run again
 st.session_state.setdefault("vt_runtime_path", os.environ.get(runner.ENV_VAR, ""))
 
+
+def _to_designer(chosen, log_name: str, summary):
+    """Hand the chosen changes to the Designer's Change stage (views/_design/change.py)."""
+    from backend.services import design_tuning as dtune
+    # Two rules may change the same field (R2 and R3 on one monitor): the later
+    # one stays, as in the IR the page downloads (contract_tuning.merge_overrides).
+    by_field = {}
+    for p in chosen:
+        o = p.override
+        by_field[(o["contract"], o["kind"], o["id"], o["field"])] = p
+    chosen = list(by_field.values())
+    reasons = [f"{p.rule}: {t(tuning.RULES.get(p.rule, ''))} {p.reason}".strip() for p in chosen]
+    if summary:
+        measured = ", ".join(f"{t(name)} {summary[k]}" for name, k in (
+            ("resolution", "resolution k/n"), ("side effect", "side effect k/n"),
+            ("coverage", "coverage k/n")) if summary.get(name) is not None)
+        if measured:
+            reasons.append(t("Run again with the changes: {m}.").format(m=measured))
+    st.session_state.design_pending = {
+        "overrides": [p.override for p in chosen],
+        "items": [{"text": p.change,
+                   "from": dtune.cadl_value({**p.override, "value": p.old}) if p.old is not None
+                   else None,
+                   "to": dtune.cadl_value(p.override)} for p in chosen],
+        "title": "; ".join(p.change for p in chosen),
+        "reason": " ".join(reasons),
+        "log": log_name,
+        "sha": hashlib.sha256((st.session_state.get("design_src") or "").encode()).hexdigest(),
+    }
+    _open_designer("Versions")
+
+
+def _open_designer(view: str):
+    """Open the Designer on one of its views (Versions, Traces, Measurements, Agents)."""
+    st.session_state.design_view = view
+    st.session_state.design_stage = "Change" if view == "Versions" else "Verify"
+    st.session_state.vt_go_designer = True
+
+
+if st.session_state.pop("vt_go_designer", False):
+    st.switch_page("views/designer.py")
+
+
 st.title(t("Violation Timeline"))
 st.markdown(t(
     "The runtime reports one violation per contract instance: the first that ends it. "
@@ -68,6 +112,14 @@ st.caption(t(
     "injected faults are optional records."))
 st.caption(t("How to carry out A1–A3 of the research plan with this page: [the guide]({url}) "
              "(in Japanese).").format(url=GUIDE_URL))
+with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+    st.caption(t("Other checks of a run, on the Designer's **Verify** stage:"))
+    for _view, _what in (("Traces", "Traces: norms kept in a recorded run"),
+                         ("Measurements", "Measurements: metrics against their targets"),
+                         ("Agents", "Agents: decisions at the agent boundary")):
+        st.button(t(_what), key=f"vt_to_{_view}", on_click=_open_designer, args=(_view,),
+                  type="tertiary", icon=":material/fact_check:")
+
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +246,11 @@ if not has_cont:
               "report left out. Run the runtime here (**Run**), or add continued evaluation "
               "to the runtime's log."))
 
-tab_tl, tab_a1, tab_a3, tab_run = st.tabs([
-    t("Timeline (A2)"), t("Measurements (A1)"), t("Improvements (A3)"), t("Run")])
+# In the order of the work: make a log, read it, measure, improve. The page opens
+# on the timeline of the log shown.
+_TAB_NAMES = [t("Run"), t("Timeline"), t("Measurements"), t("Improvements")]
+_tab_kw = {"default": _TAB_NAMES[1]} if "default" in inspect.signature(st.tabs).parameters else {}
+tab_run, tab_tl, tab_a1, tab_a3 = st.tabs(_TAB_NAMES, **_tab_kw)
 
 
 def _trial_label(v: vt.TrialView) -> str:
@@ -347,7 +402,7 @@ handle, runtime_error = _runtime()
 
 
 # ---------------------------------------------------------------------------
-# Improvements (A3)
+# Improvements (A3 of the research plan)
 # ---------------------------------------------------------------------------
 
 with tab_a3:
@@ -389,6 +444,7 @@ with tab_a3:
                                     t("why (first case)"): p.reason} for p in assumptions]),
                      hide_index=True, width="stretch")
 
+    summary = None
     if changes:
         st.subheader(t("Run again and compare"))
         runs = [v.trial.run for v in views_ if v.trial.run]
@@ -449,6 +505,23 @@ with tab_a3:
                 st.markdown("**" + t("After") + "**")
                 show_timeline(a_by[cid], "after")
 
+    if changes:
+        st.subheader(t("Change the design"))
+        if ir_source == "designer":
+            st.button(t("Propose the chosen changes to the Designer"), type="primary",
+                      disabled=not chosen, on_click=_to_designer,
+                      args=(chosen, log_name, summary), icon=":material/edit_note:")
+            st.caption(t("The Designer's **Change** stage shows the changes as they would read in "
+                         "the source, with the problems the checks find. When you apply them "
+                         "with the reason for your decision, the design before them is saved as "
+                         "a version and the decision goes into the decision record, which "
+                         "**Decision Evidence** shows."))
+        else:
+            st.caption(t("The IR shown is not the Designer's design, so the changes cannot be "
+                         "sent back to a design. To propose them to the Designer, choose "
+                         "**The Designer's design** under *IR from* in the sidebar, with the "
+                         "design open in the Designer."))
+
 
 # ---------------------------------------------------------------------------
 # Run
@@ -471,7 +544,7 @@ with tab_run:
                   "with this tab."))
     else:
         st.success(t("Runtime: `{p}`").format(p=handle.label))
-        one, many = st.tabs([t("One run"), t("Batch (A1)")])
+        one, many = st.tabs([t("One run"), t("Batch")])
         tr_ids = [tr.get("id") for tr in (((vt.find_contract(ir_doc, "DELIVERY_SLA") or {})
                                            .get("lifecycle") or {}).get("transitions") or [])]
         mon_ids = [m.get("id") for m in (vt.find_contract(ir_doc, "DELIVERY_SLA") or {})

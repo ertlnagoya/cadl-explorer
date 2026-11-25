@@ -169,8 +169,8 @@ def export(c):
     v2.caption(t(
         "The Violation Timeline runs the SoS-DSL runtime on this design's IR with injected "
         "faults and shows whether the runtime's report names the fault. It needs a contract "
-        "with `lifecycle:` and `monitors:`. To adopt one of its proposals of deadlines and "
-        "monitor periods, change the value in the source here and check the design again."))
+        "with `lifecycle:` and `monitors:`. Its proposals of deadlines and monitor periods come "
+        "back to the **Change** stage, where you apply them with the reason for your decision."))
 
     st.markdown(t("**Runtime code**"))
     extensions = ds.extensions_in_effect(source)

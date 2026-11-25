@@ -428,7 +428,7 @@ def test_designer_amends_a_marked_value_in_place():
     assert "# @amend:hold_limit" in at.session_state.design_src
     assert at.session_state.design_versions[-1]["name"] == "before hold_limit 60 → 70"
     assert any("Amended parameters" in m.value and "`hold_limit` 60 → 70" in m.value for m in at.markdown)
-    assert any("Amended hold_limit: 60 → 70" in s.value for s in at.success)
+    assert any("Changed hold_limit: 60 → 70" in s.value for s in at.success)
 
 
 def test_designer_versions_without_amend_tags():

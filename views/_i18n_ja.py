@@ -79,7 +79,6 @@ JA: dict = {
     '**In short** — no notable change in behaviour.': '**要点** — 振る舞いに目立った変化はありません。',
     '*No change at this stage.*': '*この段階では変化はありません。*',
     'Contract Lifecycle': 'Contract Lifecycle',
-    "Where the Explorer follows one design change through the pipeline, this page looks inside a single institution: each contract's `lifecycle:` section (SoS-DSL extension, Appendix E) is drawn as a state machine, with its `monitors:` listed below.": 'Explorer が一つの設計の変更をパイプラインに沿ってたどるのに対して，このページは一つの制度の中を見ます。各契約の `lifecycle:` の節（CADL 契約拡張 SoS-DSL，付録E）を状態機械として描き，その下に `monitors:` を並べます。',
     'Input is a simulator IR produced by the `cadl` compiler: `cadl sim-ir <file>.cadl --format json`. [CADL specification and hands-on](https://www.ertl.jp/cadl-spec/)': '入力は，`cadl` コンパイラが生成するシミュレータの IR です：`cadl sim-ir <file>.cadl --format json`。[CADL 言語仕様書とハンズオン](https://www.ertl.jp/cadl-spec/)',
     'Contract': '契約',
     'Monitors': '監視',
@@ -90,7 +89,6 @@ JA: dict = {
     'No `monitors:` declared on this contract.': 'この契約には `monitors:` が宣言されていません。',
     'Bundled example': '同梱の例',
     'Lifecycle metadata': 'ライフサイクルのメタデータ',
-    'Used when no file is uploaded.': 'ファイルをアップロードしていないときに使います。',
     'Show DOT source': 'DOT のソースを表示',
     'About & Glossary': 'About & Glossary',
     'CADL Explorer is research infrastructure for tracing the causal structure of governance design in Systems of Systems (SoS). You pick two governance designs, A and B, and the Explorer shows how the difference between them propagates through four stages:': 'CADL Explorer は，System of Systems（SoS）のガバナンスの設計について，その因果の構造をたどるための研究基盤です。ガバナンスの設計 A と B を選ぶと，Explorer は二つの違いが次の四つの段階をどう伝わるかを示します：',
@@ -102,7 +100,6 @@ JA: dict = {
     "The Explorer has three ready-made comparisons. Press the example's button in the Explorer sidebar, or **Load this demo** under *Getting started*.": 'Explorer には，用意した比較が三つあります。Explorer のサイドバーで例のボタンを押すか，*はじめに* の中の **このデモを読み込む** を押してください。',
     'How to use the Designer': 'Designer の使い方',
     'Contract Lifecycle page': 'Contract Lifecycle のページ',
-    '1. Open **Contract Lifecycle** in the navigation. A bundled example is shown straight away.\n2. Pick a contract to see its lifecycle as a state machine. Dashed red edges are violation transitions; its monitors are listed below the graph.\n3. To view your own design, compile it with `cadl sim-ir <file>.cadl --format json` and upload the JSON in the sidebar, or open the `.cadl` file in the **Designer**, which draws the same diagram from the source.': '1. ナビゲーションで **Contract Lifecycle** を開きます。同梱の例がすぐに表示されます。\n2. 契約を選ぶと，そのライフサイクルが状態機械として表示されます。赤い破線の辺は違反の遷移です。その契約の監視は，グラフの下に並びます。\n3. 自分の設計を見るには，`cadl sim-ir <file>.cadl --format json` でコンパイルして JSON をサイドバーでアップロードするか，`.cadl` のファイルを **Designer** で開きます。Designer は，ソースから同じ図を描きます。',
     'Governance templates': 'ガバナンスのテンプレート',
     '- **D-SoS** (Directed SoS) is a configuration with a strong central authority. Its `sos_type` is `Directed`.\n- **C-SoS** is a collaborative, autonomy-oriented configuration.\n- **D-SoS + motivation-sensitive** is D-SoS whose authority adjusts per-agent budgets and waits according to agent motivation (`hybrid` model). It only differs from D-SoS when ρ > 0.': '- **D-SoS**（Directed SoS，統率型）は，強い中央の管理者を持つ構成です。`sos_type` は `Directed` です。\n- **C-SoS** は，協調型で，自律を重んじる構成です。\n- **D-SoS + motivation-sensitive** は，管理者がエージェントの動機づけに応じて，エージェントごとの予算と待ち時間を調整する D-SoS です（`hybrid` モデル）。D-SoS と違うのは ρ > 0 のときだけです。',
     'Parameters': 'パラメータ',
@@ -178,7 +175,6 @@ JA: dict = {
     'Choose two different designs to compare.': '比べる設計を，別々に二つ選んでください。',
     'Use the Robot Town constitution': 'ロボットの街の憲法を使う',
     'Download the record (Markdown)': '記録をダウンロード（Markdown）',
-    'The amendments made here in this browser session, with the reasons given. Download the record to keep it.': 'このブラウザのセッションで行った改正と，その理由です。残すには，記録をダウンロードしてください。',
     'e.g. step30, to tell the runs of different conditions apart': '例：step30。条件の違う実行を区別するため',
     'Make this version the current design. Undo takes it back.': 'この版を現在の設計にします。「元に戻す」で取り消せます。',
     'Both designs must parse to be compared.': '比べるには，両方の設計を構文解析できる必要があります。',
@@ -311,7 +307,7 @@ JA: dict = {
     'Restart': '最初から',
     '(choose one)': '（一つ選ぶ）',
     'Edit at line {n}': '{n} 行目を編集',
-    'Opened the project with {v} version(s), {d} decision(s) and {r} recorded run(s); saved by CADL Explorer {e} with cadl {c}.': '{v} 個の版，{d} 件の決定，{r} 件の記録した実行を含むプロジェクトを開きました。CADL Explorer {e}，cadl {c} で保存したものです。',
+    'Opened the project with {v} version(s), {d} decision(s) and {r} recorded run(s); saved by CADL Explorer {e} with cadl {c}.': '{v} 個の版，{d} 件の判断，{r} 件の記録した実行を含むプロジェクトを開きました。CADL Explorer {e}，cadl {c} で保存したものです。',
     'Open a CADL file or a project': 'CADL のファイルかプロジェクトを開く',
     'Save as .cadl': '.cadl として保存',
     'Save the project (.zip)': 'プロジェクトを保存（.zip）',
@@ -319,9 +315,9 @@ JA: dict = {
     'Start from': '出発点',
     'New design': '新しい設計',
     'Workspace': 'ワークスペース',
-    'A `.cadl` file replaces the design in the editor. A project (`.zip`, saved below) also brings back its versions, decisions, constitution and the record of the checks.': '`.cadl` のファイルは，エディタの設計を置き換えます。プロジェクト（下で保存する `.zip`）は，版，決定，憲法，検査の記録も戻します。',
+    'A `.cadl` file replaces the design in the editor. A project (`.zip`, saved below) also brings back its versions, decisions, constitution and the record of the checks.': '`.cadl` のファイルは，エディタの設計を置き換えます。プロジェクト（下で保存する `.zip`）は，版，判断，憲法，検査の記録も戻します。',
     'Downloads the design exactly as it is in the editor.': 'エディタにある設計を，そのままダウンロードします。',
-    'The design with its saved versions, decision record, constitution, STPA entries and the record of the checks, to open here again later.': '設計と，保存した版，決定の記録，憲法，STPA の記入，検査の記録をまとめたものです。あとで，ここで再び開けます。',
+    'The design with its saved versions, decision record, constitution, STPA entries and the record of the checks, to open here again later.': '設計と，保存した版，判断の記録，憲法，STPA の記入，検査の記録をまとめたものです。あとで，ここで再び開けます。',
     'Example design': '例の設計',
     'Load example': '例を読み込む',
     'Replaces the design in the editor with a small starting template.': 'エディタの設計を，小さなテンプレートで置き換えます。',
@@ -593,14 +589,13 @@ JA: dict = {
     'range': '範囲',
     'step': '刻み',
     'decided by': '決める者',
-    'Amended {what}. The design before it is saved as a version; Undo also takes it back.': '改正しました：{what}。改正の前の設計は版として保存しました。「元に戻す」でも取り消せます。',
     'New value (now {value})': '新しい値（現在は {value}）',
-    '- The constitution leaves `{name}` ({layer}) to a person. Write the reason for your decision; it is kept in the decision record below.': '- 憲法は `{name}`（{layer}）の決定を人に委ねています。決定の理由を書いてください。理由は下の決定の記録に残ります。',
-    'Reason for the decision': '決定の理由',
+    '- The constitution leaves `{name}` ({layer}) to a person. Write the reason for your decision; it is kept in the decision record below.': '- 憲法は `{name}`（{layer}）の判断を人に委ねています。判断の理由を書いてください。理由は下の判断の記録に残ります。',
+    'Reason for the decision': '判断の理由',
     'Amend {name} to {value}': '{name} を {value} に改正',
     'The constitution does not allow this amendment.': '憲法はこの改正を認めていません。',
     'Saves the current design as a version first, then writes the new value into every line marked with this name.': '先に現在の設計を版として保存し，それから，この名前の印が付いたすべての行に新しい値を書き込みます。',
-    'Decision record ({n})': '決定の記録（{n}）',
+    'Decision record ({n})': '判断の記録（{n}）',
     'change': '変更',
     'reason': '理由',
     'current': '現在',
@@ -802,7 +797,6 @@ JA: dict = {
     'closed': '終了',
     'released': '解除',
     '- **Compare two governance designs** for a 5-robot fleet: a baseline **A** and a design under study **B**.\n- **See the outcome** of the change in throughput, autonomy and fairness.\n- **Trace why it happens**, stage by stage: CADL → IR → Config → Result.\n- **Explore** how the result depends on ρ, robot by robot, and on the scenario.\n- **Reproduce and share**: download the CADL / IR / config files, or copy the page URL.\n': '- **二つのガバナンスの設計を比べます**：5 台のロボットのフリートについて，基準の設計 **A** と，検討する設計 **B** です。\n- 変更の**結果を見ます**：スループット，自律性，公平性がどう変わるかです。\n- **なぜそうなるかを，段階ごとにたどります**：CADL → IR → Config → Result。\n- 結果が ρ，ロボットごとの違い，シナリオにどう依存するかを**探ります**。\n- **再現して共有します**：CADL / IR / config のファイルをダウンロードするか，ページの URL をコピーします。\n',
-    "- **Design your own SoS and contract architecture** in CADL on the *Designer* page: open an existing `.cadl` file or start from an example or a template, edit actors, contracts, protocols, algorithms, regimes and metrics, step through a contract's lifecycle, keep versions, and save the result or a design report. Every edit is checked.\n- **Inspect contract lifecycles** from a compiled simulator IR on the *Contract Lifecycle* page.\n- **Design in conversation with an AI assistant**: the same tools are available to assistants through an MCP server (`mcp_server.py` in the repository). The assistant asks what is missing, proposes changes that are checked before they are applied, and reads the design back; the Designer shows what it changed for you to confirm.\n": '- **自分の SoS と契約アーキテクチャを CADL で設計します**（*Designer* のページ）：既存の `.cadl` のファイルを開くか，例かテンプレートから始めて，アクター，契約，プロトコル，アルゴリズム，運用モード，指標を編集します。契約のライフサイクルを一歩ずつたどり，版を残し，設計か設計の報告書を保存できます。編集のたびに検査します。\n- **契約のライフサイクルを調べます**（*Contract Lifecycle* のページ）：コンパイルしたシミュレータの IR から描きます。\n- **AI アシスタントと対話しながら設計します**：同じ道具を，MCP サーバ（リポジトリの `mcp_server.py`）を通じてアシスタントも使えます。アシスタントは足りない情報を尋ね，変更を提案し，その変更は適用の前に検査されます。また，設計を読み返して確かめます。Designer は，アシスタントが変えたところを示すので，あなたが確認します。\n',
     '1. **Choose design B** in the sidebar: a governance template, a motivation profile and ρ. Or press one of the examples.\n2. **Optionally change the baseline A** under *A — baseline* in the sidebar. It starts as plain D-SoS.\n3. **Read section 1, Outcome**: the three metric cards show B and its difference from A.\n4. **Read section 2, Why**: each stage lists what changed there. Open *Raw diff* for the exact lines.\n5. **Use section 3, Explore** for the ρ sweep, the per-robot view and the scenario diagram.\n6. **Keep the result** from section 4: download the files, save the comparison, or share the URL.\n\nThe page updates as soon as you change a setting; there is no run button.\n': '1. サイドバーで**設計 B を選びます**：ガバナンスのテンプレート，動機づけのプロファイル，ρ です。例のボタンを押してもかまいません。\n2. 必要なら，サイドバーの *A — 基準* で**基準の設計 A を変えます**。初めは D-SoS です。\n3. **1. 結果**を読みます：三つの指標のカードが，B の値と A との差を示します。\n4. **2. 理由**を読みます：段階ごとに，そこで変わったことを並べます。正確な行は *差分の全体* を開くと見られます。\n5. **3. 探る**で，ρ を変えたときの図，ロボットごとの表示，シナリオの図を見ます。\n6. **4. 再現と出力**で**結果を残します**：ファイルをダウンロードするか，比較を保存するか，URL を共有します。\n\n設定を変えると，ページはすぐに更新されます。実行のボタンはありません。\n',
     '1. **Open the Designer.** In the sidebar, open a `.cadl` file or a saved project, load an example, or start a **New design**. The page leads through five stages: **Write**, **Read**, **Verify**, **Change** and **Deliver**.\n2. **Write** the design as *Source* (an editor with line numbers; press **Apply** or Ctrl/⌘ + Enter) or with *Forms*, one section at a time. The editor completes the names of the design as you type, and **Insert…** puts a snippet (a contract, a norm, a lifecycle, a monitor, a protocol, a stochastic model) at the cursor. Every change is checked: each problem in the list has a **Line n** button that shows its line in the editor and an **Open form** button for the form that fixes it. **Undo** takes back any change.\n3. **Read** the design back: *Architecture*, *Structure*, *Control structure*, *Lifecycle*, *Protocols*, *Regimes*, *Algorithms & metrics* and *Read-back* (the design restated in sentences, to confirm it says what you meant). Click a box in a diagram to see where the source writes it.\n4. **Verify** it. *Summary* shows the latest result of every check and the design it ran on. *Checks* runs `cadl norms-check` and `cadl game-check` in the background, with a **Stop** button. *Traces* evaluates a recorded trace with `cadl norms-eval`, also with the versions of the run. *Measurements* judges measured values of the metrics with `cadl metrics-eval`. *Agents* runs `cadl agents-run`, also with the versions of the run, and `cadl audit-verify`.\n5. **Change** it under *Versions*: save versions, compare two designs (the change is drawn on the architecture), and amend the values marked `# @amend:` within the constitution.\n6. **Deliver** it under *Export*: the design report, simulator configs checked by `cadl sim-validate`, runtime code (for OPA, Solidity and Unity C# also with the versions of the run), and the design opened in the Explorer.\n\n**Layout.** The editor and the stages stand side by side, or the page has one column. Below 1100 px (a tablet held upright, a narrow window) the page starts in one column; the switch next to the stages changes it. **Language.** The switch at the top of the sidebar chooses English or 日本語.\n\n**Keeping your work.** The design lives in the browser session. Save the `.cadl` file, or the whole project as a `.zip` (versions, decisions, constitution, STPA entries and the record of the checks), from the sidebar, and open it there again later. With `CADL_WORKSPACE_GIT=1`, the shared workspace commits each change to git.\n': '1. **Designer を開きます。** サイドバーで `.cadl` のファイルか保存したプロジェクトを開くか，例を読み込むか，**新しい設計** から始めます。ページは，**書く**，**読む**，**確かめる**，**変える**，**書き出す** の五つの段階で作業を進めます。\n2. **書く**：設計を *ソース*（行番号付きのエディタ。**適用** か Ctrl/⌘ + Enter を押します）か *フォーム* で，一つの節ずつ書きます。エディタは，入力中に設計の中の名前を補完します。**挿入…** は，ひな形（契約，規範，ライフサイクル，監視，プロトコル，確率モデル）をカーソルの位置に入れます。変更のたびに検査します。問題の一覧の各項目には，エディタでその行を示す **n 行目** のボタンと，直すためのフォームを開く **フォームを開く** のボタンがあります。**元に戻す** で，どの変更も取り消せます。\n3. **読む**：*構成*，*構造*，*制御構造*，*ライフサイクル*，*プロトコル*，*運用モード*，*アルゴリズムと指標*，*読み返し*（設計を文で言い直したもの。意図したとおりに書けているかを確かめます）で設計を読み返します。図の箱をクリックすると，ソースのどこにそれを書いたかが分かります。\n4. **確かめる**：*まとめ* は，すべての検査の最新の結果と，検査した設計を示します。*検査* は，`cadl norms-check` と `cadl game-check` をバックグラウンドで実行します。**停止** のボタンで止められます。*トレース* は，記録したトレースを `cadl norms-eval` で評価します。実行の版も適用できます。*計測* は，指標の計測値を `cadl metrics-eval` で判定します。*エージェント* は，`cadl agents-run` を実行の版も含めて実行し，`cadl audit-verify` を実行します。\n5. **変える**：*版* で，版を保存し，二つの設計を比べ（変更を構成の図に描きます），`# @amend:` の印を付けた値を憲法の範囲で改正します。\n6. **書き出す**：*出力* で，設計の報告書，`cadl sim-validate` で検査したシミュレータの設定，ランタイムのコード（OPA，Solidity，Unity C# では実行の版も含めて）を書き出し，設計を Explorer で開きます。\n\n**レイアウト。** エディタと各段階を横に並べるか，1 列で表示します。1100 px より狭いとき（縦に持ったタブレット，幅の狭いウィンドウ）は 1 列で始まります。段階の隣の切り替えで変えられます。**言語。** サイドバーの上の切り替えで，English か日本語を選びます。\n\n**作業を残すには。** 設計は，ブラウザのセッションの中にあります。サイドバーから `.cadl` のファイルか，プロジェクト全体を `.zip`（版，決定，憲法，STPA の項目，検査の記録）として保存し，あとでサイドバーから開き直します。`CADL_WORKSPACE_GIT=1` を付けて起動すると，共有のワークスペースは変更のたびに git にコミットします。\n',
     'Add motivation sensitivity': '動機づけへの感度を加える',
@@ -1109,7 +1103,6 @@ JA: dict = {
     'ok': '問題なし',
     # Decision Evidence for decision records (Appendix L)
     'A decision record (Appendix L of the CADL specification) keeps, for every amendment, under which objective it was judged, what was measured, how the parties voted, what was recommended, and who decided, by which procedure and with which reason. The same evidence is asked of every party, whether a person, an LLM or a tool.': '判断の記録（CADL仕様の付録L）は，改正ごとに，どの目的のもとで判断したか，何を測ったか，当事者がどう投票したか，何が推奨されたか，誰がどの手続きでどの理由によって判断したかを残します。人，LLM，ツールのどの当事者にも，同じ証拠を求めます。',
-    'Input is `decisions.jsonl`, written by `town.steward` and `town.council` in [cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town). The checks and findings are those of `cadl decisions-verify` (cadl 0.3.39 or later). [Appendix L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)': '入力は `decisions.jsonl` です。[cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town) の `town.steward` と `town.council` が書き出します。検査と指摘は `cadl decisions-verify`（cadl 0.3.39 以降）のものです。[付録L](https://www.ertl.jp/cadl-spec/ja/docs/spec/appendix-l-decisions)',
     'Amendment decisions': '改正の判断',
     'Decided by a person': '人が判断',
     'Decided by an LLM': 'LLMが判断',
@@ -1268,9 +1261,6 @@ JA: dict = {
     'Report names a wrong cause': '原因を取り違えた報告',
     'This log holds the runtime\'s report only. Without continued evaluation (records with `"track": "continued"`) the page cannot show what the report left out. Run the runtime here (**Run**), or add continued evaluation to the runtime\'s log.':
         'このログはランタイムの報告だけを含みます。継続評価の記録（`"track": "continued"` を持つ記録）がないので，報告に現れなかった違反は示せません。ここでランタイムを実行する（**実行**）か，ランタイムのログに継続評価を加えてください。',
-    'Timeline (A2)': 'タイムライン（A2）',
-    'Measurements (A1)': '計測（A1）',
-    'Improvements (A3)': '改善提案（A3）',
     'Run': '実行',
     "Upper band of an instance: the states the runtime reported. Lower band: continued evaluation, in which the instance did not enter its violation state. A dashed line before a mark is the time in which a periodic monitor's condition may have begun: the monitor sees it only when it is evaluated, up to one period later.":
         '各インスタンスの上の帯はランタイムが報告した状態，下の帯は継続評価（違反の状態に入らなかったと仮定した状態）です。印の前の破線は，周期的な監視の条件が成立し始めた可能性のある範囲です。監視は評価の時点でしか条件を見ないので，記録は成立から最大で1周期遅れます。',
@@ -1329,7 +1319,6 @@ JA: dict = {
     'Resolution: of the targeted instances whose report named a wrong cause, the share whose report names the injected fault after the change. Side effect: of the instances without a fault, the share whose final state changed. Coverage: of the trials with masking or a wrong cause, the share that got a proposal. Fewer violations alone is not counted as success.':
         '解消率：案の対象で原因を取り違えていたインスタンスのうち，変更後に注入した故障が報告された割合。副作用率：故障を注入していないインスタンスのうち，最終状態が変わった割合。提案の網羅率：マスキングか原因の取り違えがあった試行のうち，提案を出せた割合。違反の件数が減ったことだけでは成功とみなしません。',
     'One run': '1回の実行',
-    'Batch (A1)': '一括実行（A1）',
     'Download the log shown (NDJSON)': '表示中のログをダウンロード（NDJSON）',
     'scenario': 'シナリオ',
     'earliest onset': '成立が最も早い',
@@ -1431,6 +1420,71 @@ JA: dict = {
     'About': '説明',
     'Run with injected faults': '故障を注入して動かす',
     'Open this design in the Violation Timeline': 'この設計を Violation Timeline で開く',
-    'The Violation Timeline runs the SoS-DSL runtime on this design\'s IR with injected faults and shows whether the runtime\'s report names the fault. It needs a contract with `lifecycle:` and `monitors:`. To adopt one of its proposals of deadlines and monitor periods, change the value in the source here and check the design again.':
-        'Violation Timeline は，この設計の IR で SoS-DSL のランタイムを故障を注入して動かし，ランタイムの報告がその故障を指すかを示します。`lifecycle:` と `monitors:` を持つ契約が必要です。期限や監視周期の提案を採用するときは，ここでソースの値を変更し，設計を検査し直してください。',
+    '**Proposed by the Violation Timeline**': '**Violation Timeline からの提案**',
+    'Changes of deadlines and monitor periods that the Violation Timeline proposed from the candidate causes in the log `{log}`, never from the injected faults. Check them and give the reason for your decision. Applying them saves the design before them as a version and puts the decision into the decision record below.':
+        'Violation Timeline が，ログ `{log}` の原因の候補から提案した期限と監視周期の変更です。提案は注入した故障を使わずに作られています。内容を確かめ，判断の理由を書いてください。適用すると，変更の前の設計を版として保存し，判断を下の判断の記録に加えます。',
+    'Why: {why}': '提案の理由：{why}',
+    'The design has changed since the proposal was made. The changes are applied to the design as it is now.':
+        '提案を作った後で，設計が変わっています。変更は，いまの設計に適用します。',
+    'The proposal cannot be applied to this design: {e}': 'この提案は，この設計に適用できません：{e}',
+    'The checks find no new problem in the design with these changes.': 'これらの変更を加えた設計に，検査で新しい問題は見つかりません。',
+    'A changed line was not found as written, so the design is rewritten as a whole: its comments are not kept.':
+        '変える行が想定した形で見つからないため，設計全体を書き直します。ソースのコメントは残りません。',
+    'Apply the proposal': '提案を適用する',
+    'Write the reason for your decision first.': '先に，判断の理由を書いてください。',
+    'Discard the proposal': '提案を破棄する',
+    'The proposal could not be applied: {e}': '提案を適用できませんでした：{e}',
+    'Changed {what}. The design before it is saved as a version; Undo also takes the change back, and the record below keeps the decision.':
+        '変更しました：{what}。変更の前の設計は版として保存しました。「元に戻す」でも変更を取り消せます。その場合も，判断は下の記録に残ります。',
+    'Download as decisions.jsonl (.zip)': 'decisions.jsonl としてダウンロード（.zip）',
+    'decisions.jsonl (Appendix L) with the CADL files of its versions, for `cadl decisions-verify`.':
+        'decisions.jsonl（付録L）と各版の CADL ファイルです。`cadl decisions-verify` で検査できます。',
+    'Open in Decision Evidence': 'Decision Evidence で開く',
+    'The changes decided here in this browser session, with the reasons given: amendments, and proposals of the Violation Timeline. Download the record to keep it; Decision Evidence shows it with the checks of `cadl decisions-verify`.':
+        'このブラウザのセッションでここで決めた変更と，その理由です。改正と，Violation Timeline の提案の採用が入ります。残すには，記録をダウンロードしてください。Decision Evidence では，`cadl decisions-verify` の検査とともに表示します。',
+    "The Violation Timeline runs the SoS-DSL runtime on this design's IR with injected faults and shows whether the runtime's report names the fault. It needs a contract with `lifecycle:` and `monitors:`. Its proposals of deadlines and monitor periods come back to the **Change** stage, where you apply them with the reason for your decision.":
+        'Violation Timeline は，この設計の IR で SoS-DSL のランタイムを故障を注入して動かし，ランタイムの報告がその故障を指すかを示します。`lifecycle:` と `monitors:` を持つ契約が必要です。期限と監視周期の変更の提案は **変える** の段階に届き，判断の理由を書いて適用します。',
+    "Whether the runtime's report names an injected fault is checked by running the design, on another page:":
+        'ランタイムの報告が注入した故障を指すかは，設計を動かして，別のページで確かめます：',
+    "Pages by the stage of a design's life": '設計の段階ごとのページ',
+    'Violation Timeline page': 'Violation Timeline のページ',
+    "1. Open **Violation Timeline** in the navigation, or press **Open this design in the Violation Timeline** in the Designer (**Verify** › Summary, or **Deliver**). A bundled log is shown straight away.\n2. **Run** makes a log: it runs the SoS-DSL runtime with injected faults, when the runtime is on this machine. **Timeline** sets the runtime's report beside continued evaluation and the injected faults. **Measurements** counts, over many trials, how often the report names the fault. **Improvements** proposes changes of deadlines and monitor periods from the candidate causes, and runs the trials again with them.\n3. When the IR is the Designer's design, **Propose the chosen changes to the Designer** sends them to the Designer's **Change** stage, where you apply them with the reason for your decision.":
+        '1. ナビゲーションで **Violation Timeline** を開くか，Designer の **確かめる** › まとめ，ないしは **書き出す** で **この設計を Violation Timeline で開く** を押します。同梱のログがすぐに表示されます。\n2. **実行** はログを作ります。ランタイムがこの環境にあるとき，故障を注入して SoS-DSL のランタイムを動かします。**時系列** は，ランタイムの報告を継続評価と注入した故障に並べて示します。**計測** は，多数の試行で報告が故障を指した割合を数えます。**改善提案** は，原因の候補から期限と監視周期の変更を提案し，その変更で試行を再実行します。\n3. IR が Designer の設計のとき，**選んだ変更を Designer に提案する** で，変更を Designer の **変える** の段階に送ります。そこで判断の理由を書いて適用します。',
+    "1. Open **Contract Lifecycle** in the navigation. A bundled example is shown straight away.\n2. Pick a contract to see its lifecycle as a state machine. Dashed red edges are violation transitions; its monitors are listed below the graph.\n3. To view your own design, choose **The Designer's design** in the sidebar, or compile it with `cadl sim-ir <file>.cadl --format json` and upload the JSON.":
+        '1. ナビゲーションで **Contract Lifecycle** を開きます。同梱の例がすぐに表示されます。\n2. 契約を選ぶと，そのライフサイクルが状態機械として表示されます。赤い破線の辺は違反の遷移です。監視は図の下に並びます。\n3. 自分の設計を見るには，サイドバーで **Designer の設計** を選ぶか，`cadl sim-ir <file>.cadl --format json` で作った JSON をアップロードします。',
+    'Decision Evidence page': 'Decision Evidence のページ',
+    "1. Open **Decision Evidence** in the navigation, or press **Open in Decision Evidence** under the decision record of the Designer's **Change** stage.\n2. The page shows, for every change, the objective, the measurements, the votes, the recommendation and the decision with its reason, and the checks and findings of `cadl decisions-verify` (Appendix L).\n3. The Designer's record holds the amendments and the proposals of the Violation Timeline decided in this session; a record of the operation of a system (`decisions.jsonl`) is uploaded in the sidebar.":
+        '1. ナビゲーションで **Decision Evidence** を開くか，Designer の **変える** の段階の判断の記録で **Decision Evidence で開く** を押します。\n2. 変更ごとに，目標，計測値，投票，推奨，理由を付けた判断と，`cadl decisions-verify`（付録L）の検査と指摘を示します。\n3. Designer の記録には，このセッションで決めた改正と，採用した Violation Timeline の提案が入ります。システムの運用の記録（`decisions.jsonl`）は，サイドバーでアップロードします。',
+    "Input is `decisions.jsonl`: the decisions of the Designer's **Change** stage in this session (amendments, and proposals of the Violation Timeline), or a record of the operation of a system, such as those that `town.steward` and `town.council` write in [cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town). The checks and findings are those of `cadl decisions-verify` (cadl 0.3.39 or later). [Appendix L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)":
+        '入力は `decisions.jsonl` です。このセッションの Designer の **変える** の段階での判断（改正と，採用した Violation Timeline の提案）か，[cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town) の `town.steward` と `town.council` が書くような，システムの運用の記録を読みます。検査と指摘は `cadl decisions-verify`（cadl 0.3.39 以降）によるものです。[付録L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)',
+    'Record shown': '表示する記録',
+    "The Designer's decisions ({n})": 'Designer での判断（{n}）',
+    "Used when no file is uploaded: the decisions of the Designer's Change stage in this session, or a bundled example.":
+        'ファイルをアップロードしていないときに使います。このセッションの Designer の「変える」の段階での判断か，同梱の例です。',
+    "the Designer's decisions": 'Designer での判断',
+    "This page shows the contracts as the runtime runs them: each contract's `lifecycle:` section (SoS-DSL extension, Appendix E) in the simulator IR is drawn as a state machine, with its `monitors:` listed below. The Violation Timeline runs the same IR with injected faults; the Designer's **Read** stage draws the lifecycles from the CADL source while you write it.":
+        'このページは，ランタイムが動かす形で契約を示します。シミュレータの IR にある各契約の `lifecycle:` の節（SoS-DSL 拡張，付録E）を状態機械として描き，`monitors:` をその下に並べます。Violation Timeline は，同じ IR を故障を注入して動かします。Designer の **読む** の段階は，書いている CADL のソースからライフサイクルを描きます。',
+    'IR shown': '表示する IR',
+    'Used when no file is uploaded: the design open in the Designer, or a bundled example.': 'ファイルをアップロードしていないときに使います。Designer で開いている設計か，同梱の例です。',
+    'Improvements': '改善提案',
+    'Batch': '一括',
+    "Other checks of a run, on the Designer's **Verify** stage:": '実行を確かめるほかの検査（Designer の **確かめる** の段階）：',
+    'Traces: norms kept in a recorded run': 'トレース：記録した実行で規範が守られたか',
+    'Measurements: metrics against their targets': '計測：計測値が目標を満たしたか',
+    'Agents: decisions at the agent boundary': 'エージェント：エージェントの境界での判定',
+    'Change the design': '設計を変える',
+    'Propose the chosen changes to the Designer': '選んだ変更を Designer に提案する',
+    "The Designer's **Change** stage shows the changes as they would read in the source, with the problems the checks find. When you apply them with the reason for your decision, the design before them is saved as a version and the decision goes into the decision record, which **Decision Evidence** shows.":
+        'Designer の **変える** の段階に，ソースに書いたときの形で変更を示し，検査で見つかる問題も示します。判断の理由を書いて適用すると，変更の前の設計が版として残り，判断が判断の記録に入ります。判断の記録は **Decision Evidence** で見られます。',
+    "The IR shown is not the Designer's design, so the changes cannot be sent back to a design. To propose them to the Designer, choose **The Designer's design** under *IR from* in the sidebar, with the design open in the Designer.":
+        '表示中の IR は Designer の設計ではないので，変更を戻す設計がありません。Designer に提案するには，Designer で設計を開いた状態で，サイドバーの「IR の入手元」で **Designer の設計** を選んでください。',
+    'Run again with the changes: {m}.': '変更を加えて再実行した結果：{m}。',
+    "- **Design your own SoS and contract architecture** in CADL on the *Designer* page: open an existing `.cadl` file or start from an example or a template, edit actors, contracts, protocols, algorithms, regimes and metrics, step through a contract's lifecycle, keep versions, and save the result or a design report. Every edit is checked.\n- **Run the design with injected faults** on the *Violation Timeline* page: see whether the runtime's report names the fault, measure how often it does, and propose changes of deadlines and monitor periods, which go back to the Designer to be decided.\n- **Inspect contract lifecycles** as the runtime runs them, from a simulator IR or the Designer's design, on the *Contract Lifecycle* page.\n- **Keep the decisions as evidence** on the *Decision Evidence* page: the changes decided in the Designer, or a record of the operation of a system, checked by `cadl decisions-verify`.\n- **Design in conversation with an AI assistant**: the same tools are available to assistants through an MCP server (`mcp_server.py` in the repository). The assistant asks what is missing, proposes changes that are checked before they are applied, and reads the design back; the Designer shows what it changed for you to confirm.\n":
+        '- **自分の SoS と契約アーキテクチャを CADL で設計します**（*Designer* のページ）：既存の `.cadl` のファイルを開くか，例かテンプレートから始めて，アクター，契約，プロトコル，アルゴリズム，運用モード，指標を編集します。契約のライフサイクルを一歩ずつたどり，版を残し，設計か設計の報告書を保存できます。編集のたびに検査します。\n- **設計を故障を注入して動かします**（*Violation Timeline* のページ）：ランタイムの報告が故障を指すかを確かめ，指す割合を計測し，期限と監視周期の変更を提案します。提案は Designer に戻し，そこで採否を決めます。\n- **契約のライフサイクルを，ランタイムが動かす形で調べます**（*Contract Lifecycle* のページ）：シミュレータの IR か，Designer の設計から描きます。\n- **判断を根拠とともに残します**（*Decision Evidence* のページ）：Designer で決めた変更か，システムの運用の記録を，`cadl decisions-verify` で検査して示します。\n- **AI アシスタントと対話しながら設計します**：同じ道具を，MCP サーバ（リポジトリの `mcp_server.py`）を通じてアシスタントも使えます。アシスタントは足りない情報を尋ね，変更を提案し，その変更は適用の前に検査されます。また，設計を読み返して確かめます。Designer は，アシスタントが変えたところを示すので，あなたが確認します。\n',
+    "| Stage of the design's life | Where | What it answers |\n|---|---|---|\n| Explore | *Explorer* | How does a change of the institution (type, motivation, ρ) change throughput, autonomy and fairness? |\n| Design | *Designer*: **Write**, **Read** | Does the design say what you mean? |\n| Check before running | *Designer*: **Verify** › Checks | Is the design consistent? Can its norms be violated, and can they be kept (`cadl norms-check`, `cadl game-check`)? |\n| Verify by running | *Designer*: **Verify** › Traces, Measurements, Agents | In a recorded run, were the norms kept, were the metrics met, what did the agent boundary decide? |\n| Verify by running | *Violation Timeline*, *Contract Lifecycle* | With injected faults, does the runtime's report name the fault? Which deadline or monitor period should change? |\n| Change | *Designer*: **Change** | Amend the design, also with the proposals of the Violation Timeline; keep versions. |\n| Deliver | *Designer*: **Deliver** | The design report, simulator configs and runtime code. |\n| Record the decisions | *Decision Evidence* | Why was each change made, on what evidence, and who decided? |\n":
+        '| 設計の段階 | 使う場所 | 答える問い |\n|---|---|---|\n| 探る | *Explorer* | 制度（型，動機づけ，ρ）を変えると，スループット，自律性，公平性はどう変わるか |\n| 設計する | *Designer*：**書く**，**読む** | 設計は，意図したことを述べているか |\n| 動かす前に確かめる | *Designer*：**確かめる** › 検査 | 設計に矛盾はないか。規範は違反しうるか，守れるか（`cadl norms-check`，`cadl game-check`） |\n| 動かして確かめる | *Designer*：**確かめる** › トレース，計測，エージェント | 記録した実行で，規範は守られたか，指標は目標を満たしたか，エージェントの境界は何を判定したか |\n| 動かして確かめる | *Violation Timeline*，*Contract Lifecycle* | 故障を注入したとき，ランタイムの報告はその故障を指すか。どの期限や監視周期を変えるべきか |\n| 変える | *Designer*：**変える** | 設計を改正する。Violation Timeline の提案もここで採否を決める。版を残す |\n| 書き出す | *Designer*：**書き出す** | 設計の報告書，シミュレータの設定，ランタイムのコード |\n| 判断を記録する | *Decision Evidence* | 各変更を，なぜ，どの根拠で，誰が決めたか |\n',
+    "`{param}` is {now} in the design, but {was} in the run the proposal comes from (a condition of the run). The proposal {to} was made from the run's value: check that it suits the design.":
+        '`{param}` は，設計では {now} ですが，提案のもとになった実行では {was} でした（その実行の条件）。提案の {to} は実行での値から作ったものです。設計に合うかを確かめてください。',
+    'I have checked the proposed values against the design': '提案の値を，設計の値と照らして確かめました',
+    'The record of Appendix L cannot be written: {e}': '付録L の判断の記録を書き出せません：{e}',
 }

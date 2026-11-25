@@ -5,7 +5,7 @@ import streamlit as st
 from backend.plotting.scenario import scenario_svg
 from backend.services.cadl_service import TEMPLATES
 from backend.version import RELEASES_URL, __version__
-from views._guide import WHAT_YOU_CAN_DO, OTHER_PAGES, HOW_TO_USE, HOW_TO_DESIGN, DEMOS
+from views._guide import WHAT_YOU_CAN_DO, OTHER_PAGES, PAGES_BY_STAGE, HOW_TO_USE, HOW_TO_DESIGN, DEMOS
 from views._i18n import t
 
 SPEC_URL = "https://www.ertl.jp/cadl-spec/"
@@ -43,6 +43,9 @@ st.markdown(
 st.header(t("What you can do"), divider="gray")
 st.markdown(t(WHAT_YOU_CAN_DO) + t(OTHER_PAGES))
 
+st.header(t("Pages by the stage of a design's life"), divider="gray")
+st.markdown(t(PAGES_BY_STAGE))
+
 st.header(t("How to use the Explorer"), divider="gray")
 st.markdown(t(HOW_TO_USE))
 
@@ -70,14 +73,40 @@ st.markdown(
       "do not change the Explorer's metrics.").format(spec=SPEC_URL)
 )
 
+st.header(t("Violation Timeline page"), divider="gray")
+st.markdown(
+    t("1. Open **Violation Timeline** in the navigation, or press **Open this design in the "
+      "Violation Timeline** in the Designer (**Verify** › Summary, or **Deliver**). A bundled log "
+      "is shown straight away.\n"
+      "2. **Run** makes a log: it runs the SoS-DSL runtime with injected faults, when the runtime "
+      "is on this machine. **Timeline** sets the runtime's report beside continued evaluation and "
+      "the injected faults. **Measurements** counts, over many trials, how often the report names "
+      "the fault. **Improvements** proposes changes of deadlines and monitor periods from the "
+      "candidate causes, and runs the trials again with them.\n"
+      "3. When the IR is the Designer's design, **Propose the chosen changes to the Designer** "
+      "sends them to the Designer's **Change** stage, where you apply them with the reason for "
+      "your decision.")
+)
+
 st.header(t("Contract Lifecycle page"), divider="gray")
 st.markdown(
     t("1. Open **Contract Lifecycle** in the navigation. A bundled example is shown straight away.\n"
     "2. Pick a contract to see its lifecycle as a state machine. Dashed red edges are "
     "violation transitions; its monitors are listed below the graph.\n"
-    "3. To view your own design, compile it with `cadl sim-ir <file>.cadl --format json` "
-    "and upload the JSON in the sidebar, or open the `.cadl` file in the **Designer**, "
-    "which draws the same diagram from the source.")
+    "3. To view your own design, choose **The Designer's design** in the sidebar, or compile it "
+    "with `cadl sim-ir <file>.cadl --format json` and upload the JSON.")
+)
+
+st.header(t("Decision Evidence page"), divider="gray")
+st.markdown(
+    t("1. Open **Decision Evidence** in the navigation, or press **Open in Decision Evidence** "
+      "under the decision record of the Designer's **Change** stage.\n"
+      "2. The page shows, for every change, the objective, the measurements, the votes, the "
+      "recommendation and the decision with its reason, and the checks and findings of "
+      "`cadl decisions-verify` (Appendix L).\n"
+      "3. The Designer's record holds the amendments and the proposals of the Violation Timeline "
+      "decided in this session; a record of the operation of a system (`decisions.jsonl`) is "
+      "uploaded in the sidebar.")
 )
 
 st.header(t("Governance templates"), divider="gray")
