@@ -46,6 +46,37 @@ the editor and the clickable diagrams are custom components; the diagrams load
 viz.js from jsDelivr. On Python 3.9 (Streamlit 1.50) the page uses the Ace
 editor and diagrams with a list of their elements instead.
 
+## The Violation Timeline
+
+The SoS-DSL runtime reports one violation per contract instance: the first,
+which ends the instance in `Violated`. The **Violation Timeline** page sets
+that report beside *continued evaluation* (every deadline and monitor goes on
+being evaluated as if the violation had not happened) and beside the faults
+that were injected, so that a violation the report leaves out (*masking*) and
+a report that names the wrong cause can be seen and measured.
+
+| Tab | What it is for |
+|---|---|
+| Timeline (A2) | Per contract instance, the states reported and the states of continued evaluation as bands; reported violations, unreported ones and injected faults as marks; the window in which a periodic monitor's condition may have begun; the candidate cause; the path on the lifecycle diagram of the Contract Lifecycle page |
+| Measurements (A1) | Over many trials and per condition: recall of the record, how often the report and the candidate cause name the injected fault, the masking rate, with 95% Wilson intervals; why the report missed the fault |
+| Improvements (A3) | Changes of deadlines and monitor periods proposed by rules from the candidate causes (never from the ground truth), written as in the CADL source; assumptions on the robots; the trials run again with the changes, and resolution, side effect and coverage |
+| Run | The reference runtime run here with injected faults (`battery_drop`, `over_speed`, `ack_missing`, `ack_delay`) and continued evaluation: one run, or a batch over deadlines, periods and dwell times |
+
+Input is the NDJSON log of the runtime (`multi_robot_demo --log`) and the
+simulator IR. A plain log of the runtime is shown as it is; the records for
+continued evaluation, injections and runs are optional additions described in
+`cadl_sim/sos_dsl/violation_trace.py`. The bundled logs in
+`cadl_sim/sos_dsl/examples/violations/` were made with the runtime.
+
+The runtime (`cadl/runtime/engine.py` of raspimouse-swarm-simulator) is not
+changed or copied: the **Run** tab loads it from the path given there or in
+`CADL_RUNTIME_PATH`, and records continued evaluation with a subclass that
+does not take violation transitions. Without the runtime, the other tabs work
+on logs.
+
+How to carry out A1–A3 of the research plan with this page, step by step:
+[docs/violation-timeline-guide.ja.md](docs/violation-timeline-guide.ja.md) (in Japanese).
+
 ## Research Purpose
 
 This tool enables researchers to **trace how institutional design choices
@@ -116,6 +147,8 @@ cadl-explorer/
 │   ├── _guide.py                   # "Getting started" guide shown on the pages
 │   ├── explorer.py                 # Compare two designs: outcome → causal chain → explore → reproduce
 │   ├── lifecycle.py                # Contract Lifecycle page (state machine from IR JSON)
+│   ├── violations.py               # Violation Timeline page: report, continued evaluation, injected faults
+│   ├── _violations.py              # Its charts and tables
 │   ├── evidence.py                 # Decision Evidence page (decision records of Appendix L)
 │   └── about.py                    # Glossary, scenario and model notes
 ├── cli.py                          # Batch CLI runner
@@ -154,8 +187,11 @@ cadl-explorer/
 │       ├── pipeline_result.py      # PipelineResult + StageTrace
 │       ├── experiment_result.py    # SingleResult
 │       └── evaluation_result.py    # EvaluationResult + MetricValue
+├── docs/
+│   └── violation-timeline-guide.ja.md  # How to carry out A1–A3 with the Violation Timeline
 ├── designs/                        # Example CADL designs for the Designer (traces/: recorded runs of three of them)
 ├── cadl_sim/                       # Vendored CADL subset for simulation
+│   └── sos_dsl/                    # Lifecycle view; violations, proposals and the runner of the Violation Timeline
 ├── experiments/                    # Research experiment definitions
 ├── runs/                           # Experiment outputs (gitignored)
 └── tests/                          # test suite

@@ -141,6 +141,9 @@ else:
             "transition_count": len(view.transitions),
         })
 
+st.caption(t("How the instances of these contracts went in a run, and which violations "
+             "the runtime's report left out: **Violation Timeline**."))
+
 # --- Monitors panel --------------------------------------------------------
 
 st.divider()

@@ -12,7 +12,7 @@ from tests.conftest import needs_file_uploader
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
-@pytest.mark.parametrize("page", ["explorer", "designer", "lifecycle", "evidence", "about"])
+@pytest.mark.parametrize("page", ["explorer", "designer", "lifecycle", "violations", "evidence", "about"])
 def test_page_renders(page):
     at = AppTest.from_file(os.path.join(ROOT, "views", f"{page}.py"), default_timeout=60).run()
     assert not at.exception

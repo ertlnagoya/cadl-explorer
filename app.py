@@ -5,6 +5,7 @@ Routes between the pages in views/:
   Explorer            — compare two governance designs end to end
   Designer            — author and check a full CADL design
   Contract Lifecycle  — SoS-DSL contract lifecycle state machines
+  Violation Timeline  — violations of contract instances against injected faults
   Decision Evidence   — the record of an amendment loop as evidence of consensus
   About               — glossary, scenario and model notes
 """
@@ -41,6 +42,8 @@ PERSISTENT_KEYS = [
     # choices and typed text that should survive a switch of view or page
     "design_cmp_a", "design_cmp_b", "design_structure_authority", "design_amend_name",
     "design_ai_text", "design_version_name", "design_version_prefix",
+    # the Violation Timeline: the IR, the log and the rule shown
+    "vt_ir_source", "vt_ir_pick", "vt_log", "vt_rule", "vt_trial", "vt_runtime_path",
 ]
 for _key in PERSISTENT_KEYS:
     if _key in st.session_state:
@@ -50,6 +53,7 @@ page = st.navigation([
     st.Page("views/explorer.py", title="Explorer", default=True),
     st.Page("views/designer.py", title="Designer", url_path="designer"),
     st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
+    st.Page("views/violations.py", title="Violation Timeline", url_path="violations"),
     st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
     st.Page("views/about.py", title="About & Glossary", url_path="about"),
 ])
