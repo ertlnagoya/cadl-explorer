@@ -28,15 +28,28 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _band_label(step: dict) -> str:
+# The words the diagrams write themselves; a page in another language passes its own.
+WORDS = {"no actor": "(no actor)", "no message": "no message", "state": "state",
+         "end": "end", "more steps": "more steps",
+         "no steps": "This protocol has no steps yet.",
+         "wait until": "wait until", "else": "else", "in parallel": "in parallel",
+         "end parallel": "end parallel"}
+
+
+def _words(words) -> dict:
+    return {**WORDS, **(words or {})}
+
+
+def _band_label(step: dict, words: dict = None) -> str:
+    w = _words(words)
     content = step.get("content") or ""
     if step.get("type") == "barrier":
-        return f"wait until {content}"
+        return f"{w['wait until']} {content}"
     return {
         "if": f"if {step.get('condition') or ''}",
-        "else": "else",
-        "parallel_begin": "in parallel",
-        "parallel_end": "end parallel",
+        "else": w["else"],
+        "parallel_begin": w["in parallel"],
+        "parallel_end": w["end parallel"],
     }.get(content, content)
 
 
@@ -51,7 +64,8 @@ def participants(protocol: dict) -> List[str]:
     return seen
 
 
-def sequence_svg(protocol: dict, dark: bool = False, flagged: Iterable[str] = ()) -> str:
+def sequence_svg(protocol: dict, dark: bool = False, flagged: Iterable[str] = (),
+                 words: dict = None) -> str:
     """Render the steps of one IR protocol as a sequence diagram.
 
     Messages are arrows between lifelines, computations are boxes on the
@@ -62,7 +76,7 @@ def sequence_svg(protocol: dict, dark: bool = False, flagged: Iterable[str] = ()
     flagged = set(flagged)
     alert = "#ff6b6b" if dark else "#d1242f"
     steps = protocol.get("steps") or []
-    actors = participants(protocol) or ["(no actor)"]
+    actors = participants(protocol) or [_words(words)["no actor"]]
     x_of = {a: _MARGIN + i * _LANE for i, a in enumerate(actors)}
     width = _MARGIN * 2 + (len(actors) - 1) * _LANE
     height = _TOP + max(len(steps), 1) * _ROW + 20
@@ -132,24 +146,26 @@ def sequence_svg(protocol: dict, dark: bool = False, flagged: Iterable[str] = ()
                 f'<rect x="12" y="{y - 12}" width="{width - 24}" height="24" rx="4" '
                 f'fill="{c["band"]}"/>'
                 f'<text x="24" y="{y + 4}" font-size="11" font-style="italic" '
-                f'fill="{c["band_text"]}">{escape(_clip(_band_label(step), width // 7))}</text>'
+                f'fill="{c["band_text"]}">{escape(_clip(_band_label(step, words), width // 7))}</text>'
             )
 
     if not steps:
         svg.append(
             f'<text x="{width / 2}" y="{_TOP + 20}" text-anchor="middle" font-size="12" '
-            f'fill="{c["band_text"]}">This protocol has no steps yet.</text>'
+            f'fill="{c["band_text"]}">{escape(_words(words)["no steps"])}</text>'
         )
     svg.append("</svg>")
     return "\n".join(svg)
 
 
-def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: int = 300) -> dict:
+def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: int = 300,
+                   words: dict = None) -> dict:
     """A recorded trace (the JSON Lines records of `cadl norms-eval` or `agents-run`)
     as the steps of a protocol for sequence_svg: a band for each observation with its
     time, values and state, and an arrow for each message. Observations in a row
     with nothing in them share one band. `decisions`, one per message in order, are
     written after the message names (allow, deny, escalate)."""
+    w = _words(words)
     decisions = list(decisions)
     steps: List[dict] = []
     quiet: List = []
@@ -158,7 +174,7 @@ def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: in
     def flush():
         if quiet:
             span = f"t = {quiet[0]}" if len(quiet) == 1 else f"t = {quiet[0]} … {quiet[-1]}"
-            steps.append({"type": "band", "content": f"{span}: no message"})
+            steps.append({"type": "band", "content": f"{span}: {w['no message']}"})
             quiet.clear()
 
     for record in records:
@@ -169,9 +185,9 @@ def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: in
         if record.get("values"):
             parts.append(", ".join(f"{k} = {v}" for k, v in record["values"].items()))
         if record.get("state"):
-            parts.append(f"state {record['state']}")
+            parts.append(f"{w['state']} {record['state']}")
         if record.get("end"):
-            parts.append("end")
+            parts.append(w["end"])
         if not messages and not parts:
             quiet.append(record.get("t"))
             continue
@@ -187,5 +203,5 @@ def trace_protocol(records: List[dict], decisions: Iterable[str] = (), limit: in
                           "content": name})
     flush()
     if len(steps) > limit:
-        steps = steps[:limit] + [{"type": "band", "content": f"… {len(steps) - limit} more steps"}]
+        steps = steps[:limit] + [{"type": "band", "content": f"… {len(steps) - limit} {w['more steps']}"}]
     return {"steps": steps}

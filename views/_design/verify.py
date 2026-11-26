@@ -25,7 +25,8 @@ from backend.services import design_workspace as workspace
 from backend.services.cadl_service import MAX_SOURCE_CHARS
 from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_summary
 from views._design.common import *  # noqa: F401,F403
-from views._design.common import _plain, _problem_buttons
+from views._design.common import _plain, _problem_buttons, _seq_words
+from views import _cadl_ja
 from views._design.cache import *  # noqa: F401,F403
 from backend.services import design_jobs as jobs
 from views._i18n import t
@@ -443,7 +444,7 @@ def _norms_check_report(result: dict):
     elif report.get("checked") and not report.get("runs"):
         st.info(t("Nothing to ask the model checker: no norm is translated."))
     for note in report.get("notes") or []:
-        st.caption(_plain(t("Note: {note}.").format(note=note)))
+        st.caption(_plain(t("Note: {note}.").format(note=_cadl_ja.note(note))))
     if not report.get("excuse_known", True):
         st.caption(t("An assumption is not translated, so a violation may be excused in a run."))
     if report.get("checked") and report.get("runs"):
@@ -483,7 +484,7 @@ def _norms_check_report(result: dict):
                 versions = "".join(" " + t("Instance {k} is an instance of `{v}`.").format(k=k, v=v)
                                    for k, v in sorted((w.get("files") or {}).items()))
                 st.markdown(_plain("    - " + t("keep {keeps}: {claim} ({state} by norms-eval):").format(
-                                       keeps=w["keeps"], claim=w["claim"],
+                                       keeps=w["keeps"], claim=_cadl_ja.claim(w["claim"]),
                                        state=t("confirmed") if w["confirmed"] else t("not confirmed"))
                                    + " " + "; ".join(
                                        f"#{k} `{x}`" for k, x in enumerate(w["choices"])))
@@ -506,16 +507,21 @@ def _norms_check_report(result: dict):
 
 
 
+# the questions of norms-check, named as the columns of its table
+_QUESTION = {"activatable": "activated", "keepable": "kept", "exercisable": "exercised"}
+
+
 def _all_witnesses(report: dict) -> dict:
     """{label: witness} of every witness in a report of norms-check."""
     out = {}
     for n in report.get("norms") or []:
         for question, entry in n.items():
             if isinstance(entry, dict) and isinstance(entry.get("witness"), dict):
-                out[f"{n['id']}: {question}"] = entry["witness"]
+                out[f"{n['id']}: {t(_QUESTION.get(question, question))}"] = entry["witness"]
     for c in report.get("conflicts") or []:
         for w in c.get("witnesses") or []:
-            out[f"{c['norms'][0]} and {c['norms'][1]}: keep {w.get('keeps')}"] = w
+            out[t("{a} and {b}: keep {k}").format(a=c["norms"][0], b=c["norms"][1],
+                                                 k=w.get("keeps"))] = w
     return out
 
 
@@ -548,9 +554,11 @@ def _witnesses(report: dict):
             records.append(json.loads(line) if isinstance(line, str) else line)
         except json.JSONDecodeError:
             pass
-    st.caption(_plain(f"{w.get('claim', '')} — {w.get('explanation', '')}"))
+    st.caption(_plain(f"{_cadl_ja.claim(w.get('claim', ''))} — "
+                      f"{_cadl_ja.explanation(w.get('explanation', ''))}"))
     if records:
-        st.markdown(sequence_svg(trace_protocol(records), dark=_is_dark()), unsafe_allow_html=True)
+        st.markdown(sequence_svg(trace_protocol(records, words=_seq_words()), dark=_is_dark(),
+                                 words=_seq_words()), unsafe_allow_html=True)
         if not (w.get("files") or {}):
             st.button(t("Evaluate this witness under Traces (norms-eval)"), key="design_nc_to_trace",
                       on_click=_to_traces, icon=":material/timeline:",

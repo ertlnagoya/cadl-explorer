@@ -33,7 +33,7 @@ sos:
         - monitor_fleet
       interface:
         input:  [delivery_request, position_report, ack, task_completion, failure_report]
-        output: [route_assignment, task_assignment, replan_command, delivery_notification]
+        output: [route_assignment, task_assignment, replan_command, cancel_assignment, delivery_notification]
 
     - id: "ROBOT[1..N]"
       role: "delivery_agent"
@@ -43,7 +43,7 @@ sos:
         - pick_up
         - deliver
       interface:
-        input:  [route_assignment, replan_command]
+        input:  [route_assignment, replan_command, cancel_assignment]
         output: [position_report, ack, task_completion, failure_report]
 
     - id: "CUSTOMER[1..M]"
@@ -121,6 +121,12 @@ sos:
             from: [Assigned, Accepted, Delivering]
             to: Violated
             on: "now > request.deadline"
+          # The dispatcher withdraws an order before the robot starts the
+          # delivery: the instance ends without a violation.
+          - id: cancel
+            from: [Proposed, Assigned, Accepted]
+            to: Terminated
+            on: "DISPATCHER -> ROBOT[i] : cancel_assignment"
 
       # === SoS-DSL extension: declarative monitors ===
       monitors:

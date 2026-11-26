@@ -72,6 +72,16 @@ def _set_design(at, source):
     return at.run()
 
 
+def _unreachable_state():
+    """The delivery example without its `cancel` transition: Terminated cannot be reached,
+    a lifecycle warning on DELIVERY_SLA."""
+    from backend.services import design_service as ds
+    source = ds.load_example("sos dsl robot delivery")
+    start = source.index("          # The dispatcher withdraws an order")
+    end = source.index("\n\n", start)
+    return source[:start] + source[end + 1:]
+
+
 def _section(at, name):
     at.session_state.design_mode = "Forms"
     at.session_state.design_section = name
@@ -88,7 +98,9 @@ def test_designer_renders_and_checks_the_default_design():
     assert not at.exception and not at.error
     badges = _badges(at)
     assert ":green-badge[:material/check_circle: Parse]" in badges
-    assert ":orange-badge[:material/warning: Lifecycle · 1]" in badges
+    # every state of the default design is reachable (the cancel transition reaches Terminated)
+    assert ":green-badge[:material/check_circle: Lifecycle]" in badges
+    assert "warning" not in badges and "error" not in badges
 
 
 def test_designer_reports_a_broken_design_without_crashing():
@@ -168,7 +180,7 @@ def test_designer_undo_and_redo():
 
 
 def test_designer_problem_button_opens_the_form_that_fixes_it():
-    at = _designer()  # the default example has a lifecycle warning on DELIVERY_SLA
+    at = _set_design(_designer(), _unreachable_state())   # a lifecycle warning on DELIVERY_SLA
     at = _click(at, "Open form")
     assert not at.exception
     assert at.session_state.design_mode == "Forms"
@@ -192,7 +204,7 @@ def test_designer_problem_button_shows_the_item_in_its_view():
     assert at.radio(key="design_view_protocol").value == "TASK_DISPATCH"
     assert any("seq-arrow-bad" in m.value for m in at.markdown)
 
-    at = _click(_set_design(at, ds.load_example("sos dsl robot delivery")), "Show in Lifecycle")
+    at = _click(_set_design(at, _unreachable_state()), "Show in Lifecycle")
     assert at.session_state.design_view == "Lifecycle"
 
 

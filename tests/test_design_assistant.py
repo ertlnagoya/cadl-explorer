@@ -102,7 +102,9 @@ def test_ops_number_the_failing_change_and_apply_nothing():
 
 
 def test_proposal_reports_problems_introduced_and_resolved():
-    fix = ops.propose(DELIVERY, [
+    start = DELIVERY.index("          # The dispatcher withdraws an order")
+    unreachable = DELIVERY[:start] + DELIVERY[DELIVERY.index("\n\n", start) + 1:]
+    fix = ops.propose(unreachable, [
         {"op": "upsert_transition", "contract": "DELIVERY_SLA", "id": "terminate",
          "fields": {"from": "Proposed", "to": "Terminated", "on": "cancel_requested"}}])
     assert fix.acceptable and not fix.introduced

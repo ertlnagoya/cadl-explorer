@@ -1487,4 +1487,13 @@ JA: dict = {
         '`{param}` は，設計では {now} ですが，提案のもとになった実行では {was} でした（その実行の条件）。提案の {to} は実行での値から作ったものです。設計に合うかを確かめてください。',
     'I have checked the proposed values against the design': '提案の値を，設計の値と照らして確かめました',
     'The record of Appendix L cannot be written: {e}': '付録L の判断の記録を書き出せません：{e}',
+    '(no actor)': '（アクターなし）',
+    'no message': 'メッセージなし',
+    'end of the trace': 'トレースの終わり',
+    'more steps': 'ステップを省略',
+    '{a} and {b}: keep {k}': '{a} と {b}：{k} を守る',
+    'This protocol has no steps yet.': 'このプロトコルには，まだステップがありません。',
+    'wait until': '待つ：',
+    'in parallel': '並行に実行',
+    'end parallel': '並行の終わり',
 }
