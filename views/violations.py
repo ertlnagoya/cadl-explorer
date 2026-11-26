@@ -47,6 +47,15 @@ DEFAULT_IR = "sos_dsl_robot_delivery.ir.json"
 GUIDE_URL = ("https://github.com/ertlnagoya/cadl-explorer/blob/main/"
              "docs/violation-timeline-guide.ja.md")
 
+# Streamlit 1.50 (Python 3.9) has `use_container_width` where later ones have `width`.
+_ALTAIR_WIDTH = ({"width": "stretch"} if "width" in inspect.signature(st.altair_chart).parameters
+                 else {"use_container_width": True})
+
+
+def _altair(chart):
+    st.altair_chart(chart, **_ALTAIR_WIDTH)
+
+
 _theme = getattr(st.context, "theme", None)
 DARK = getattr(_theme, "type", None) == "dark"
 
@@ -266,7 +275,7 @@ def _trial_label(v: vt.TrialView) -> str:
 def show_timeline(v: vt.TrialView, key: str, instances=None, t_range=None) -> None:
     ids = instances or [s.instance_id for s in v.instances]
     chart = draw.timeline_chart(v, ids, t_range, DARK)
-    st.altair_chart(chart, width="stretch")
+    _altair(chart)
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +376,7 @@ with tab_a1:
             hide_index=True, width="stretch",
             column_config={t("condition"): st.column_config.TextColumn(width="large")})
         try:
-            st.altair_chart(draw.measures_chart(rows, DARK), width="stretch")
+            _altair(draw.measures_chart(rows, DARK))
         except Exception as e:        # a chart is a view of the table above
             st.caption(t("The chart could not be drawn: {e}").format(e=e))
         st.subheader(t("Why the report missed the fault"))
