@@ -350,13 +350,28 @@ def _rerun(run_id: str, source: str):
     ss.design_rerun_note = kind
 
 
+def _to_violations():
+    ss.vt_ir_source = "designer"
+    ss.design_go_violations_from_summary = True
+
+
 def summary(c):
     """Every check in one table: what it found, on which design, when and how long."""
     source, analysis = c.source, c.analysis
+    if ss.pop("design_go_violations_from_summary", False):
+        st.switch_page("views/violations.py")
     st.caption(t(
         "The latest result of each check, with the design it ran on. A result from an "
         "earlier design is marked; run the check again to bring it up to date. The record "
         "is kept with the project file (sidebar)."))
+    contracts = ((analysis.ir or {}).get("institution") or {}).get("contracts") or [] \
+        if analysis.parsed else []
+    if any(k.get("lifecycle") for k in contracts):
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            st.caption(t("Whether the runtime's report names an injected fault is checked by "
+                         "running the design, on another page:"))
+            st.button(t("Open this design in the Violation Timeline"), on_click=_to_violations,
+                      key="design_summary_to_vt", type="tertiary", icon=":material/timeline:")
     errors, warnings = analysis.count("error"), analysis.count("warning")
     rows = [{
         "check": "cadl check", "result": "failed" if errors else "findings" if warnings else "passed",

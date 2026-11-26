@@ -24,8 +24,12 @@ from backend.services import design_workspace as workspace
 from backend.services.cadl_service import MAX_SOURCE_CHARS
 from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_summary
 from views._design.common import *  # noqa: F401,F403
-from views._design.common import (_add_files_as_versions, _amend_apply, _constitution, _delete_version,
-    _drop_constitution, _restore_version, _save_version, _use_bundled_constitution)
+from views._design.common import (_add_files_as_versions, _amend_apply, _apply_pending, _constitution,
+    _delete_version, _discard_pending, _drop_constitution, _restore_version, _save_version,
+    _use_bundled_constitution)
+from backend.services import design_ops as ops
+from backend.services import design_record as drec
+from backend.services import design_tuning as tuning
 from views._design.cache import *  # noqa: F401,F403
 from backend.plotting.architecture import diff_ir
 from views._design.common import _is_dark
@@ -251,10 +255,6 @@ def _amendments_section(source: str, versions: list):
                                        "decided by"))
     for note in amend.findings(source, const):
         st.markdown(f"- {note}")
-    if ss.get("design_amend_done"):
-        st.success(t("Amended {what}. The design before it is saved as a version; Undo also "
-                     "takes it back.").format(what=ss.pop("design_amend_done")))
-
     names = [a.name for a in params if a.value is not None]
     if names:
         c_name, c_value = st.columns(2)
@@ -295,18 +295,6 @@ def _amendments_section(source: str, versions: list):
                              "Saves the current design as a version first, then writes the new value "
                              "into every line marked with this name."))
 
-    record = ss.get("design_decisions") or []
-    if record:
-        with st.expander(t("Decision record ({n})").format(n=len(record))):
-            st.dataframe(record, hide_index=True, width="stretch",
-                         column_config=_labels("time", "change", "layer", "reason"))
-            text = "\n".join(f"- {d['time']} {d['change']}" + (f" ({d['layer']})" if d["layer"] else "")
-                             + (f" — {d['reason']}" if d["reason"] else "") for d in record)
-            st.download_button(t("Download the record (Markdown)"), "# Decisions\n\n" + text + "\n",
-                               file_name="decisions.md", mime="text/markdown")
-            st.caption(t("The amendments made here in this browser session, with the reasons given. "
-                       "Download the record to keep it."))
-
     _history_section(source, versions, const)
 
 
@@ -341,8 +329,122 @@ def _history_section(source: str, versions: list, const: dict | None):
 
 
 
+@st.cache_data(max_entries=8, show_spinner=False)
+def _check_pending(source: str, overrides_json: str):
+    """(the new source or None, comments kept, the reason it cannot be applied,
+    the problems it brings), once for a source and a proposal."""
+    try:
+        new, kept = tuning.apply_to_source(source, json.loads(overrides_json))
+    except tuning.TuningError as e:
+        return None, False, str(e), []
+    return new, kept, "", ops.compare(source, new, []).introduced
+
+
+def _pending_section(source: str):
+    """The changes the Violation Timeline proposed, to confirm and apply here."""
+    if ss.get("design_pending_error"):
+        st.error(t("The proposal could not be applied: {e}").format(e=ss.pop("design_pending_error")))
+    pending = ss.get("design_pending")
+    if not pending:
+        return
+    with st.container(border=True):
+        st.markdown(t("**Proposed by the Violation Timeline**"))
+        st.caption(t(
+            "Changes of deadlines and monitor periods that the Violation Timeline proposed from "
+            "the candidate causes in the log `{log}`, never from the injected faults. Check them "
+            "and give the reason for your decision. Applying them saves the design before them "
+            "as a version and puts the decision into the decision record below.").format(
+                log=pending.get("log") or "—"))
+        overrides = pending.get("overrides") or []
+        for item in pending.get("items") or []:
+            st.markdown(f"- `{item['text']}`")
+        ir_now = cached_analyze(source).ir if source else None
+        differ = [(o, i) for o, i in zip(overrides, pending.get("items") or [])
+                  if i.get("from") is not None
+                  and tuning.current(ir_now, o) is not None
+                  and tuning.cadl_value({**o, "value": tuning.current(ir_now, o)}) != i["from"]]
+        for o, i in differ:
+            st.warning(t(
+                "`{param}` is {now} in the design, but {was} in the run the proposal comes from "
+                "(a condition of the run). The proposal {to} was made from the run's value: "
+                "check that it suits the design.").format(
+                    param=tuning.parameter(o),
+                    now=tuning.cadl_value({**o, "value": tuning.current(ir_now, o)}),
+                    was=i["from"], to=i["to"]))
+        if pending.get("reason"):
+            st.caption(t("Why: {why}").format(why=pending["reason"]))
+        if pending.get("sha") and pending["sha"] != hashlib.sha256(source.encode()).hexdigest():
+            st.warning(t("The design has changed since the proposal was made. The changes are "
+                         "applied to the design as it is now."))
+        new, kept, error, introduced = _check_pending(source, json.dumps(overrides, sort_keys=True))
+        if error:
+            st.warning(t("The proposal cannot be applied to this design: {e}").format(e=error))
+        if new is not None:
+            for f in introduced:
+                st.markdown(f"- {LEVEL_ICON.get(f.level, '')} {f.title}: {f.message}")
+            if not introduced:
+                st.caption(t("The checks find no new problem in the design with these changes."))
+            if not kept:
+                st.caption(t("A changed line was not found as written, so the design is rewritten "
+                             "as a whole: its comments are not kept."))
+        checked = True
+        if differ:
+            checked = st.checkbox(t("I have checked the proposed values against the design"),
+                                  key="design_pending_checked")
+        reason = st.text_input(t("Reason for the decision"), key="design_pending_reason",
+                               placeholder=t("why this change, and what you take for granted"))
+        a, b = st.columns(2)
+        a.button(t("Apply the proposal"), on_click=_apply_pending, type="primary", width="stretch",
+                 disabled=new is None or not checked or not (reason or "").strip(),
+                 help=None if new is None else t("Write the reason for your decision first."))
+        b.button(t("Discard the proposal"), on_click=_discard_pending, width="stretch")
+
+
+def _decisions_section(source: str):
+    """The decisions of this session, also as a decision record of Appendix L."""
+    if ss.get("design_amend_done"):
+        st.success(t("Changed {what}. The design before it is saved as a version; Undo also "
+                     "takes the change back, and the record below keeps the decision.").format(
+                         what=ss.pop("design_amend_done")))
+    record = ss.get("design_decisions") or []
+    if not record:
+        return
+    with st.expander(t("Decision record ({n})").format(n=len(record))):
+        st.dataframe([{k: d.get(k, "") for k in ("time", "change", "layer", "reason")}
+                      for d in record], hide_index=True, width="stretch",
+                     column_config=_labels("time", "change", "layer", "reason"))
+        text = "\n".join(f"- {d['time']} {d['change']}" + (f" ({d['layer']})" if d["layer"] else "")
+                         + (f" — {d['reason']}" if d["reason"] else "") for d in record)
+        row = st.container(horizontal=True, gap="small")
+        row.download_button(t("Download the record (Markdown)"), "# Decisions\n\n" + text + "\n",
+                            file_name="decisions.md", mime="text/markdown", width="content")
+        try:
+            jsonl, files = drec.to_decisions(drec.system_name(source), record)
+        except Exception as e:      # noqa: BLE001 - shown, the rest of the page still works
+            st.caption(t("The record of Appendix L cannot be written: {e}").format(e=e))
+        else:
+            row.download_button(t("Download as decisions.jsonl (.zip)"), drec.to_zip(jsonl, files),
+                                file_name="decisions.zip", mime="application/zip", width="content",
+                                help=t("decisions.jsonl (Appendix L) with the CADL files of its "
+                                       "versions, for `cadl decisions-verify`."))
+            row.button(t("Open in Decision Evidence"), on_click=_to_evidence, width="content",
+                       icon=":material/gavel:")
+        st.caption(t("The changes decided here in this browser session, with the reasons given: "
+                     "amendments, and proposals of the Violation Timeline. Download the record "
+                     "to keep it; Decision Evidence shows it with the checks of "
+                     "`cadl decisions-verify`."))
+
+
+def _to_evidence():
+    ss.evidence_example = "__designer__"
+    ss.design_go_evidence = True
+
+
 def versions(c):
     source, analysis = c.source, c.analysis
+    if ss.pop("design_go_evidence", False):
+        st.switch_page("views/evidence.py")
+    _pending_section(source)
     st.caption(
         t("Keep named versions of the design while you work, compare any two, "
         "and go back to one. Versions last for this browser session.")
@@ -402,6 +504,7 @@ def versions(c):
         # a run added as versions while another design is open
         _history_section(source, versions, _constitution())
         st.divider()
+    _decisions_section(source)
     st.markdown(t("**Compare two designs**"))
     sources = {"Current design": source}
     sources.update({f"Version: {v['name']}": v["source"] for v in versions})

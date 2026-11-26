@@ -14,8 +14,24 @@ WHAT_YOU_CAN_DO = """\
 
 OTHER_PAGES = """\
 - **Design your own SoS and contract architecture** in CADL on the *Designer* page: open an existing `.cadl` file or start from an example or a template, edit actors, contracts, protocols, algorithms, regimes and metrics, step through a contract's lifecycle, keep versions, and save the result or a design report. Every edit is checked.
-- **Inspect contract lifecycles** from a compiled simulator IR on the *Contract Lifecycle* page.
+- **Run the design with injected faults** on the *Violation Timeline* page: see whether the runtime's report names the fault, measure how often it does, and propose changes of deadlines and monitor periods, which go back to the Designer to be decided.
+- **Inspect contract lifecycles** as the runtime runs them, from a simulator IR or the Designer's design, on the *Contract Lifecycle* page.
+- **Keep the decisions as evidence** on the *Decision Evidence* page: the changes decided in the Designer, or a record of the operation of a system, checked by `cadl decisions-verify`.
 - **Design in conversation with an AI assistant**: the same tools are available to assistants through an MCP server (`mcp_server.py` in the repository). The assistant asks what is missing, proposes changes that are checked before they are applied, and reads the design back; the Designer shows what it changed for you to confirm.
+"""
+
+# The pages and the Designer's stages along the life of a design (About).
+PAGES_BY_STAGE = """\
+| Stage of the design's life | Where | What it answers |
+|---|---|---|
+| Explore | *Explorer* | How does a change of the institution (type, motivation, ρ) change throughput, autonomy and fairness? |
+| Design | *Designer*: **Write**, **Read** | Does the design say what you mean? |
+| Check before running | *Designer*: **Verify** › Checks | Is the design consistent? Can its norms be violated, and can they be kept (`cadl norms-check`, `cadl game-check`)? |
+| Verify by running | *Designer*: **Verify** › Traces, Measurements, Agents | In a recorded run, were the norms kept, were the metrics met, what did the agent boundary decide? |
+| Verify by running | *Violation Timeline*, *Contract Lifecycle* | With injected faults, does the runtime's report name the fault? Which deadline or monitor period should change? |
+| Change | *Designer*: **Change** | Amend the design, also with the proposals of the Violation Timeline; keep versions. |
+| Deliver | *Designer*: **Deliver** | The design report, simulator configs and runtime code. |
+| Record the decisions | *Decision Evidence* | Why was each change made, on what evidence, and who decided? |
 """
 
 HOW_TO_DESIGN = """\

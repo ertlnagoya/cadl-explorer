@@ -12,7 +12,7 @@ from tests.conftest import needs_file_uploader
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
-@pytest.mark.parametrize("page", ["explorer", "designer", "lifecycle", "evidence", "about"])
+@pytest.mark.parametrize("page", ["explorer", "designer", "lifecycle", "violations", "evidence", "about"])
 def test_page_renders(page):
     at = AppTest.from_file(os.path.join(ROOT, "views", f"{page}.py"), default_timeout=60).run()
     assert not at.exception
@@ -428,7 +428,7 @@ def test_designer_amends_a_marked_value_in_place():
     assert "# @amend:hold_limit" in at.session_state.design_src
     assert at.session_state.design_versions[-1]["name"] == "before hold_limit 60 → 70"
     assert any("Amended parameters" in m.value and "`hold_limit` 60 → 70" in m.value for m in at.markdown)
-    assert any("Amended hold_limit: 60 → 70" in s.value for s in at.success)
+    assert any("Changed hold_limit: 60 → 70" in s.value for s in at.success)
 
 
 def test_designer_versions_without_amend_tags():

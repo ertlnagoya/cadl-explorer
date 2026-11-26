@@ -1,12 +1,17 @@
 """
 CADL Explorer — Streamlit entry point.
 
-Routes between the pages in views/:
-  Explorer            — compare two governance designs end to end
-  Designer            — author and check a full CADL design
-  Contract Lifecycle  — SoS-DSL contract lifecycle state machines
-  Decision Evidence   — the record of an amendment loop as evidence of consensus
-  About               — glossary, scenario and model notes
+Routes between the pages in views/, grouped by the stage of a design's life:
+  Explore            Explorer            — compare two governance designs end to end
+  Design             Designer            — write, read, check, change and deliver a CADL design
+  Verify by running  Violation Timeline  — whether the runtime's report names the injected fault
+                     Contract Lifecycle  — the lifecycles in the simulator IR the runtime runs
+  Record the decisions  Decision Evidence   — the record of the decisions as evidence of consensus
+  About              About & Glossary    — what each page is for, glossary, scenario and model notes
+
+The pages hand a design on: the Designer opens it in the Explorer and in the
+Violation Timeline; the Violation Timeline proposes changes back to the
+Designer's Change stage; the decisions made there open in Decision Evidence.
 """
 
 import os
@@ -41,20 +46,37 @@ PERSISTENT_KEYS = [
     # choices and typed text that should survive a switch of view or page
     "design_cmp_a", "design_cmp_b", "design_structure_authority", "design_amend_name",
     "design_ai_text", "design_version_name", "design_version_prefix",
+    # the Violation Timeline: the IR, the log and the rule shown
+    "vt_ir_source", "vt_ir_pick", "vt_log", "vt_rule", "vt_trial", "vt_runtime_path",
 ]
 for _key in PERSISTENT_KEYS:
     if _key in st.session_state:
         st.session_state[_key] = st.session_state[_key]
 
-page = st.navigation([
-    st.Page("views/explorer.py", title="Explorer", default=True),
-    st.Page("views/designer.py", title="Designer", url_path="designer"),
-    st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
-    st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
-    st.Page("views/about.py", title="About & Glossary", url_path="about"),
-])
 if st.session_state.get("lang") not in LANGUAGES:
     st.session_state.lang = default_language()
+# The pages by the stage of a design's life: compare institutions, write and
+# check the design, run it with injected faults, record why it was changed.
+# The Designer's Verify stage also checks recorded runs (Traces, Measurements,
+# Agents); the pages link to each other where the work goes on.
+page = st.navigation({
+    t("Explore"): [
+        st.Page("views/explorer.py", title="Explorer", default=True),
+    ],
+    t("Design"): [
+        st.Page("views/designer.py", title="Designer", url_path="designer"),
+    ],
+    t("Verify by running"): [
+        st.Page("views/violations.py", title="Violation Timeline", url_path="violations"),
+        st.Page("views/lifecycle.py", title="Contract Lifecycle", url_path="lifecycle"),
+    ],
+    t("Record the decisions"): [
+        st.Page("views/evidence.py", title="Decision Evidence", url_path="evidence"),
+    ],
+    t("About"): [
+        st.Page("views/about.py", title="About & Glossary", url_path="about"),
+    ],
+})
 # Before page.run(): a page may end the run with st.stop().
 with st.sidebar:
     st.segmented_control(t("Language"), LANGUAGES, key="lang", label_visibility="collapsed",

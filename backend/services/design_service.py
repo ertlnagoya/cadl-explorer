@@ -260,11 +260,24 @@ def _describe_yaml_error(error: yaml.YAMLError, source: str) -> str:
             + (f"\n\n    {mark.line + 1} | {text}" if text.strip() else ""))
 
 
+# cadl's verifier runs Z3 in this process, and Z3's default context is not
+# safe to use from two threads at once: two script runs of Streamlit (two
+# visitors, or a run that a newer one replaced while Z3 was still working in C)
+# crashed the server with a bus error inside libz3. One analysis at a time.
+_ANALYZE_LOCK = threading.RLock()
+
+
 def analyze(source: str) -> DesignAnalysis:
     """Parse, type-check, verify and lower a CADL source text.
 
-    Never raises: every problem becomes a Finding.
+    Never raises: every problem becomes a Finding. One analysis runs at a time
+    in a process (see _ANALYZE_LOCK).
     """
+    with _ANALYZE_LOCK:
+        return _analyze(source)
+
+
+def _analyze(source: str) -> DesignAnalysis:
     from cadl.deadlock import detect_deadlocks
     from cadl.sim import lower_to_ir, validate_ir
     from cadl.type_checker import type_check

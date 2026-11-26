@@ -276,11 +276,66 @@ def _amend_apply(name: str, old: float, new: float, layer: str = ""):
     reason = (ss.get(f"design_amend_reason_{name}") or "").strip()
     ss.design_version_name = f"before {name} {amend.fmt(old)} → {amend.fmt(new)}"
     _save_version()
+    before = ss.design_src
     _set_source(amend.set_values(ss.design_src, {name: new}))
-    ss.setdefault("design_decisions", []).append({
-        "time": datetime.now().strftime("%H:%M:%S"), "change": f"{name}: {amend.fmt(old)} → {amend.fmt(new)}",
-        "layer": layer, "reason": reason})
-    ss.design_amend_done = f"{name}: {amend.fmt(old)} → {amend.fmt(new)}"
+    change = f"{name}: {amend.fmt(old)} → {amend.fmt(new)}"
+    _record_decision(change=change, layer=layer, reason=reason, by="designer",
+                     changes=[{"parameter": name, "from": amend.fmt(old), "to": amend.fmt(new),
+                               "layer": layer or None}],
+                     before=before, after=ss.design_src)
+    ss.design_amend_done = change
+
+
+def _record_decision(**entry):
+    """Keep a decision of the Change stage in the session's decision record.
+
+    Besides what the page shows (time, change, layer, reason), an entry keeps
+    who proposed it, the changed values and the design before and after it,
+    which the record of Appendix L needs (backend/services/design_record.py)."""
+    from backend.services.design_record import now_iso
+    ss.setdefault("design_decisions", []).append(
+        {"time": datetime.now().strftime("%H:%M:%S"), "at": now_iso(), **entry})
+
+
+def _apply_pending():
+    """Apply the changes the Violation Timeline proposed (ss.design_pending)."""
+    from backend.services import design_tuning as tuning
+    pending = ss.get("design_pending") or {}
+    overrides = pending.get("overrides") or []
+    try:
+        new, _ = tuning.apply_to_source(ss.design_src, overrides)
+    except tuning.TuningError as e:
+        ss.design_pending_error = str(e)
+        return
+    reason = (ss.get("design_pending_reason") or "").strip()
+    # The values the design had, which may differ from those of the run the
+    # proposal was made from (a condition of the run).
+    ir_before = ds.analyze(ss.design_src).ir
+    changes = []
+    for o in overrides:
+        now = tuning.current(ir_before, o)
+        changes.append({"parameter": tuning.parameter(o),
+                        "from": None if now is None else tuning.cadl_value({**o, "value": now}),
+                        "to": tuning.cadl_value(o), "layer": "contract"})
+    change = "; ".join(f"{c['parameter']}: {c['from'] or '—'} → {c['to']}" for c in changes)
+    ss.design_version_name = "before the Violation Timeline's proposal"
+    _save_version()
+    before = ss.design_src
+    _set_source(new)
+    _record_decision(change=change, layer="contract", reason=reason, by="violation-timeline",
+                     title=pending.get("title") or change,
+                     proposal_reason=pending.get("reason") or "",
+                     changes=changes, before=before, after=new)
+    ss.pop("design_pending", None)
+    ss.pop("design_pending_reason", None)
+    ss.pop("design_pending_checked", None)
+    ss.design_amend_done = change
+
+
+def _discard_pending():
+    ss.pop("design_pending", None)
+    ss.pop("design_pending_reason", None)
+    ss.pop("design_pending_checked", None)
 
 
 def _use_bundled_constitution():

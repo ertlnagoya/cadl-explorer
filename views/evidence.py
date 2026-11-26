@@ -22,11 +22,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from backend.services import design_record as drec  # noqa: E402
 from cadl_sim import evidence as E  # noqa: E402
 from views._i18n import t  # noqa: E402
 
 EXAMPLES_DIR = _ROOT / "cadl_sim" / "evidence" / "examples"
 BUNDLED = sorted(EXAMPLES_DIR.glob("*.decisions.jsonl")) if EXAMPLES_DIR.exists() else []
+DESIGNER = "__designer__"      # the record of the Designer's decisions in this session
 
 
 def _versions_of(record_path: Path) -> dict:
@@ -48,7 +50,9 @@ st.markdown(t(
     "recommended, and who decided, by which procedure and with which reason. The same evidence "
     "is asked of every party, whether a person, an LLM or a tool."))
 st.caption(t(
-    "Input is `decisions.jsonl`, written by `town.steward` and `town.council` in "
+    "Input is `decisions.jsonl`: the decisions of the Designer's **Change** stage in this "
+    "session (amendments, and proposals of the Violation Timeline), or a record of the "
+    "operation of a system, such as those that `town.steward` and `town.council` write in "
     "[cadl-robot-town](https://github.com/ertlnagoya/cadl-robot-town). The checks and findings "
     "are those of `cadl decisions-verify` (cadl 0.3.39 or later). "
     "[Appendix L](https://www.ertl.jp/cadl-spec/docs/spec/appendix-l-decisions)"))
@@ -64,17 +68,31 @@ with st.sidebar:
                "verifier also checks the versions, the amendable parameters and who may decide "
                "(L-9 to L-11)."))
     pick = None
-    if BUNDLED:
-        names = [p.name for p in BUNDLED]
-        first = next((i for i, n in enumerate(names) if "steward-d-en" in n), 0)
-        pick = st.selectbox(t("Bundled example"), names, index=first, key="evidence_example",
-                            disabled=upload is not None, help=t("Used when no file is uploaded."))
+    designer_record = st.session_state.get("design_decisions") or []
+    names = ([DESIGNER] if designer_record else []) + [p.name for p in BUNDLED]
+    if st.session_state.get("evidence_example") not in names:
+        st.session_state.pop("evidence_example", None)
+    if names:
+        if "evidence_example" not in st.session_state:
+            st.session_state.evidence_example = next(
+                (n for n in names if "steward-d-en" in n), names[0])
+        pick = st.selectbox(t("Record shown"), names, key="evidence_example",
+                            disabled=upload is not None,
+                            format_func=lambda n: t("The Designer's decisions ({n})").format(
+                                n=len(designer_record)) if n == DESIGNER else n,
+                            help=t("Used when no file is uploaded: the decisions of the Designer's "
+                                   "Change stage in this session, or a bundled example."))
 
 try:
     if upload is not None:
         rec = E.load(upload.getvalue())
         source = upload.name
         version_files = {f.name: f.getvalue() for f in version_uploads or []}
+    elif pick == DESIGNER:
+        text, version_files = drec.to_decisions(
+            drec.system_name(st.session_state.get("design_src") or ""), designer_record)
+        rec = E.load(text.encode("utf-8"))
+        source = t("the Designer's decisions")
     elif pick:
         rec = E.load((EXAMPLES_DIR / pick).read_bytes())
         source = pick
@@ -82,7 +100,7 @@ try:
     else:
         st.info(t("Upload a decisions.jsonl in the sidebar."))
         st.stop()
-except (ValueError, UnicodeDecodeError) as e:
+except (ValueError, UnicodeDecodeError, TypeError, AttributeError, KeyError) as e:
     st.error(t("This file cannot be read as a decision record: {e}").format(e=e))
     st.stop()
 
