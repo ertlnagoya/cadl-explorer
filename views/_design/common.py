@@ -262,6 +262,14 @@ def _plain(text: str) -> str:
     return "`".join(p if k % 2 else p.replace("*", "\\*") for k, p in enumerate(parts))
 
 
+def _seq_words() -> dict:
+    """The words of the sequence diagrams in the reader's language."""
+    return {"no actor": t("(no actor)"), "no message": t("no message"), "state": t("state"),
+            "end": t("end of the trace"), "more steps": t("more steps"),
+            "no steps": t("This protocol has no steps yet."), "wait until": t("wait until"),
+            "else": t("else"), "in parallel": t("in parallel"), "end parallel": t("end parallel")}
+
+
 def _is_dark() -> bool:
     theme = getattr(st.context, "theme", None)
     return getattr(theme, "type", None) == "dark"

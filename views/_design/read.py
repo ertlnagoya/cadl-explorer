@@ -24,7 +24,7 @@ from backend.services import design_workspace as workspace
 from backend.services.cadl_service import MAX_SOURCE_CHARS
 from cadl_sim.sos_dsl import build_lifecycle_view, lifecycle_to_dot, monitors_summary
 from views._design.common import *  # noqa: F401,F403
-from views._design.common import _md, _is_dark, _jump, _show_line, _trace_reset, _trace_step, _trace_back
+from views._design.common import _md, _is_dark, _seq_words, _jump, _show_line, _trace_reset, _trace_step, _trace_back
 from views._design import graph_component
 from views._i18n import t
 
@@ -497,7 +497,7 @@ def protocols(c):
             if f.section == "Protocols" and f.item == pick and f.element
             and f.level in ("error", "warning")
         }
-        st.markdown(sequence_svg(proto, dark=_is_dark(), flagged=bad_messages),
+        st.markdown(sequence_svg(proto, dark=_is_dark(), flagged=bad_messages, words=_seq_words()),
                     unsafe_allow_html=True)
         n_steps = len(proto.get("steps") or [])
         st.caption(

@@ -3,7 +3,8 @@
 `t(text)` returns the Japanese text of `text` when the reader chose Japanese
 and views/_i18n_ja.py has it; otherwise the English text itself. The English
 text is the key, so a string without a translation stays readable. What cadl
-writes (findings, reports, notes) is not translated.
+writes (findings, reports) is shown as cadl wrote it, except the notes and
+witness explanations of norms-check whose form views/_cadl_ja.py knows.
 """
 
 from __future__ import annotations

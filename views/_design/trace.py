@@ -24,7 +24,7 @@ from backend.plotting.sequence import sequence_svg, trace_protocol
 from backend.services import design_runtime as runtime
 from backend.services import design_service as ds
 from views._design.cache import _NotCached, _uncached
-from views._design.common import _is_dark, _load_example, _plain, ss
+from views._design.common import _is_dark, _load_example, _plain, _seq_words, ss
 from views._i18n import t
 
 TRACES_DIR = ds.DESIGNS_DIR / "traces"
@@ -395,7 +395,8 @@ def traces(c):
     _versions_section(report)
     _state_chart(report.get("norms") or [], float(inst.get("end") or 0))
     with st.expander(t("The trace as a sequence of messages")):
-        st.markdown(sequence_svg(trace_protocol(records), dark=_is_dark()), unsafe_allow_html=True)
+        st.markdown(sequence_svg(trace_protocol(records, words=_seq_words()), dark=_is_dark(),
+                                 words=_seq_words()), unsafe_allow_html=True)
     for w in report.get("warnings") or []:
         st.warning(_plain(str(w)))
     st.download_button(t("Verdicts (JSON)"), json.dumps(report, indent=2, ensure_ascii=False),
@@ -498,7 +499,8 @@ def agents(c):
             "time", "message", "decision", "reason", "norms", "hold", "escalated to")})
     decisions = [(step.get("result") or {}).get("decision") or "" for step in steps]
     with st.expander(t("The messages as a sequence, with the decisions"), expanded=len(steps) <= 12):
-        st.markdown(sequence_svg(trace_protocol(records, decisions), dark=_is_dark()),
+        st.markdown(sequence_svg(trace_protocol(records, decisions, words=_seq_words()),
+                                 dark=_is_dark(), words=_seq_words()),
                     unsafe_allow_html=True)
     if report.get("holds"):
         st.markdown("**" + t("Holds") + "**")

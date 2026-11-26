@@ -102,7 +102,9 @@ def test_ops_number_the_failing_change_and_apply_nothing():
 
 
 def test_proposal_reports_problems_introduced_and_resolved():
-    fix = ops.propose(DELIVERY, [
+    start = DELIVERY.index("          # The dispatcher withdraws an order")
+    unreachable = DELIVERY[:start] + DELIVERY[DELIVERY.index("\n\n", start) + 1:]
+    fix = ops.propose(unreachable, [
         {"op": "upsert_transition", "contract": "DELIVERY_SLA", "id": "terminate",
          "fields": {"from": "Proposed", "to": "Terminated", "on": "cancel_requested"}}])
     assert fix.acceptable and not fix.introduced
@@ -230,7 +232,8 @@ def test_mcp_tools_cover_the_design_loop(ws):
     proposed = server.propose_changes("depot", [
         {"op": "upsert_transition", "contract": "DELIVERY_SLA", "id": "terminate",
          "fields": {"from": "Proposed", "to": "Terminated", "on": "cancel_requested"}}])
-    assert proposed["acceptable"] and proposed["problems_resolved"]
+    # the example has no warning since it reaches Terminated by `cancel`: nothing to resolve
+    assert proposed["acceptable"] and not proposed["problems_introduced"]
     assert server.get_design("depot")["pending_proposals"] == [proposed["proposal_id"]]
     assert server.apply_proposal("depot", proposed["proposal_id"])["applied"]
     assert server.get_design("depot")["unreviewed_changes"] == ["Added transition terminate in DELIVERY_SLA"]
