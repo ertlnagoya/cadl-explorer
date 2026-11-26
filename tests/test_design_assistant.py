@@ -232,7 +232,8 @@ def test_mcp_tools_cover_the_design_loop(ws):
     proposed = server.propose_changes("depot", [
         {"op": "upsert_transition", "contract": "DELIVERY_SLA", "id": "terminate",
          "fields": {"from": "Proposed", "to": "Terminated", "on": "cancel_requested"}}])
-    assert proposed["acceptable"] and proposed["problems_resolved"]
+    # the example has no warning since it reaches Terminated by `cancel`: nothing to resolve
+    assert proposed["acceptable"] and not proposed["problems_introduced"]
     assert server.get_design("depot")["pending_proposals"] == [proposed["proposal_id"]]
     assert server.apply_proposal("depot", proposed["proposal_id"])["applied"]
     assert server.get_design("depot")["unreviewed_changes"] == ["Added transition terminate in DELIVERY_SLA"]
