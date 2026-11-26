@@ -97,6 +97,14 @@ def render(c):
                     with st.expander(t("History in git") + f" ({len(commits)})"):
                         for entry in commits:
                             st.caption(f"`{entry['commit']}` {entry['time']} — {entry['message']}")
+                    hist = workspace.version_history(ws_name)
+                    if hist["values"] and len(hist["versions"]) > 1:
+                        with st.expander(t("Versions in git") + f" ({len(hist['versions'])})"):
+                            st.caption(t("The amendable values of each version; ← marks a change "
+                                         "from the version before."))
+                            st.dataframe(hist["values"], hide_index=True, width="stretch")
+                            if hist["movement"]:
+                                st.dataframe(hist["movement"], hide_index=True, width="stretch")
                 elif not workspace.git_enabled():
                     st.caption(t("Start the app with `CADL_WORKSPACE_GIT=1` to commit every change "
                                  "of the workspace to git."))

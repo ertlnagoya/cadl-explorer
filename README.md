@@ -412,9 +412,11 @@ draft a design from a requirements document or SLA.
 | `list_designs`, `create_design`, `get_design` | Find, start and outline designs in the workspace |
 | `open_questions` | What the design leaves open, as questions to ask the designer |
 | `propose_changes` | Check a set of structured changes **without applying them**; reports what would change and which problems appear or disappear |
-| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true`, and records the decision — the designer's `reason` and `assumptions` — in `<name>.decisions.md` |
-| `list_amendables`, `propose_amendment` | The values marked `# @amend:<name>` (Robot Town, Course D) and what the constitution (`<name>.constitution.yaml` or `constitution.yaml` in the workspace) says about each; a proposal that changes them in place, keeping the comments, with the constitution's verdict. A change the constitution leaves to a person (contract or regulation layer, safety-related rule) cannot be applied without their reason |
-| `get_decisions` | The decision record: each applied proposal, why it was proposed, and the person's reason and assumptions |
+| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true`, and records the decision — the designer's `reason` and `assumptions` — in `<name>.decisions.md`. `discard_proposal` keeps a rejected proposal there too, with its reason |
+| `list_amendables`, `propose_amendment` | The values marked `# @amend:<name>` (Robot Town, Course D) and what the constitution (`<name>.constitution.yaml` or `constitution.yaml` in the workspace) says about each; a proposal that changes them in place, keeping the comments, with the constitution's verdict. A change the constitution leaves to a person (contract or regulation layer, safety-related rule, or a `decided_by:` other than `COUNCIL`) cannot be applied without their reason. In a design that declares the amendment extension, the proposal is also the next version: `sos.version` (`version="auto"`: 2 → 2.1 → 2.2), `amendment.previous`, `amendment.effective.period` (moved on by the constitution's `trial_periods`) and the declared `value:`, so that `cadl amend-diff` reads it |
+| `run_trial`, `record_trial` | Try a pending proposal: `run_trial` runs the command in `CADL_TRIAL_COMMAND` (for example a simulator) with the design before and after, and keeps the JSON it prints; `record_trial` keeps numbers from a trial run elsewhere. They go into the decision record when the proposal is applied or discarded |
+| `get_decisions` | The decision record: each applied or rejected proposal (`outcome`), why it was proposed, its trial, and the person's reason and assumptions |
+| `get_history` | With `CADL_WORKSPACE_GIT=1`: the commits, the versions, and how the `# @amend:` values moved between them |
 | `check_design` | Every check, what each covers, and what none of them check |
 | `describe_contracts`, `actor_view`, `explain_verification` | The design read back in plain sentences |
 | `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step. A monitor whose rule contains `state == X` (in a plain conjunction) is taken to fire in X only |
@@ -429,8 +431,19 @@ CADL_WORKSPACE=/path/to/my-designs streamlit run app.py
 
 With `CADL_WORKSPACE_GIT=1` (for the app and for the MCP server), the folder
 is a git repository and every change is committed: an edit saved from the
-Designer, an applied proposal with the person's reason, and an undo. The
-sidebar lists those commits.
+Designer, an applied or rejected proposal with the person's reason and the
+trial's results, and an undo; the constitution is committed with the design.
+The sidebar lists those commits and, once there are several versions, how the
+amendable values moved between them.
+
+A program can run the same loop in Python (`backend/services/design_workspace.py`):
+`add_amendment(name, values, rationale, evaluator=f)` calls `f(before, after)`
+— a simulator, say — and keeps the numbers it returns (`{"results": {...},
+"passed": ..., "note": ...}`) with the proposal; then `apply_proposal` or
+`discard_proposal(name, id, reason)`, and `version_history(name)` for the
+versions. A trial command for `run_trial` gets the two files as its last two
+arguments, `CADL_DESIGN` and `CADL_PROPOSAL_ID` in its environment, and prints
+one JSON object; it runs for at most `CADL_TRIAL_TIMEOUT` seconds (600).
 
 The Designer then shows the workspace in its sidebar, warns when the file
 changed underneath the editor, and lists every change the assistant applied

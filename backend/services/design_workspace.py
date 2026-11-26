@@ -3,8 +3,20 @@
 Each design is `<name>.cadl`. Next to it, `<name>.review.json` keeps
 what the source file cannot: pending proposals, the changes an
 assistant applied that nobody has reviewed yet, a short undo stack, and
-the decisions — each applied proposal with the person's reason and
-assumptions — which are also written out as `<name>.decisions.md`.
+the decisions — each applied or rejected proposal with the person's
+reason and assumptions, and the results of any trial of it — which are
+also written out as `<name>.decisions.md`.
+
+A trial is an evaluation outside the toolchain, such as a simulation:
+`record_trial` attaches its numbers to a pending proposal (an evaluator
+passed to `add_amendment` or `add_proposal` does so on the spot, and
+`run_trial` runs the command in `$CADL_TRIAL_COMMAND`). Applying or
+discarding the proposal carries them into the decision record.
+
+In a design that declares CADL's amendment extension (`amendment:`),
+`add_amendment` also writes the next version: `sos.version`,
+`amendment.previous`, `amendment.effective.period` and the declared
+`value:` of the parameter, so that `cadl amend-diff` reads the change.
 
 A constitution for the design's `# @amend:` values is read from
 `<name>.constitution.yaml`, or else `constitution.yaml`, in the folder.
@@ -14,7 +26,9 @@ The folder is `$CADL_WORKSPACE`, or `~/cadl-designs` when that is unset.
 With `CADL_WORKSPACE_GIT=1`, the folder is a git repository (made with
 `git init` when it is not one) and every change to a design is committed: an
 edit saved from the Designer, an applied proposal with the person's reason,
-and an undo. `history(name)` lists those commits.
+a rejected one, and an undo; the constitution is committed with them.
+`history(name)` lists those commits and `version_history(name)` the versions
+they hold.
 """
 
 from __future__ import annotations
@@ -24,11 +38,15 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
+import tempfile
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
+
+import yaml
 
 from backend.services import design_amend as amend
 from backend.services import design_ops as ops
@@ -143,7 +161,9 @@ def _commit(name: str, message: str) -> None:
         # a folder inside a repository commits there; any other folder becomes one
         if _git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
             _git("init", "-q")
-        files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name)) if p.exists()]
+        const = constitution_path(name)
+        files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name), const)
+                 if p is not None and p.exists()]
         _git("add", "--", *files)
         who = [] if _git("config", "user.email").stdout.strip() else [
             "-c", "user.name=CADL Explorer", "-c", "user.email=cadl-explorer@localhost"]
@@ -154,16 +174,69 @@ def _commit(name: str, message: str) -> None:
 
 
 def history(name: str, limit: int = 20) -> List[dict]:
-    """The commits of a design's files, newest first: [{"commit", "time", "message"}]."""
+    """The commits of a design and its decision record, newest first:
+    [{"commit", "time", "message"}] (the first line of each message)."""
     if not git_enabled():
         return []
     try:
         out = _git("log", f"-{int(limit)}", "--format=%h%x09%ad%x09%s", "--date=format:%Y-%m-%d %H:%M",
-                   "--", path_of(name).name).stdout
+                   "--", path_of(name).name, _decisions_path(name).name).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     return [dict(zip(("commit", "time", "message"), line.split("\t", 2)))
             for line in out.splitlines() if line.count("\t") >= 2]
+
+
+def version_history(name: str, limit: int = 100) -> dict:
+    """The versions of a design in git, oldest first, and how its `# @amend:` values moved.
+
+    A version is the first commit that holds a new ``sos.version`` (or, for a
+    design without one, a new set of amendable values). ``values`` is
+    ``design_amend.history`` of those versions and ``movement`` is
+    ``design_amend.movement`` against the constitution. Without
+    ``CADL_WORKSPACE_GIT`` there is no history and the lists are empty.
+    """
+    commits = history(name, limit)
+    versions = []
+    for c in reversed(commits):
+        try:
+            text = _git("show", f"{c['commit']}:{path_of(name).name}").stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if not text:
+            continue
+        declared = amend.declared_version(text) or {}
+        label = declared.get("version")
+        try:
+            data = yaml.safe_load(text) or {}
+            label = label or (str(data["sos"]["version"]) if data.get("sos", {}).get("version") is not None
+                              else None)
+        except Exception:
+            pass
+        key = label if label is not None else repr(sorted(amend.values(text).items()))
+        if versions and versions[-1]["key"] == key:
+            continue
+        versions.append({"key": key, "version": label or c["commit"], "commit": c["commit"],
+                         "time": c["time"], "message": c["message"], "source": text})
+    pairs = [(v["version"], v["source"]) for v in versions]
+    try:
+        const = constitution(name)
+    except WorkspaceError:
+        const = None
+    return {"commits": commits,
+            "versions": [{k: v[k] for k in ("version", "commit", "time", "message")} for v in versions],
+            "values": amend.history(pairs), "movement": amend.movement(pairs, const),
+            **({} if git_enabled() else {"note": "Start with CADL_WORKSPACE_GIT=1 to keep the history."})}
+
+
+def version_source(name: str, commit: str) -> str:
+    """The design's source as it was at ``commit`` of its history."""
+    if not re.fullmatch(r"[0-9a-fA-F]{4,40}", str(commit or "")):
+        raise WorkspaceError("A commit is given by its hexadecimal id.")
+    out = _git("show", f"{commit}:{path_of(name).name}")
+    if out.returncode != 0:
+        raise WorkspaceError(f"No version of `{name}` at commit `{commit}`.")
+    return out.stdout
 
 
 def write(name: str, source: str, note: str = "", commit: bool = True) -> None:
@@ -246,16 +319,23 @@ def _store(name: str, source: str, proposal: ops.Proposal, rationale: str, **ext
     return proposal_id
 
 
-def add_proposal(name: str, changes: List[dict], rationale: str = "") -> dict:
-    """Check a set of changes against the design and store it for review."""
+def add_proposal(name: str, changes: List[dict], rationale: str = "",
+                 evaluator: Optional[Evaluator] = None) -> dict:
+    """Check a set of changes against the design and store it for review.
+
+    ``evaluator(before, after)``, when given, is run on the proposal and its
+    results recorded as its trial (see ``record_trial``).
+    """
     source = read(name)
     try:
         proposal = ops.propose(source, changes)
     except (ops.OpError, ValueError) as e:
         raise WorkspaceError(str(e)) from e
     proposal_id = _store(name, source, proposal, rationale)
+    trial = _evaluate(name, proposal_id, source, proposal.source, evaluator) if evaluator else None
     return {
         "proposal_id": proposal_id,
+        **({"trial": trial} if trial else {}),
         "applied": False,
         "changes": [c.summary for c in proposal.changes],
         "structural_diff": proposal.diff,
@@ -323,20 +403,14 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
     state = _load_state(name)   # write() updated the undo stack and cleared proposals
     for change in entry["changes"]:
         state["unreviewed"].append({**change, "time": _now(), "rationale": entry.get("rationale", "")})
-    state["decisions"].append({
-        "time": _now(), "proposal": proposal_id,
-        "changes": [c["summary"] for c in entry["changes"]],
-        "rationale": entry.get("rationale", ""), "reason": reason,
-        "assumptions": [str(a).strip() for a in ([assumptions] if isinstance(assumptions, str)
-                                                  else assumptions or []) if str(a).strip()],
-        "for_a_person": person, "allowed_errors": bool(allow_errors and not entry.get("acceptable", True)),
-    })
+    state["decisions"].append(_decision(entry, proposal_id, "applied", reason, assumptions,
+                                        allowed_errors=bool(allow_errors and not entry.get("acceptable", True))))
     _save_state(name, state)
     _write_decisions(name, state["decisions"])
-    _commit(name, f"{_check_name(name)}: " + "; ".join(c["summary"] for c in entry["changes"])
-            + (f"\n\nReason: {reason}" if reason else "")
-            + (f"\n\nProposed because: {entry['rationale']}" if entry.get("rationale") else ""))
+    _commit(name, _message(name, entry, "", reason))
     return {"applied": True, "changes": [c["summary"] for c in entry["changes"]],
+            **({"version": entry["version"]} if entry.get("version") else {}),
+            **({"trial": entry["trial"]} if entry.get("trial") else {}),
             "unreviewed": len(state["unreviewed"]),
             "decision_record": str(_decisions_path(name)),
             "note": "These changes are listed as not yet reviewed on the Designer page, "
@@ -344,11 +418,170 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
                     "with the reason given, is kept in the decision record."}
 
 
-def discard_proposal(name: str, proposal_id: str) -> None:
+def _assumptions(assumptions: Union[None, str, List[str]]) -> List[str]:
+    return [str(a).strip() for a in ([assumptions] if isinstance(assumptions, str) else assumptions or [])
+            if str(a).strip()]
+
+
+def _decision(entry: dict, proposal_id: str, outcome: str, reason: str,
+              assumptions: Union[None, str, List[str]], allowed_errors: bool = False) -> dict:
+    return {
+        "time": _now(), "proposal": proposal_id, "outcome": outcome,
+        "changes": [c["summary"] for c in entry["changes"]],
+        "rationale": entry.get("rationale", ""), "reason": str(reason or "").strip(),
+        "assumptions": _assumptions(assumptions),
+        "for_a_person": entry.get("for_a_person") or [],
+        **({"decided_by": entry["decided_by"]} if entry.get("decided_by") else {}),
+        "allowed_errors": allowed_errors,
+        **({"version": entry["version"]} if entry.get("version") else {}),
+        **({"trial": entry["trial"]} if entry.get("trial") else {}),
+    }
+
+
+def _message(name: str, entry: dict, prefix: str, reason: str) -> str:
+    version = entry.get("version") or {}
+    trial = entry.get("trial") or {}
+    return (f"{_check_name(name)}: {prefix}" + "; ".join(c["summary"] for c in entry["changes"])
+            + (f" (version {version['to']}, previous {version['from']}"
+               + (f", effective period {version['effective_period']}" if version.get("effective_period")
+                  is not None else "") + ")" if version.get("to") else "")
+            + (f"\n\nReason: {reason}" if reason else "")
+            + (f"\n\nProposed because: {entry['rationale']}" if entry.get("rationale") else "")
+            + (f"\n\nTrial: " + ", ".join(f"{k} = {v:g}" for k, v in trial["results"].items())
+               + ("" if trial.get("passed") is None else f" ({'passed' if trial['passed'] else 'failed'})")
+               if trial.get("results") else ""))
+
+
+def discard_proposal(name: str, proposal_id: str, reason: str = "",
+                     assumptions: Union[None, str, List[str]] = None, record: bool = True) -> dict:
+    """Drop a pending proposal and, with ``record``, keep it in the decision record as
+    rejected, with the reason, the assumptions and any trial results."""
     state = _load_state(name)
-    if state["proposals"].pop(proposal_id, None) is None:
+    entry = state["proposals"].pop(proposal_id, None)
+    if entry is None:
         raise WorkspaceError(f"No pending proposal `{proposal_id}` for `{name}`.")
+    if record:
+        state["decisions"].append(_decision(entry, proposal_id, "rejected", reason, assumptions))
     _save_state(name, state)
+    if record:
+        _write_decisions(name, state["decisions"])
+        _commit(name, _message(name, entry, "rejected: ", str(reason or "").strip()))
+    return {"discarded": proposal_id, "recorded": bool(record),
+            **({"trial": entry["trial"]} if entry.get("trial") else {})}
+
+
+# ── Trials ──────────────────────────────────────────────────────────
+
+Evaluator = Callable[[str, str], Any]
+TRIAL_TIMEOUT = 600
+
+
+def _trial(raw: Any, by: str = "") -> dict:
+    """A trial result in one form: ``{"results": {name: number}, "passed", "note", "by"}``.
+
+    ``raw`` is that mapping, or a mapping of names to numbers alone.
+    """
+    if not isinstance(raw, dict):
+        raise WorkspaceError("A trial gives a mapping of names to numbers, or "
+                             "{\"results\": {...}, \"passed\": true|false, \"note\": \"...\"}.")
+    results = raw.get("results") if isinstance(raw.get("results"), dict) else \
+        {k: v for k, v in raw.items() if k not in ("passed", "note", "by")}
+    clean = {}
+    for k, v in results.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise WorkspaceError(f"The trial result `{k}` is {v!r}; a trial result is a number.")
+        clean[str(k)] = float(v)
+    passed = raw.get("passed")
+    if passed is not None and not isinstance(passed, bool):
+        raise WorkspaceError("`passed` of a trial is true, false or left out.")
+    return {"results": clean, "passed": passed, "note": str(raw.get("note") or "").strip(),
+            "by": str(raw.get("by") or by or "").strip(), "time": _now()}
+
+
+def record_trial(name: str, proposal_id: str, results: Any, passed: Optional[bool] = None,
+                 note: str = "", by: str = "") -> dict:
+    """Attach the results of a trial (a simulation, a pilot) to a pending proposal.
+
+    ``results`` maps names to numbers. The trial replaces an earlier one of the
+    same proposal and goes into the decision record when the proposal is applied
+    or discarded.
+    """
+    state = _load_state(name)
+    entry = state["proposals"].get(proposal_id)
+    if entry is None:
+        raise WorkspaceError(f"No pending proposal `{proposal_id}` for `{name}`.")
+    raw = dict(results) if isinstance(results, dict) else results
+    if isinstance(raw, dict) and "results" not in raw:
+        raw = {"results": raw}
+    if isinstance(raw, dict):
+        raw = {**raw, **({"passed": passed} if passed is not None else {}),
+               **({"note": note} if note else {})}
+    entry["trial"] = _trial(raw, by)
+    _save_state(name, state)
+    return entry["trial"]
+
+
+def _evaluate(name: str, proposal_id: str, before: str, after: str, evaluator: Evaluator) -> dict:
+    try:
+        raw = evaluator(before, after)
+    except WorkspaceError:
+        raise
+    except Exception as e:  # the evaluator is the caller's code
+        raise WorkspaceError(f"The trial failed: {type(e).__name__}: {e}") from e
+    trial = _trial(raw, getattr(evaluator, "__name__", ""))
+    state = _load_state(name)
+    state["proposals"][proposal_id]["trial"] = trial
+    _save_state(name, state)
+    return trial
+
+
+def trial_command() -> Optional[List[str]]:
+    """The command in `$CADL_TRIAL_COMMAND`, split as a shell would, or None."""
+    text = os.environ.get("CADL_TRIAL_COMMAND", "").strip()
+    return shlex.split(text) if text else None
+
+
+def run_trial(name: str, proposal_id: str, command: Optional[List[str]] = None) -> dict:
+    """Run the trial command on a pending proposal and record what it prints.
+
+    The command (``$CADL_TRIAL_COMMAND`` unless given) is run with two more
+    arguments, the files of the design before and after the proposal, and
+    ``CADL_DESIGN`` and ``CADL_PROPOSAL_ID`` in its environment. It prints one
+    JSON object, the trial as ``record_trial`` takes it. It runs for at most
+    ``$CADL_TRIAL_TIMEOUT`` seconds (600).
+    """
+    command = command or trial_command()
+    if not command:
+        raise WorkspaceError("No trial command: set CADL_TRIAL_COMMAND to a program that takes the "
+                             "design before and after a proposal and prints its results as JSON.")
+    after = source_of(name, proposal_id)
+    before = read(name)
+    timeout = float(os.environ.get("CADL_TRIAL_TIMEOUT") or TRIAL_TIMEOUT)
+    with tempfile.TemporaryDirectory(prefix="cadl_trial_") as tmp:
+        files = [Path(tmp) / f"{_check_name(name)}.before.cadl", Path(tmp) / f"{_check_name(name)}.after.cadl"]
+        files[0].write_text(before, encoding="utf-8")
+        files[1].write_text(after, encoding="utf-8")
+        env = {**os.environ, "CADL_DESIGN": _check_name(name), "CADL_PROPOSAL_ID": proposal_id}
+        try:
+            done = subprocess.run([*command, *map(str, files)], capture_output=True, text=True,
+                                  timeout=timeout, env=env, cwd=str(root()))
+        except subprocess.TimeoutExpired as e:
+            raise WorkspaceError(f"The trial command did not finish in {timeout:g} s.") from e
+        except OSError as e:
+            raise WorkspaceError(f"The trial command could not be run: {e}") from e
+    if done.returncode != 0:
+        raise WorkspaceError(f"The trial command exited with status {done.returncode}: "
+                             + (done.stderr or done.stdout).strip()[-500:])
+    lines = [l for l in done.stdout.strip().splitlines() if l.strip()]
+    try:
+        raw = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError:
+        try:
+            raw = json.loads(done.stdout)
+        except json.JSONDecodeError as e:
+            raise WorkspaceError("The trial command did not print a JSON object: "
+                                 + done.stdout.strip()[-300:]) from e
+    return record_trial(name, proposal_id, raw, by=Path(command[0]).name)
 
 
 # ── Amendments and decisions ────────────────────────────────────────
@@ -384,19 +617,74 @@ def amendables(name: str) -> dict:
             **({"layer": amend.layer_of(const.get(a.name)),
                 "range": [const.get(a.name, {}).get("min"), const.get(a.name, {}).get("max")],
                 "step": const.get(a.name, {}).get("step"),
-                "decided_by": ("a person" if const.get(a.name) and amend.needs_human(const[a.name])
-                               else "the checks" if const.get(a.name) else "not amendable")}
+                "decided_by": ((amend.decider(const[a.name]) or "a person")
+                               if const.get(a.name) and amend.needs_human(const[a.name])
+                               else amend.decider(const.get(a.name)) or "the checks"
+                               if const.get(a.name) else "not amendable")}
                if const is not None else {}),
         } for a in amend.amendables(source)],
         "problems": amend.findings(source, const),
     }
 
 
-def add_amendment(name: str, values: Dict[str, float], rationale: str = "") -> dict:
-    """Propose new values for `# @amend:` names, written in place so the comments stay."""
+def constitution_settings(name: str) -> dict:
+    """The constitution's other keys (``trial_periods`` and the like), or {}."""
+    path = constitution_path(name)
+    if path is None:
+        return {}
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    return {k: v for k, v in doc.items() if k != "amendable"} if isinstance(doc, dict) else {}
+
+
+def _next_declaration(name: str, source: str, version: Union[None, bool, str],
+                      effective_period: Optional[int]) -> Optional[dict]:
+    """What the next version declares: {"from", "to", "effective_period"}, or None.
+
+    ``version`` is "auto" or True (the next number, ``design_amend.next_version``),
+    a version, or None or False (keep the version). Without ``effective_period``
+    the period moves on by the constitution's ``trial_periods`` when both are given.
+    """
+    declared = amend.declared_version(source)
+    if declared is None or version in (None, False, ""):
+        return None
+    old = declared["version"]
+    new = amend.next_version(old) if version in (True, "auto") else str(version)
+    if new == old:
+        raise WorkspaceError(f"The next version must differ from the current one ({old}).")
+    period = effective_period
+    eff = declared.get("effective") or {}
+    if period is None and isinstance(eff.get("period"), int):
+        trial = constitution_settings(name).get("trial_periods")
+        period = eff["period"] + int(trial) if isinstance(trial, int) and trial > 0 else None
+    if period is not None and (isinstance(period, bool) or int(period) < 1):
+        raise WorkspaceError("The effective period is a positive whole number.")
+    return {"from": old, "to": new, "effective_period": None if period is None else int(period)}
+
+
+def add_amendment(name: str, values: Dict[str, float], rationale: str = "",
+                  version: Union[None, bool, str] = "auto", effective_period: Optional[int] = None,
+                  evaluator: Optional[Evaluator] = None) -> dict:
+    """Propose new values for `# @amend:` names, written in place so the comments stay.
+
+    In a design that declares the amendment extension, the proposal is also the
+    next version: the declared ``value:`` of each parameter follows the tagged
+    lines, and, unless ``version`` is None or False, ``sos.version`` becomes
+    ``version`` ("auto": the next number), ``amendment.previous`` the current
+    version and ``amendment.effective.period`` ``effective_period`` (by default
+    the current one plus the constitution's ``trial_periods``).
+    ``evaluator(before, after)``, when given, is run on the proposal and its
+    results recorded as its trial.
+    """
     source = read(name)
     try:
-        new_source = amend.set_values(source, {k: float(v) for k, v in values.items()})
+        floats = {k: float(v) for k, v in values.items()}
+        tagged = amend.set_values(source, floats)
+        bump = _next_declaration(name, source, version, effective_period)
+        new_source = amend.declare(tagged, floats, *((bump["to"], bump["from"], bump["effective_period"])
+                                                     if bump else ()))
     except (TypeError, ValueError) as e:
         raise WorkspaceError(str(e)) from e
     const = constitution(name)
@@ -406,18 +694,25 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "") -> d
     proposal = ops.compare(source, new_source, changes)
     acceptable = proposal.acceptable and gate.ok
     proposal_id = _store(name, source, proposal, rationale, for_a_person=gate.for_a_person,
-                         gate=gate.reasons)
+                         decided_by=gate.decided_by, gate=gate.reasons,
+                         **({"version": bump} if bump else {}))
+    trial = _evaluate(name, proposal_id, source, new_source, evaluator) if evaluator else None
     return {
         "proposal_id": proposal_id, "applied": False,
         "changes": [c.summary for c in changes],
+        **({"version": bump} if bump else {}),
+        **({"trial": trial} if trial else {}),
         "constitution": constitution_path(name).name if const is not None else None,
         "constitution_allows": gate.ok, "constitution_problems": gate.reasons,
         "decided_by_a_person": gate.for_a_person,
+        **({"decided_by": gate.decided_by} if gate.decided_by else {}),
         "problems_introduced": [_finding(f) for f in proposal.introduced],
         "problems_resolved": [_finding(f) for f in proposal.resolved],
         "errors_after": proposal.errors_after, "acceptable": acceptable,
         "next": (
-            "The constitution leaves " + ", ".join(gate.for_a_person) + " to a person. Show them "
+            "The constitution leaves " + ", ".join(
+                f"{n} (decided by {gate.decided_by[n]})" if n in gate.decided_by else n
+                for n in gate.for_a_person) + " to a person. Show them "
             "the change and what it does, ask for their decision and reason, and pass the reason "
             "(and any assumptions) to apply_proposal."
             if acceptable and gate.for_a_person else
@@ -439,13 +734,33 @@ def decisions(name: str) -> List[dict]:
 
 def _write_decisions(name: str, entries: List[dict]) -> None:
     lines = [f"# Decisions on {_check_name(name)}", "",
-             "Each applied proposal, with what the assistant proposed and why, and the person's "
-             "decision and reason. Written by CADL Explorer; edit the design, not this file.", ""]
+             "Each applied or rejected proposal, with what the assistant proposed and why, the "
+             "results of its trial, and the person's decision and reason. Written by CADL "
+             "Explorer; edit the design, not this file.", ""]
     for i, d in enumerate(entries, 1):
-        lines += [f"## {i}. {d['time']} — proposal {d['proposal']}", ""]
+        outcome = d.get("outcome", "applied")
+        lines += [f"## {i}. {d['time']} — proposal {d['proposal']}"
+                  + (" (rejected)" if outcome == "rejected" else ""), ""]
         lines += [f"- {c}" for c in d["changes"]] + [""]
+        version = d.get("version") or {}
+        if version.get("to"):
+            lines += [f"Version {version['to']} (previous {version['from']}"
+                      + (f", effective from period {version['effective_period']}"
+                         if version.get("effective_period") is not None else "")
+                      + (")." if outcome == "applied" else ") — not adopted."), ""]
         if d.get("for_a_person"):
-            lines += [f"Decided by a person under the constitution: {', '.join(d['for_a_person'])}.", ""]
+            who = d.get("decided_by") or {}
+            lines += ["Decided by a person under the constitution: "
+                      + ", ".join(f"{n} ({who[n]})" if n in who else n for n in d["for_a_person"]) + ".", ""]
+        trial = d.get("trial") or {}
+        if trial.get("results") or trial.get("note"):
+            verdict = "" if trial.get("passed") is None else (" — passed" if trial["passed"] else " — failed")
+            lines += [f"**Trial**{' by ' + trial['by'] if trial.get('by') else ''}{verdict}:", ""]
+            if trial.get("results"):
+                lines += ["| result | value |", "|---|---|"] + [
+                    f"| {k} | {v:g} |" for k, v in trial["results"].items()] + [""]
+            if trial.get("note"):
+                lines += [trial["note"], ""]
         if d.get("allowed_errors"):
             lines += ["Applied although it adds an error, as the person asked.", ""]
         lines += [f"**Proposed because**: {d.get('rationale') or '—'}", "",

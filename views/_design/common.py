@@ -285,7 +285,14 @@ def _amend_apply(name: str, old: float, new: float, layer: str = ""):
     ss.design_version_name = f"before {name} {amend.fmt(old)} → {amend.fmt(new)}"
     _save_version()
     before = ss.design_src
-    _set_source(amend.set_values(ss.design_src, {name: new}))
+    after = amend.set_values(ss.design_src, {name: new})
+    # A design that declares the amendment extension becomes its next version, with
+    # the declared value, so that `cadl amend-diff` reads the change (K-9 otherwise).
+    declared = amend.declared_version(before)
+    if declared is not None:
+        after = amend.declare(after, {name: new}, amend.next_version(declared["version"]),
+                              declared["version"])
+    _set_source(after)
     change = f"{name}: {amend.fmt(old)} → {amend.fmt(new)}"
     _record_decision(change=change, layer=layer, reason=reason, by="designer",
                      changes=[{"parameter": name, "from": amend.fmt(old), "to": amend.fmt(new),

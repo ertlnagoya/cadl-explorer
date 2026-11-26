@@ -337,6 +337,8 @@ JA: dict = {
     'Write the editor content to the workspace file.': 'エディタの内容を，ワークスペースのファイルに書き込みます。',
     'Start the app with `CADL_WORKSPACE_GIT=1` to commit every change of the workspace to git.': 'ワークスペースのすべての変更を git にコミットするには，`CADL_WORKSPACE_GIT=1` を付けてアプリを起動してください。',
     'History in git': 'git の履歴',
+    'Versions in git': 'git の中の版',
+    'The amendable values of each version; ← marks a change from the version before.': '版ごとの改正できる値です。← は，直前の版から変わった値を示します。',
     'The file is too large (limit {n:,} characters).': 'ファイルが大きすぎます（上限は {n:,} 文字）。',
     'The file is not UTF-8 text.': 'ファイルが UTF-8 のテキストではありません。',
     'The file has {n:,} characters; the limit is {m:,}.': 'ファイルは {n:,} 文字です。上限は {m:,} 文字です。',
