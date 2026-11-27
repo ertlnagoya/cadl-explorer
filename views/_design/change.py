@@ -149,10 +149,29 @@ def _declared_section(ir) -> bool:
 _AMEND_LINES = 12
 
 
-def _amend_diff_section(source_a: str, source_b: str):
-    """`cadl amend-diff A B`: is B an amendment of A that its declaration allows?"""
+def _reverted_base(source_b: str, candidates: list) -> str | None:
+    """The source of the version B reverts to (`amendment.reverts`), from the designs
+    at hand or the open workspace design's git history; None when B reverts nothing
+    or that version is not available."""
+    target = (amend.declared_version(source_b) or {}).get("reverts")
+    if not target:
+        return None
+    for text in candidates:
+        if text and (amend.declared_version(text) or {}).get("version") == target:
+            return text
+    name = ss.get("design_ws_name")
+    if name and workspace.git_enabled():
+        try:
+            return workspace.source_at_version(name, target)
+        except Exception:
+            return None
+    return None
+
+
+def _amend_diff_section(source_a: str, source_b: str, base: str | None = None):
+    """`cadl amend-diff A B [--base BASE]`: is B an amendment of A that its declaration allows?"""
     try:
-        report = cached_amend_diff(source_a, source_b)
+        report = cached_amend_diff(source_a, source_b, base)
     except Exception as e:
         report = {"parameters": [], "contracts": [], "findings": [], "errors": [str(e)], "ok": False}
     if report is None:
@@ -564,7 +583,8 @@ def versions(c):
                 with st.expander(f"{t(topic)} ({len(items)})", expanded=len(items) <= 8):
                     for item in items:
                         st.markdown(f"- {_diff_item(item)}")
-        _amend_diff_section(source_a, source_b)
+        _amend_diff_section(source_a, source_b, _reverted_base(
+            source_b, [v for k, v in sources.items() if k != name_b]))
         try:
             amendment = cached_norms_diff(source_a, source_b)
         except Exception as e:

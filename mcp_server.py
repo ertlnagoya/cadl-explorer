@@ -64,7 +64,9 @@ for whom, give your recommendation and what you do not know, and let the
 person choose. A tool's numbers are measurements; your explanation is not
 evidence. In a design that declares the amendment extension, an amendment
 is also the next version (sos.version, amendment.previous, effective
-period and the declared value).
+period and the declared value). To go back to an earlier version's values
+after several amendments, use propose_reversion: one new version that
+declares amendment.reverts, instead of stepping each value back.
 
 Before deciding an amendment, try it when a trial is available: run_trial
 runs the workspace's trial command (a simulator), or record_trial keeps the
@@ -350,6 +352,36 @@ def propose_amendment(name: str, values: Dict[str, float], rationale: str = "",
     """
     try:
         return workspace.add_amendment(name, values, rationale, version or None, effective_period)
+    except ValueError as e:
+        return _fail(e)
+
+
+@mcp.tool()
+def propose_reversion(name: str, to_version: str, rationale: str = "",
+                      version: Optional[str] = "auto",
+                      effective_period: Optional[int] = None) -> Dict[str, Any]:
+    """Propose one new version that restores the values of an earlier version, without applying it.
+
+    Use it to undo a chain of adopted amendments (2 → 2.1 → 2.2 → 2.3) in
+    one step instead of walking each value back one step at a time. Every
+    `# @amend:` value goes back to its value in `to_version` (read from the
+    workspace's git history, so CADL_WORKSPACE_GIT must be on), written in
+    place so the comments stay. The new version is declared with
+    `amendment.previous` the current version and `amendment.reverts`
+    `to_version`; `version` "auto" numbers it (2.3 → 2.4) and a version
+    string names it. `effective_period` sets `amendment.effective.period`;
+    by default it moves on by the constitution's `trial_periods`.
+
+    The constitution's one-name and one-step rules do not hold for a value
+    that returns to its value in `to_version` (its range still does), and the
+    proposal is checked with `cadl amend-diff current new --base <to_version>`
+    (`amend_diff` in the result; needs cadl-lang 0.3.44). The result says
+    whether the constitution allows it and whether a person must decide it.
+    Then run_trial or record_trial, and apply_proposal with the person's
+    reason, or discard_proposal, as for propose_amendment.
+    """
+    try:
+        return workspace.add_reversion(name, to_version, rationale, version or "auto", effective_period)
     except ValueError as e:
         return _fail(e)
 
