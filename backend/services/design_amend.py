@@ -199,8 +199,8 @@ def _masked(source: str) -> List[str]:
     """The lines with each tagged number masked, to see whether anything else changed.
 
     The lines that declare the version (``sos.version``, ``amendment.previous``,
-    ``amendment.effective`` and the ``value:`` of each declared parameter) are
-    left out: :func:`declare` changes them with the values.
+    ``amendment.reverts``, ``amendment.effective`` and the ``value:`` of each
+    declared parameter) are left out: :func:`declare` changes them with the values.
     """
     out = []
     skip = set(_declaration_lines(source).values())
@@ -232,8 +232,8 @@ def _content(line: str) -> bool:
 
 def _declaration_lines(source: str) -> Dict[str, int]:
     """Where the version is declared: 0-based line numbers, keyed by
-    ``version``, ``amendment``, ``previous``, ``effective``, ``effective.period``
-    (a block-form ``effective:``) and ``value:<id>`` for each declared parameter.
+    ``version``, ``amendment``, ``previous``, ``reverts``, ``effective``,
+    ``effective.period`` (a block-form ``effective:``) and ``value:<id>`` for each declared parameter.
     Only the lines directly under ``sos:`` and its ``amendment:`` count."""
     lines = str(source).splitlines()
     found: Dict[str, int] = {}
@@ -266,7 +266,7 @@ def _declaration_lines(source: str) -> Dict[str, int]:
             sub = ind
         if ind == sub and not m.group(2):
             section, param = m.group(3), None
-            if section in ("previous", "effective"):
+            if section in ("previous", "reverts", "effective"):
                 found[section] = i
             continue
         if section == "effective" and ind > sub and m.group(3) == "period":
@@ -280,8 +280,9 @@ def _declaration_lines(source: str) -> Dict[str, int]:
 
 
 def declared_version(source: str) -> Optional[dict]:
-    """``{"version", "previous", "effective"}`` of a design that declares the amendment
-    extension (an ``amendment:`` block), or None."""
+    """``{"version", "previous", "reverts", "effective", "parameters"}`` of a design that
+    declares the amendment extension (an ``amendment:`` block), or None. ``reverts`` is
+    the earlier version whose values this one restores (``amendment.reverts``)."""
     try:
         doc = yaml.safe_load(source or "") or {}
     except yaml.YAMLError:
@@ -293,6 +294,7 @@ def declared_version(source: str) -> Optional[dict]:
     eff = block.get("effective")
     return {"version": None if sos.get("version") is None else str(sos["version"]),
             "previous": None if block.get("previous") is None else str(block["previous"]),
+            "reverts": None if block.get("reverts") is None else str(block["reverts"]),
             "effective": eff if isinstance(eff, dict) else None,
             "parameters": [str(p.get("id")) for p in block.get("parameters") or []
                            if isinstance(p, dict) and p.get("id") is not None]}
@@ -326,7 +328,8 @@ def _scalar(old_rest: str, text: str) -> str:
 
 
 def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
-            previous: Optional[str] = None, effective_period: Optional[int] = None) -> str:
+            previous: Optional[str] = None, effective_period: Optional[int] = None,
+            reverts: Optional[str] = None) -> str:
     """Update the declaration of a version to go with ``set_values(source, new)``.
 
     In a design with an ``amendment:`` block (CADL's amendment extension), the
@@ -334,8 +337,10 @@ def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
     the old one's unit and form), and, when ``version`` is given, ``sos.version``
     becomes ``version``, ``amendment.previous`` becomes ``previous`` (inserted
     when missing) and ``amendment.effective.period`` becomes ``effective_period``
-    when one is given. The rest of the text, comments included, stays as it is,
-    so ``cadl amend-diff old new`` reads it as the next version. A design without
+    when one is given. With ``reverts`` (an earlier version whose values the new
+    one restores), ``amendment.reverts`` becomes ``reverts`` (inserted right
+    after ``previous:`` when missing). The rest of the text, comments included,
+    stays as it is, so ``cadl amend-diff old new`` reads it as the next version. A design without
     the block is returned unchanged.
     """
     if declared_version(source) is None:
@@ -372,6 +377,20 @@ def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
                 ind = " " * (_indent(below) if _indent(below) > _indent(lines[at]) else _indent(lines[at]) + 2)
                 lines.insert(at + 1, f'{ind}previous: "{previous}"\n')
                 where = _declaration_lines("".join(lines))
+        if reverts is not None:
+            if "reverts" in where:
+                put(where["reverts"], _scalar(_KEY.match(lines[where["reverts"]].rstrip("\r\n")).group(4),
+                                              str(reverts)))
+            elif "previous" in where:
+                at = where["previous"]
+                lines.insert(at + 1, f'{" " * _indent(lines[at])}reverts: "{reverts}"\n')
+                where = _declaration_lines("".join(lines))
+            else:
+                at = where["amendment"]
+                below = next((l for l in lines[at + 1:] if _content(l)), "")
+                ind = " " * (_indent(below) if _indent(below) > _indent(lines[at]) else _indent(lines[at]) + 2)
+                lines.insert(at + 1, f'{ind}reverts: "{reverts}"\n')
+                where = _declaration_lines("".join(lines))
         if effective_period is not None:
             i = where.get("effective.period")
             if i is None and "effective" in where:
@@ -388,7 +407,7 @@ def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
                 rest = _KEY.match(lines[i].rstrip("\r\n")).group(4)
                 put(i, re.sub(r"\d+", str(int(effective_period)), rest, count=1))
             else:
-                at = where.get("previous", where["amendment"])
+                at = where.get("reverts", where.get("previous", where["amendment"]))
                 ind = " " * _indent(lines[at]) if at != where["amendment"] else \
                     " " * (_indent(lines[at]) + 2)
                 lines.insert(at + 1, f"{ind}effective: {{ period: {int(effective_period)} }}\n")
@@ -403,16 +422,23 @@ class Gate:
     changed: List[Tuple[str, Optional[float], Optional[float]]]
     for_a_person: List[str]   # changed names whose layer, safety or decided_by needs a person
     decided_by: Dict[str, str] = field(default_factory=dict)   # changed name → the party named
+    reverted: List[str] = field(default_factory=list)   # changed names that return to the base's value
 
 
 def check_amendment(before: str, after: str, constitution: Optional[dict] = None,
-                    one_step: bool = True) -> Gate:
+                    one_step: bool = True, base: Optional[str] = None) -> Gate:
     """Whether ``after`` amends ``before`` as the constitution allows.
 
     Only tagged numbers may change; each line of a name must agree; with a
     constitution, each changed value must stay in its range and (with
     ``one_step``) only one name may change, by exactly one step, as the
     Course D constitution allows.
+
+    ``base`` is the source of an earlier version that ``after`` reverts to
+    (``amendment.reverts``). A changed value whose new value is its value in
+    ``base`` restores that version, so it is exempt from the one-name and
+    one-step rules (its range is still checked); it is listed in
+    ``Gate.reverted``. The other changed values are checked as usual.
     """
     reasons = []
     if _masked(before) != _masked(after):
@@ -424,11 +450,16 @@ def check_amendment(before: str, after: str, constitution: Optional[dict] = None
     old, new = values(before), values(after)
     changed = [(k, old.get(k), new.get(k)) for k in sorted(set(old) | set(new))
                if old.get(k) is None or new.get(k) is None or abs(old[k] - new[k]) > 1e-9]
+    restored = values(base) if base is not None else {}
+    reverted = [k for k, _, b in changed
+                if b is not None and restored.get(k) is not None and abs(restored[k] - b) <= 1e-9]
+    held = [c for c in changed if c[0] not in reverted]
     if not changed:
         reasons.append("No amendable value changed.")
-    elif one_step and constitution is not None and len(changed) > 1:
-        reasons.append(f"{len(changed)} values change at once ({', '.join(c[0] for c in changed)}); "
-                       "the constitution allows one per amendment.")
+    elif one_step and constitution is not None and len(held) > 1:
+        reasons.append(f"{len(held)} values change at once ({', '.join(c[0] for c in held)}); "
+                       "the constitution allows one per amendment"
+                       + (" (besides the values restored from the base version)." if reverted else "."))
     for_a_person = []
     if constitution is not None:
         for name, a, b in changed:
@@ -440,14 +471,15 @@ def check_amendment(before: str, after: str, constitution: Optional[dict] = None
                 reasons.append(f"`{name}` = {fmt(b)} is outside {fmt(_num(spec, 'min'))}–"
                                f"{fmt(_num(spec, 'max'))}.")
             step = _num(spec, "step")
-            if one_step and step and a is not None and b is not None and abs(abs(b - a) - step) > 1e-9:
+            if one_step and step and a is not None and b is not None and name not in reverted \
+                    and abs(abs(b - a) - step) > 1e-9:
                 reasons.append(f"`{name}` moves by {fmt(abs(b - a))}; the constitution allows "
                                f"{fmt(step)} at a time.")
             if needs_human(spec):
                 for_a_person.append(name)
     deciders = {n: decider(constitution.get(n)) for n, _, _ in changed
                 if constitution is not None and decider(constitution.get(n))}
-    return Gate(not reasons, reasons, changed, for_a_person, deciders)
+    return Gate(not reasons, reasons, changed, for_a_person, deciders, reverted)
 
 
 def layer_of(spec: Optional[dict]) -> str:

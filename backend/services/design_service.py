@@ -18,6 +18,7 @@ import functools
 import html
 import importlib
 import importlib.util
+import inspect
 import hashlib
 import io
 import json
@@ -1685,7 +1686,7 @@ def norms_diff(old_source: str, new_source: str) -> Optional[dict]:
             return {"contracts": [], "errors": [str(e)], "ok": False}
 
 
-def amend_diff(old_source: str, new_source: str) -> Optional[dict]:
+def amend_diff(old_source: str, new_source: str, base_source: Optional[str] = None) -> Optional[dict]:
     """`cadl amend-diff A B` (cadl 0.3.32, Appendix K): the parameters that the
     amendment from A to B changes, checked against the declaration of A (range,
     steps, `max_steps`), the contracts they change with the transitional rule
@@ -1698,6 +1699,14 @@ def amend_diff(old_source: str, new_source: str) -> Optional[dict]:
     `previous`, `effective`, `decisions` when B is valid). As in cadl, A that
     cannot be read (a parse or type-check error) is reported under
     `invalid_old`; B that cannot be read is an error of the amendment.
+
+    ``base_source`` is the version B reverts to (`amendment.reverts`), as
+    `cadl amend-diff A B --base BASE` (cadl 0.3.44) reads it: a parameter that
+    B returns to its value in the base is not held to the step limit of A
+    (finding `parameter_reverted`), and the result gains `reverts` and
+    `base_version`. A base that cannot be read is an error of the report.
+    With a cadl whose `diff_versions` takes no base, the base is not used and
+    a warning (`base_unsupported`) says so.
     """
     if "amendment" not in (extensions_in_effect(old_source) | extensions_in_effect(new_source)):
         return None
@@ -1734,7 +1743,33 @@ def amend_diff(old_source: str, new_source: str) -> Optional[dict]:
         new = load("B", new_source)
     except ValueError as e:
         return {"parameters": [], "contracts": [], "findings": [], "errors": [str(e)], "ok": False}
-    return diff_versions(old, new)
+    if base_source is None:
+        return diff_versions(old, new)
+    if not amend_diff_takes_base():
+        report = diff_versions(old, new)
+        text = ("a base version is given, but the installed cadl cannot check reversions "
+                "(amend-diff --base needs cadl-lang 0.3.44), so the base is not used")
+        report.setdefault("findings", []).append(
+            {"level": "warning", "kind": "base_unsupported", "text": text})
+        return report
+    try:
+        base = load("BASE", base_source)
+    except ValueError as e:
+        return {"parameters": [], "contracts": [], "findings": [],
+                "errors": [f"The base version cannot be read: {e}"], "ok": False}
+    return diff_versions(old, new, base)
+
+
+def amend_diff_takes_base() -> bool:
+    """Whether the installed cadl checks reversions (`amend-diff --base`, cadl 0.3.44)."""
+    try:
+        from cadl.amendment import diff_versions
+    except ImportError:
+        return False
+    try:
+        return "base" in inspect.signature(diff_versions).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def regime_bindings(ir: dict) -> Optional[List[dict]]:

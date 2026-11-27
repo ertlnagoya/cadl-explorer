@@ -17,6 +17,8 @@ In a design that declares CADL's amendment extension (`amendment:`),
 `add_amendment` also writes the next version: `sos.version`,
 `amendment.previous`, `amendment.effective.period` and the declared
 `value:` of the parameter, so that `cadl amend-diff` reads the change.
+`add_reversion` writes one next version that restores the values of an
+earlier version (read from git) and declares `amendment.reverts`.
 
 A constitution for the design's `# @amend:` values is read from
 `<name>.constitution.yaml`, or else `constitution.yaml`, in the folder.
@@ -197,6 +199,20 @@ def version_history(name: str, limit: int = 100) -> dict:
     ``CADL_WORKSPACE_GIT`` there is no history and the lists are empty.
     """
     commits = history(name, limit)
+    versions = _versions(name, commits)
+    pairs = [(v["version"], v["source"]) for v in versions]
+    try:
+        const = constitution(name)
+    except WorkspaceError:
+        const = None
+    return {"commits": commits,
+            "versions": [{k: v[k] for k in ("version", "commit", "time", "message")} for v in versions],
+            "values": amend.history(pairs), "movement": amend.movement(pairs, const),
+            **({} if git_enabled() else {"note": "Start with CADL_WORKSPACE_GIT=1 to keep the history."})}
+
+
+def _versions(name: str, commits: List[dict]) -> List[dict]:
+    """The versions held by ``commits`` (newest first), oldest first, each with its source."""
     versions = []
     for c in reversed(commits):
         try:
@@ -218,15 +234,25 @@ def version_history(name: str, limit: int = 100) -> dict:
             continue
         versions.append({"key": key, "version": label or c["commit"], "commit": c["commit"],
                          "time": c["time"], "message": c["message"], "source": text})
-    pairs = [(v["version"], v["source"]) for v in versions]
-    try:
-        const = constitution(name)
-    except WorkspaceError:
-        const = None
-    return {"commits": commits,
-            "versions": [{k: v[k] for k in ("version", "commit", "time", "message")} for v in versions],
-            "values": amend.history(pairs), "movement": amend.movement(pairs, const),
-            **({} if git_enabled() else {"note": "Start with CADL_WORKSPACE_GIT=1 to keep the history."})}
+    return versions
+
+
+def source_at_version(name: str, version: str) -> str:
+    """The design's source when it first declared ``sos.version`` ``version``, from git.
+
+    Needs ``CADL_WORKSPACE_GIT``, since only the history in git keeps the
+    earlier versions."""
+    if not git_enabled():
+        raise WorkspaceError("The sources of earlier versions are kept only in git: start with "
+                             "CADL_WORKSPACE_GIT=1 so that each version is committed.")
+    read(name)
+    wanted = str(version or "").strip()
+    versions = _versions(name, history(name, 1000))
+    for v in versions:
+        if v["version"] == wanted:
+            return v["source"]
+    known = ", ".join(v["version"] for v in versions) or "none"
+    raise WorkspaceError(f"No version `{wanted}` of `{name}` in git. Versions: {known}.")
 
 
 def version_source(name: str, commit: str) -> str:
@@ -443,6 +469,7 @@ def _message(name: str, entry: dict, prefix: str, reason: str) -> str:
     trial = entry.get("trial") or {}
     return (f"{_check_name(name)}: {prefix}" + "; ".join(c["summary"] for c in entry["changes"])
             + (f" (version {version['to']}, previous {version['from']}"
+               + (f", reverts {version['reverts']}" if version.get("reverts") else "")
                + (f", effective period {version['effective_period']}" if version.get("effective_period")
                   is not None else "") + ")" if version.get("to") else "")
             + (f"\n\nReason: {reason}" if reason else "")
@@ -724,6 +751,99 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "",
     }
 
 
+def add_reversion(name: str, to_version: str, rationale: str = "",
+                  version: Union[None, bool, str] = "auto", effective_period: Optional[int] = None,
+                  evaluator: Optional[Evaluator] = None) -> dict:
+    """Propose one new version that restores the `# @amend:` values of an earlier version.
+
+    The source of ``to_version`` is read from git (``CADL_WORKSPACE_GIT``).
+    Every tagged value goes back to its value there, written in place, and
+    the next version (``version`` "auto": the next number, or a version) is
+    declared with ``amendment.previous`` the current version and
+    ``amendment.reverts`` ``to_version``. The constitution's gate is applied
+    with that version as the base, so the restored values are exempt from
+    the one-name and one-step rules (their range is still checked), and
+    ``cadl amend-diff current new --base that`` is run when the installed
+    cadl can (0.3.44). The proposal is stored like that of ``add_amendment``,
+    so ``apply_proposal``, ``record_trial``, ``run_trial`` and
+    ``discard_proposal`` take it.
+    """
+    source = read(name)
+    declared = amend.declared_version(source)
+    if declared is None:
+        raise WorkspaceError(f"`{name}` does not declare the amendment extension (an `amendment:` "
+                             "block), so a reversion cannot be declared.")
+    target = str(to_version or "").strip()
+    if not target:
+        raise WorkspaceError("Name the earlier version to revert to.")
+    if target == declared["version"]:
+        raise WorkspaceError(f"`{name}` is already version {target}; name an earlier version.")
+    if version in (None, False, ""):
+        raise WorkspaceError("A reversion is a new version: give `version` (\"auto\" numbers it).")
+    base = source_at_version(name, target)
+    restored, current = amend.values(base), amend.values(source)
+    moves = {n: v for n, v in restored.items() if n in current and abs(current[n] - v) > 1e-9}
+    if not moves:
+        raise WorkspaceError(f"`{name}` already holds the `# @amend:` values of version {target}; "
+                             "there is nothing to revert.")
+    try:
+        tagged = amend.set_values(source, moves)
+        bump = _next_declaration(name, source, version, effective_period)
+        bump = {**bump, "reverts": target}
+        new_source = amend.declare(tagged, moves, bump["to"], bump["from"], bump["effective_period"],
+                                   reverts=target)
+    except (TypeError, ValueError) as e:
+        raise WorkspaceError(str(e)) from e
+    const = constitution(name)
+    gate = amend.check_amendment(source, new_source, const, base=base)
+    changes = [ops.Change(f"Reverted {n}: {amend.fmt(a)} → {amend.fmt(b)} (the value of version {target})",
+                          "Amendments", n) for n, a, b in gate.changed]
+    proposal = ops.compare(source, new_source, changes)
+    acceptable = proposal.acceptable and gate.ok
+    proposal_id = _store(name, source, proposal, rationale, for_a_person=gate.for_a_person,
+                         decided_by=gate.decided_by, gate=gate.reasons, version=bump)
+    trial = _evaluate(name, proposal_id, source, new_source, evaluator) if evaluator else None
+    try:
+        report = ds.amend_diff(source, new_source, base)
+    except Exception as e:  # the check is reported, it does not stop the proposal
+        report = {"ok": False, "errors": [f"amend-diff failed: {type(e).__name__}: {e}"]}
+    checked = ds.amend_diff_takes_base()
+    untouched = sorted(set(current) - set(restored))
+    return {
+        "proposal_id": proposal_id, "applied": False,
+        "reverts": target, "restored": moves,
+        "changes": [c.summary for c in changes],
+        "version": bump,
+        **({"trial": trial} if trial else {}),
+        "constitution": constitution_path(name).name if const is not None else None,
+        "constitution_allows": gate.ok, "constitution_problems": gate.reasons,
+        "decided_by_a_person": gate.for_a_person,
+        **({"decided_by": gate.decided_by} if gate.decided_by else {}),
+        **({"amend_diff": {"ok": report.get("ok"), "errors": report.get("errors") or [],
+                           "warnings": [f["text"] for f in report.get("findings") or []
+                                        if f.get("level") == "warning"]}}
+           if report is not None else {}),
+        **({} if checked else {"note": "The installed cadl cannot check a reversion (amend-diff "
+                                       "--base and amendment.reverts need cadl-lang 0.3.44)."}),
+        **({"not_in_that_version": untouched} if untouched else {}),
+        "problems_introduced": [_finding(f) for f in proposal.introduced],
+        "problems_resolved": [_finding(f) for f in proposal.resolved],
+        "errors_after": proposal.errors_after, "acceptable": acceptable,
+        "next": (
+            "The constitution leaves " + ", ".join(
+                f"{n} (decided by {gate.decided_by[n]})" if n in gate.decided_by else n
+                for n in gate.for_a_person) + " to a person. Show them "
+            "the reversion and what it does, ask for their decision and reason, and pass the reason "
+            "(and any assumptions) to apply_proposal."
+            if acceptable and gate.for_a_person else
+            "Show the reversion to the person. Apply with apply_proposal only after they agree, "
+            "and pass their reason so the decision is recorded."
+            if acceptable else
+            "This reversion does not pass (see constitution_problems or problems_introduced), "
+            "so apply_proposal will refuse it."),
+    }
+
+
 def _decisions_path(name: str) -> Path:
     return root() / f"{_check_name(name)}.decisions.md"
 
@@ -745,6 +865,7 @@ def _write_decisions(name: str, entries: List[dict]) -> None:
         version = d.get("version") or {}
         if version.get("to"):
             lines += [f"Version {version['to']} (previous {version['from']}"
+                      + (f", reverts {version['reverts']}" if version.get("reverts") else "")
                       + (f", effective from period {version['effective_period']}"
                          if version.get("effective_period") is not None else "")
                       + (")." if outcome == "applied" else ") — not adopted."), ""]

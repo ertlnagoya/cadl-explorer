@@ -51,7 +51,10 @@ pandas>=2.0.0
 # verifies; 0.3.38 reads decisions 0.2 (the layers of a party, what fulfils a
 # follow-up). The workspace's amendment loop needs 0.3.43: with older
 # releases `amend_diff` cannot read a version that declares amendment 0.1, and
-# K-9 (the declared value against its location) is not checked.
+# K-9 (the declared value against its location) is not checked. A reversion
+# (`propose_reversion`, `amendment.reverts:`) is checked with 0.3.44
+# (`amend-diff --base`); with 0.3.43 the reversion is proposed but cadl does
+# not read `reverts:`, so the proposal reports the check as unavailable.
 cadl-lang>=0.3.43
 
 # Code editor with line numbers and YAML highlighting on the Designer page.

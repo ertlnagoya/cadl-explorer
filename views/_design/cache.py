@@ -45,8 +45,8 @@ def cached_norms_diff(old_source: str, new_source: str):
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_amend_diff(old_source: str, new_source: str):
-    return ds.amend_diff(old_source, new_source)
+def cached_amend_diff(old_source: str, new_source: str, base_source: str | None = None):
+    return ds.amend_diff(old_source, new_source, base_source)
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
