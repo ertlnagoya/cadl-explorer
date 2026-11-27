@@ -58,10 +58,19 @@ Work in small steps and keep the person in charge:
 Values marked `# @amend:<name>` (Robot Town, Course D) are changed with
 list_amendables and propose_amendment, which keep the comments and check
 the constitution. When the constitution leaves a change to a person (a
-contract or regulation layer, or a safety-related rule), do not decide it:
-lay out what it changes and for whom, give your recommendation and what
-you do not know, and let the person choose. A tool's numbers are
-measurements; your explanation is not evidence.
+contract or regulation layer, a safety-related rule, or a value whose
+`decided_by` names someone), do not decide it: lay out what it changes and
+for whom, give your recommendation and what you do not know, and let the
+person choose. A tool's numbers are measurements; your explanation is not
+evidence. In a design that declares the amendment extension, an amendment
+is also the next version (sos.version, amendment.previous, effective
+period and the declared value).
+
+Before deciding an amendment, try it when a trial is available: run_trial
+runs the workspace's trial command (a simulator), or record_trial keeps the
+numbers of a trial run elsewhere. When the person turns a proposal down,
+call discard_proposal with their reason: rejections stay in the decision
+record too. get_history lists the versions and how the values moved.
 
 Never write CADL source by hand; use propose_changes. Expressions in
 assume / guarantee are CADL expressions such as `delivery_time <= 300s`
@@ -319,25 +328,36 @@ def list_amendables(name: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def propose_amendment(name: str, values: Dict[str, float], rationale: str = "") -> Dict[str, Any]:
+def propose_amendment(name: str, values: Dict[str, float], rationale: str = "",
+                      version: Optional[str] = "auto",
+                      effective_period: Optional[int] = None) -> Dict[str, Any]:
     """Propose new values for `# @amend:` names, without applying them.
 
     Every line marked with a name gets the new value, written in place, so
     the comments and the rest of the file stay as they are (propose_changes
     would rewrite the file without its comments). The result says whether
     the constitution allows it (only marked numbers change, one name, one
-    step, within the range) and whether a person must decide it. Then
-    apply_proposal, with the person's reason, or discard_proposal.
+    step, within the range) and whether a person must decide it (and who,
+    when the constitution names them in `decided_by`). Then run_trial or
+    record_trial if the change is to be tried, and apply_proposal, with the
+    person's reason, or discard_proposal.
+
+    When the design declares the amendment extension (`amendment:`), the
+    proposal is the next version: `version` "auto" numbers it (2 → 2.1 →
+    2.2), a version string names it, and an empty string keeps the version.
+    `effective_period` sets `amendment.effective.period`; by default it moves
+    on by the constitution's `trial_periods`.
     """
     try:
-        return workspace.add_amendment(name, values, rationale)
+        return workspace.add_amendment(name, values, rationale, version or None, effective_period)
     except ValueError as e:
         return _fail(e)
 
 
 @mcp.tool()
 def get_decisions(name: str) -> Dict[str, Any]:
-    """The decision record: each applied proposal, why it was proposed, and the person's reason."""
+    """The decision record: each applied or rejected proposal (`outcome`), why it was
+    proposed, its trial results, and the person's reason."""
     try:
         workspace.read(name)
         return {"decisions": workspace.decisions(name)}
@@ -346,13 +366,63 @@ def get_decisions(name: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def discard_proposal(name: str, proposal_id: str) -> Dict[str, Any]:
-    """Drop a pending proposal the person does not want."""
+def discard_proposal(name: str, proposal_id: str, reason: str = "",
+                     assumptions: Optional[List[str]] = None, record: bool = True) -> Dict[str, Any]:
+    """Drop a pending proposal the person does not want.
+
+    The proposal is kept in the decision record as rejected, with the
+    person's reason (in their words), their assumptions and any trial
+    results. Set record to false only for a proposal made by mistake.
+    """
     try:
-        workspace.discard_proposal(name, proposal_id)
+        return workspace.discard_proposal(name, proposal_id, reason, assumptions, record)
     except ValueError as e:
         return _fail(e)
-    return {"discarded": proposal_id}
+
+
+@mcp.tool()
+def record_trial(name: str, proposal_id: str, results: Dict[str, float],
+                 passed: Optional[bool] = None, note: str = "", by: str = "") -> Dict[str, Any]:
+    """Keep the numbers of a trial of a pending proposal (a simulation, a pilot).
+
+    results maps names to numbers (for example {"late_rate": 0.012}).
+    passed says whether the trial met its criteria, when it has any. The
+    trial goes into the decision record when the proposal is applied or
+    discarded. Report only numbers the trial produced.
+    """
+    try:
+        return {"proposal_id": proposal_id,
+                "trial": workspace.record_trial(name, proposal_id, results, passed, note, by)}
+    except ValueError as e:
+        return _fail(e)
+
+
+@mcp.tool()
+def run_trial(name: str, proposal_id: str) -> Dict[str, Any]:
+    """Try a pending proposal with the workspace's trial command, and keep its numbers.
+
+    The command is set by whoever runs this server (CADL_TRIAL_COMMAND),
+    for example a simulator. It gets the design before and after the
+    proposal and prints its results; they are recorded as with record_trial.
+    """
+    try:
+        return {"proposal_id": proposal_id, "trial": workspace.run_trial(name, proposal_id)}
+    except ValueError as e:
+        return _fail(e)
+
+
+@mcp.tool()
+def get_history(name: str, limit: int = 50) -> Dict[str, Any]:
+    """The design's history in git: its commits, its versions, and how the
+    `# @amend:` values moved from version to version.
+
+    Needs the workspace to be started with CADL_WORKSPACE_GIT=1.
+    """
+    try:
+        workspace.read(name)
+        return workspace.version_history(name, limit)
+    except ValueError as e:
+        return _fail(e)
 
 
 @mcp.tool()

@@ -24,6 +24,10 @@ import yaml
 TAG = re.compile(r"#\s*@amend:(\w+)")          # as in cadl-robot-town: no space after the colon
 NUM = re.compile(r"\d+(?:\.\d+)?")
 LAYERS_BY_HUMAN = ("contract", "regulation")
+# A `decided_by:` naming one of these leaves the decision to the council's vote
+# (cadl-robot-town, the `rule` layer of CADL's amendment extension); any other
+# name is a person or a role, who decides the change themself.
+COUNCILS = ("COUNCIL",)
 
 
 @dataclass
@@ -109,9 +113,18 @@ def in_range(value: float, spec: dict) -> bool:
     return (lo is None or value >= lo - 1e-9) and (hi is None or value <= hi + 1e-9)
 
 
+def decider(spec: Optional[dict]) -> Optional[str]:
+    """The party the constitution names in ``decided_by:``, or None when it names none."""
+    who = (spec or {}).get("decided_by")
+    return str(who).strip() or None if who is not None else None
+
+
 def needs_human(spec: dict) -> bool:
-    """Contract and regulation layers, and safety-related rules, are decided by a person."""
-    return str(spec.get("layer", "rule")) in LAYERS_BY_HUMAN or bool(spec.get("safety"))
+    """Contract and regulation layers, safety-related rules, and values whose
+    ``decided_by:`` names someone other than the council, are decided by a person."""
+    who = decider(spec)
+    return (str(spec.get("layer", "rule")) in LAYERS_BY_HUMAN or bool(spec.get("safety"))
+            or (who is not None and who.upper() not in COUNCILS))
 
 
 def findings(source: str, constitution: Optional[dict] = None) -> List[str]:
@@ -183,9 +196,17 @@ def set_values(source: str, new: Dict[str, float]) -> str:
 
 
 def _masked(source: str) -> List[str]:
-    """The lines with each tagged number masked, to see whether anything else changed."""
+    """The lines with each tagged number masked, to see whether anything else changed.
+
+    The lines that declare the version (``sos.version``, ``amendment.previous``,
+    ``amendment.effective`` and the ``value:`` of each declared parameter) are
+    left out: :func:`declare` changes them with the values.
+    """
     out = []
-    for line in str(source).splitlines():
+    skip = set(_declaration_lines(source).values())
+    for i, line in enumerate(str(source).splitlines()):
+        if i in skip:
+            continue
         m = TAG.search(line)
         if m:
             line = NUM.sub("<v>", line[:m.start()], count=1).rstrip() + " " + line[m.start():]
@@ -195,13 +216,193 @@ def _masked(source: str) -> List[str]:
     return out
 
 
+# ── The declaration of the version (CADL's amendment extension, Appendix K) ──
+
+_KEY = re.compile(r"^(\s*)(-\s+)?([A-Za-z_]\w*)\s*:(.*)$")
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _content(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _declaration_lines(source: str) -> Dict[str, int]:
+    """Where the version is declared: 0-based line numbers, keyed by
+    ``version``, ``amendment``, ``previous``, ``effective``, ``effective.period``
+    (a block-form ``effective:``) and ``value:<id>`` for each declared parameter.
+    Only the lines directly under ``sos:`` and its ``amendment:`` count."""
+    lines = str(source).splitlines()
+    found: Dict[str, int] = {}
+    sos_at = next((i for i, l in enumerate(lines) if re.match(r"^sos\s*:\s*(#.*)?$", l)), None)
+    if sos_at is None:
+        return found
+    child = next((_indent(l) for l in lines[sos_at + 1:] if _content(l)), None)
+    if not child:
+        return found
+    amend_at, sub, section, param, param_indent = None, None, None, None, None
+    for i in range(sos_at + 1, len(lines)):
+        line = lines[i]
+        if not _content(line):
+            continue
+        ind = _indent(line)
+        if ind < child:
+            break
+        m = _KEY.match(line)
+        if ind == child:
+            amend_at = None
+            if m and not m.group(2) and m.group(3) == "version":
+                found["version"] = i
+            elif m and not m.group(2) and m.group(3) == "amendment":
+                amend_at, sub, section, param = i, None, None, None
+                found["amendment"] = i
+            continue
+        if amend_at is None or not m:
+            continue
+        if sub is None:
+            sub = ind
+        if ind == sub and not m.group(2):
+            section, param = m.group(3), None
+            if section in ("previous", "effective"):
+                found[section] = i
+            continue
+        if section == "effective" and ind > sub and m.group(3) == "period":
+            found["effective.period"] = i
+        elif section == "parameters" and m.group(2) and m.group(3) == "id":
+            param, param_indent = m.group(4).split("#")[0].strip().strip("\"'"), ind + len(m.group(2))
+        elif section == "parameters" and param and not m.group(2) and m.group(3) == "value" \
+                and ind == param_indent:
+            found[f"value:{param}"] = i
+    return found
+
+
+def declared_version(source: str) -> Optional[dict]:
+    """``{"version", "previous", "effective"}`` of a design that declares the amendment
+    extension (an ``amendment:`` block), or None."""
+    try:
+        doc = yaml.safe_load(source or "") or {}
+    except yaml.YAMLError:
+        return None
+    sos = doc.get("sos") if isinstance(doc, dict) else None
+    if not isinstance(sos, dict) or not isinstance(sos.get("amendment"), dict):
+        return None
+    block = sos["amendment"]
+    eff = block.get("effective")
+    return {"version": None if sos.get("version") is None else str(sos["version"]),
+            "previous": None if block.get("previous") is None else str(block["previous"]),
+            "effective": eff if isinstance(eff, dict) else None,
+            "parameters": [str(p.get("id")) for p in block.get("parameters") or []
+                           if isinstance(p, dict) and p.get("id") is not None]}
+
+
+def next_version(version: Optional[str]) -> str:
+    """The version after ``version``: the last number goes up by one (``2.1`` → ``2.2``,
+    ``v3`` → ``v4``), and a version of one number gets ``.1`` (``2`` → ``2.1``), as the
+    councils of care-night-sos and cadl-robot-town number their amendments."""
+    text = str(version or "").strip()
+    if not text:
+        return "1"
+    if re.fullmatch(r"\d+", text):
+        return text + ".1"
+    m = re.search(r"(\d+)(\D*)$", text)
+    if m is None:
+        return text + ".1"
+    return text[:m.start(1)] + str(int(m.group(1)) + 1) + m.group(2)
+
+
+def _scalar(old_rest: str, text: str) -> str:
+    """``text`` in place of the scalar in ``key:<old_rest>``, keeping the spacing, the
+    comment and the old quotes. An unquoted old scalar stays unquoted only when ``text``
+    is a whole number; otherwise it is quoted, since ``2.10`` unquoted would read as 2.1."""
+    body, sep, comment = old_rest.partition("#")
+    old = body.strip()
+    lead = body[:len(body) - len(body.lstrip())] or " "
+    gap = body[len(body.rstrip()):] if sep else ""
+    q = old[0] if old[:1] in ("'", '"') else ("" if re.fullmatch(r"\d+", text) else '"')
+    return f"{lead}{q}{text}{q}{gap}{sep}{comment}"
+
+
+def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
+            previous: Optional[str] = None, effective_period: Optional[int] = None) -> str:
+    """Update the declaration of a version to go with ``set_values(source, new)``.
+
+    In a design with an ``amendment:`` block (CADL's amendment extension), the
+    ``value:`` of each declared parameter in ``new`` becomes its new value (in
+    the old one's unit and form), and, when ``version`` is given, ``sos.version``
+    becomes ``version``, ``amendment.previous`` becomes ``previous`` (inserted
+    when missing) and ``amendment.effective.period`` becomes ``effective_period``
+    when one is given. The rest of the text, comments included, stays as it is,
+    so ``cadl amend-diff old new`` reads it as the next version. A design without
+    the block is returned unchanged.
+    """
+    if declared_version(source) is None:
+        return source
+    lines = str(source).splitlines(keepends=True)
+    where = _declaration_lines(source)
+
+    def put(i: int, text: str) -> None:
+        line = lines[i]
+        end = line[len(line.rstrip("\r\n")):]
+        m = _KEY.match(line.rstrip("\r\n"))
+        lines[i] = line[:len(line.rstrip("\r\n")) - len(m.group(4))] + text + end
+
+    for name, value in new.items():
+        i = where.get(f"value:{name}")
+        if i is None:
+            continue
+        rest = _KEY.match(lines[i].rstrip("\r\n")).group(4)
+        n = NUM.search(rest.split("#")[0])
+        if n is None:
+            continue
+        put(i, rest[:n.start()] + _plain(float(value), keep_point="." in n.group()) + rest[n.end():])
+    if version is not None:
+        if "version" in where:
+            put(where["version"], _scalar(_KEY.match(lines[where["version"]].rstrip("\r\n")).group(4),
+                                          str(version)))
+        if previous is not None:
+            if "previous" in where:
+                put(where["previous"], _scalar(_KEY.match(lines[where["previous"]].rstrip("\r\n")).group(4),
+                                               str(previous)))
+            else:
+                at = where["amendment"]
+                below = next((l for l in lines[at + 1:] if _content(l)), "")
+                ind = " " * (_indent(below) if _indent(below) > _indent(lines[at]) else _indent(lines[at]) + 2)
+                lines.insert(at + 1, f'{ind}previous: "{previous}"\n')
+                where = _declaration_lines("".join(lines))
+        if effective_period is not None:
+            i = where.get("effective.period")
+            if i is None and "effective" in where:
+                i = where["effective"]
+                rest = _KEY.match(lines[i].rstrip("\r\n")).group(4)
+                new_rest, n = re.subn(r"(period\s*:\s*)\d+", lambda m: m.group(1) + str(int(effective_period)),
+                                      rest, count=1)
+                if n:
+                    put(i, new_rest)
+                else:
+                    raise ValueError("amendment.effective does not give a period, so its period "
+                                     "cannot be changed.")
+            elif i is not None:
+                rest = _KEY.match(lines[i].rstrip("\r\n")).group(4)
+                put(i, re.sub(r"\d+", str(int(effective_period)), rest, count=1))
+            else:
+                at = where.get("previous", where["amendment"])
+                ind = " " * _indent(lines[at]) if at != where["amendment"] else \
+                    " " * (_indent(lines[at]) + 2)
+                lines.insert(at + 1, f"{ind}effective: {{ period: {int(effective_period)} }}\n")
+    return "".join(lines)
+
+
 @dataclass
 class Gate:
     """The constitution's verdict on going from one text to another."""
     ok: bool
     reasons: List[str]
     changed: List[Tuple[str, Optional[float], Optional[float]]]
-    for_a_person: List[str]   # changed names whose layer, or safety, needs a person's decision
+    for_a_person: List[str]   # changed names whose layer, safety or decided_by needs a person
+    decided_by: Dict[str, str] = field(default_factory=dict)   # changed name → the party named
 
 
 def check_amendment(before: str, after: str, constitution: Optional[dict] = None,
@@ -244,14 +445,17 @@ def check_amendment(before: str, after: str, constitution: Optional[dict] = None
                                f"{fmt(step)} at a time.")
             if needs_human(spec):
                 for_a_person.append(name)
-    return Gate(not reasons, reasons, changed, for_a_person)
+    deciders = {n: decider(constitution.get(n)) for n, _, _ in changed
+                if constitution is not None and decider(constitution.get(n))}
+    return Gate(not reasons, reasons, changed, for_a_person, deciders)
 
 
 def layer_of(spec: Optional[dict]) -> str:
     if not spec:
         return "—"
     layer = str(spec.get("layer", "rule"))
-    return layer + (", safety" if spec.get("safety") else "")
+    return (layer + (", safety" if spec.get("safety") else "")
+            + (f", decided by {decider(spec)}" if decider(spec) else ""))
 
 
 def history(versions: List[Tuple[str, str]]) -> List[Dict[str, str]]:
@@ -313,5 +517,6 @@ def movement(versions: List[Tuple[str, str]], constitution: Optional[dict] = Non
 
 
 __all__ = ["Amendable", "Occurrence", "Gate", "amendables", "values", "load_constitution",
-           "findings", "set_values", "check_amendment", "needs_human", "layer_of", "history",
+           "findings", "set_values", "check_amendment", "needs_human", "decider", "declare",
+           "declared_version", "next_version", "layer_of", "history",
            "movement", "steps", "fmt"]
