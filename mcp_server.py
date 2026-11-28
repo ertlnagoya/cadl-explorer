@@ -290,7 +290,8 @@ def propose_changes(name: str, changes: List[Dict[str, Any]], rationale: str = "
 
 @mcp.tool()
 def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
-                   reason: str = "", assumptions: Optional[List[str]] = None) -> Dict[str, Any]:
+                   reason: str = "", assumptions: Optional[List[str]] = None,
+                   decided_by: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Apply a proposal the person has agreed to, and record their decision.
 
     The changes are recorded as not yet reviewed, so the Designer page
@@ -301,12 +302,20 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
     into the decision record (`<name>.decisions.md`). An amendment the
     constitution leaves to a person is refused without a reason.
 
+    decided_by: who decided, {"kind": "person" | "rule" | "assistant",
+    "name": "..."} (name optional, e.g. "FACILITY_MANAGER" or "council rule
+    substitute"). Give it when you know: "person" when the person decided,
+    "rule" when a fixed rule or script decided in their place, "assistant"
+    when you decided. It is recorded with the decision; left out, the
+    record says nothing about who decided.
+
     A proposal that adds an error is refused. Set allow_errors only when
     the person, having seen the error, asked to apply it anyway (for
     example to fix it in a following step).
     """
     try:
-        result = workspace.apply_proposal(name, proposal_id, allow_errors, reason, assumptions)
+        result = workspace.apply_proposal(name, proposal_id, allow_errors, reason, assumptions,
+                                          decided_by)
     except ValueError as e:
         return _fail(e)
     result["outline"] = _outline(ds.analyze(workspace.read(name)))
@@ -346,9 +355,13 @@ def propose_amendment(name: str, values: Dict[str, float], rationale: str = "",
 
     When the design declares the amendment extension (`amendment:`), the
     proposal is the next version: `version` "auto" numbers it (2 → 2.1 →
-    2.2), a version string names it, and an empty string keeps the version.
-    `effective_period` sets `amendment.effective.period`; by default it moves
-    on by the constitution's `trial_periods`.
+    2.2, or as `amendment.versioning.scheme` says), a version string names
+    it, and an empty string keeps the version. `effective_period` sets
+    `amendment.effective.period`; by default it moves on by
+    `amendment.versioning.period_step`, else the constitution's
+    `trial_periods`. A version or period that breaks the design's
+    `amendment.versioning` is reported in `versioning_problems`
+    (`version_not_next`, `period_too_soon`) and cannot be applied.
     """
     try:
         return workspace.add_amendment(name, values, rationale, version or None, effective_period)
@@ -365,7 +378,8 @@ def propose_reversion(name: str, to_version: str, rationale: str = "",
     Use it to undo a chain of adopted amendments (2 → 2.1 → 2.2 → 2.3) in
     one step instead of walking each value back one step at a time. Every
     `# @amend:` value goes back to its value in `to_version` (read from the
-    workspace's git history, so CADL_WORKSPACE_GIT must be on), written in
+    workspace's git history, or from its snapshots in `<name>.versions.json`
+    when git is off), written in
     place so the comments stay. The new version is declared with
     `amendment.previous` the current version and `amendment.reverts`
     `to_version`; `version` "auto" numbers it (2.3 → 2.4) and a version
@@ -399,15 +413,17 @@ def get_decisions(name: str) -> Dict[str, Any]:
 
 @mcp.tool()
 def discard_proposal(name: str, proposal_id: str, reason: str = "",
-                     assumptions: Optional[List[str]] = None, record: bool = True) -> Dict[str, Any]:
+                     assumptions: Optional[List[str]] = None, record: bool = True,
+                     decided_by: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Drop a pending proposal the person does not want.
 
     The proposal is kept in the decision record as rejected, with the
     person's reason (in their words), their assumptions and any trial
     results. Set record to false only for a proposal made by mistake.
+    decided_by says who decided, as for apply_proposal.
     """
     try:
-        return workspace.discard_proposal(name, proposal_id, reason, assumptions, record)
+        return workspace.discard_proposal(name, proposal_id, reason, assumptions, record, decided_by)
     except ValueError as e:
         return _fail(e)
 
@@ -445,10 +461,11 @@ def run_trial(name: str, proposal_id: str) -> Dict[str, Any]:
 
 @mcp.tool()
 def get_history(name: str, limit: int = 50) -> Dict[str, Any]:
-    """The design's history in git: its commits, its versions, and how the
+    """The design's history: its commits (with CADL_WORKSPACE_GIT=1), its
+    versions, who decided each (`decided_by`, when recorded), and how the
     `# @amend:` values moved from version to version.
 
-    Needs the workspace to be started with CADL_WORKSPACE_GIT=1.
+    Without git the versions come from the snapshots in `<name>.versions.json`.
     """
     try:
         workspace.read(name)

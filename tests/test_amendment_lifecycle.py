@@ -269,7 +269,8 @@ def test_a_council_loop_end_to_end_in_git(ws, monkeypatch):
 def test_version_history_without_git(ws):
     _town(ws)
     hist = workspace.version_history("town")
-    assert hist["commits"] == [] and hist["versions"] == [] and "CADL_WORKSPACE_GIT" in hist["note"]
+    assert hist["commits"] == [] and hist["from"] == "snapshots" and "CADL_WORKSPACE_GIT" in hist["note"]
+    assert [v["version"] for v in hist["versions"]] == ["1"] and hist["versions"][0]["commit"] is None
 
 
 # ── The MCP tools ───────────────────────────────────────────────────
