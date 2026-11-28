@@ -412,12 +412,12 @@ draft a design from a requirements document or SLA.
 | `list_designs`, `create_design`, `get_design` | Find, start and outline designs in the workspace |
 | `open_questions` | What the design leaves open, as questions to ask the designer |
 | `propose_changes` | Check a set of structured changes **without applying them**; reports what would change and which problems appear or disappear |
-| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true`, and records the decision — the designer's `reason` and `assumptions` — in `<name>.decisions.md`. `discard_proposal` keeps a rejected proposal there too, with its reason |
-| `list_amendables`, `propose_amendment` | The values marked `# @amend:<name>` (Robot Town, Course D) and what the constitution (`<name>.constitution.yaml` or `constitution.yaml` in the workspace) says about each; a proposal that changes them in place, keeping the comments, with the constitution's verdict. A change the constitution leaves to a person (contract or regulation layer, safety-related rule, or a `decided_by:` other than `COUNCIL`) cannot be applied without their reason. In a design that declares the amendment extension, the proposal is also the next version: `sos.version` (`version="auto"`: 2 → 2.1 → 2.2), `amendment.previous`, `amendment.effective.period` (moved on by the constitution's `trial_periods`) and the declared `value:`, so that `cadl amend-diff` reads it |
-| `propose_reversion` | Restore the `# @amend:` values of an earlier version in **one** new version, for example to undo an adopted chain 2 → 2.1 → 2.2 → 2.3 as 2.4. The values of `to_version` are read from the workspace's git history (`CADL_WORKSPACE_GIT=1`) and written in place; the new version declares `amendment.previous` (the current version) and `amendment.reverts` (`to_version`). A value that returns to its value in `to_version` is not held to the constitution's one-name and one-step rules (its range still is), and the proposal is checked with `cadl amend-diff current new --base <to_version>`, which needs cadl-lang 0.3.44. It is applied, tried or discarded like any other proposal |
+| `apply_proposal`, `discard_proposal`, `undo_last_change` | Act on a proposal once the designer agrees. `apply_proposal` refuses a proposal that adds an error unless called with `allow_errors=true`, and records the decision — the designer's `reason` and `assumptions` — in `<name>.decisions.md`. `discard_proposal` keeps a rejected proposal there too, with its reason. Both take an optional `decided_by` — `{"kind": "person" \| "rule" \| "assistant", "name": "..."}` — that records who decided, for example a script deciding by rule in place of a person; left out, nothing is recorded about who decided |
+| `list_amendables`, `propose_amendment` | The values marked `# @amend:<name>` (Robot Town, Course D) and what the constitution (`<name>.constitution.yaml` or `constitution.yaml` in the workspace) says about each; a proposal that changes them in place, keeping the comments, with the constitution's verdict. A change the constitution leaves to a person (contract or regulation layer, safety-related rule, or a `decided_by:` other than `COUNCIL`) cannot be applied without their reason. In a design that declares the amendment extension, the proposal is also the next version: `sos.version` (`version="auto"`: 2 → 2.1 → 2.2), `amendment.previous`, `amendment.effective.period` and the declared `value:`, so that `cadl amend-diff` reads it. A design that declares `amendment.versioning` (`scheme: dotted` or `integer`, `period_step`) numbers its versions and moves its period that way; otherwise the period moves on by the constitution's `trial_periods`. An explicit version or period that breaks the declared rule is reported as `version_not_next` or `period_too_soon` and cannot be applied |
+| `propose_reversion` | Restore the `# @amend:` values of an earlier version in **one** new version, for example to undo an adopted chain 2 → 2.1 → 2.2 → 2.3 as 2.4. The values of `to_version` are read from the workspace's git history (`CADL_WORKSPACE_GIT=1`), or from its version snapshots when git is off, and written in place; the new version declares `amendment.previous` (the current version) and `amendment.reverts` (`to_version`). A value that returns to its value in `to_version` is not held to the constitution's one-name and one-step rules (its range still is), and the proposal is checked with `cadl amend-diff current new --base <to_version>`, which needs cadl-lang 0.3.44. It is applied, tried or discarded like any other proposal |
 | `run_trial`, `record_trial` | Try a pending proposal: `run_trial` runs the command in `CADL_TRIAL_COMMAND` (for example a simulator) with the design before and after, and keeps the JSON it prints; `record_trial` keeps numbers from a trial run elsewhere. They go into the decision record when the proposal is applied or discarded |
 | `get_decisions` | The decision record: each applied or rejected proposal (`outcome`), why it was proposed, its trial, and the person's reason and assumptions |
-| `get_history` | With `CADL_WORKSPACE_GIT=1`: the commits, the versions, and how the `# @amend:` values moved between them |
+| `get_history` | The versions, who decided each (when recorded), and how the `# @amend:` values moved between them; with `CADL_WORKSPACE_GIT=1`, the commits too |
 | `check_design` | Every check, what each covers, and what none of them check |
 | `describe_contracts`, `actor_view`, `explain_verification` | The design read back in plain sentences |
 | `lifecycle_stories`, `step_lifecycle` | The ways one contract instance can run, as stories or step by step. A monitor whose rule contains `state == X` (in a plain conjunction) is taken to fire in X only |
@@ -436,6 +436,21 @@ Designer, an applied or rejected proposal with the person's reason and the
 trial's results, and an undo; the constitution is committed with the design.
 The sidebar lists those commits and, once there are several versions, how the
 amendable values moved between them.
+
+With or without git, the workspace keeps a snapshot of each version of a
+design in `<name>.versions.json`: the source of every `sos.version` it takes,
+keyed by the version, with the time, the note and who decided it —
+
+```json
+{"format": 1, "design": "town",
+ "versions": {"2":   {"source": "...", "time": "...", "message": "version 2", "decided_by": null},
+              "2.1": {"source": "...", "time": "...", "message": "proposal 3fa9c1",
+                      "decided_by": {"kind": "rule", "name": "council rule substitute"}}}}
+```
+
+Without git, `version_history`, `source_at_version` and `propose_reversion`
+read the versions from these snapshots, so a reversion works without git.
+With git they read git, and the snapshots fill in a version git does not hold.
 
 A program can run the same loop in Python (`backend/services/design_workspace.py`):
 `add_amendment(name, values, rationale, evaluator=f)` calls `f(before, after)`

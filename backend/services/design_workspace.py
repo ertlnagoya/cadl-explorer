@@ -18,7 +18,21 @@ In a design that declares CADL's amendment extension (`amendment:`),
 `amendment.previous`, `amendment.effective.period` and the declared
 `value:` of the parameter, so that `cadl amend-diff` reads the change.
 `add_reversion` writes one next version that restores the values of an
-earlier version (read from git) and declares `amendment.reverts`.
+earlier version and declares `amendment.reverts`.
+
+The number of the next version and the move of its period follow, in this
+order: the design's own `amendment.versioning` (`scheme: dotted` or
+`integer`, and `period_step`), the constitution's `trial_periods`, and
+`design_amend.next_version`. A version or period given explicitly that
+breaks the declared rule puts `version_not_next` or `period_too_soon` in the
+proposal's gate, as CADL's `amend-diff` reports them, so it cannot be applied.
+
+Who decided is recorded with each decision when the caller says so:
+`apply_proposal(..., decided_by={"kind": "rule", "name": "council rule
+substitute"})` — `kind` is "person", "rule" or "assistant" and `name` is
+optional. It goes into `review.json` (the decision's `decider`), into
+`decisions.md` ("Decided by: rule (council rule substitute)") and into the
+commit message. Without it the record says nothing about who decided, as before.
 
 A constitution for the design's `# @amend:` values is read from
 `<name>.constitution.yaml`, or else `constitution.yaml`, in the folder.
@@ -31,6 +45,17 @@ edit saved from the Designer, an applied proposal with the person's reason,
 a rejected one, and an undo; the constitution is committed with them.
 `history(name)` lists those commits and `version_history(name)` the versions
 they hold.
+
+Every version is also kept as a snapshot in `<name>.versions.json`, whether
+git is on or not: the source of each `sos.version` the design takes, written
+when a proposal that declares it is applied or an edit introduces it, keyed
+by the version (`{"format": 1, "design": name, "versions": {"2.1":
+{"source", "time", "message", "decided_by"}}}`, oldest first; an undo removes the version it
+undid, and a version applied again replaces its earlier snapshot). Without git,
+`version_history`, `source_at_version` and so `add_reversion` read the
+versions from these snapshots; with git they read git and fall back to the
+snapshots for a version git does not hold. A design without `sos.version` has
+no snapshots.
 """
 
 from __future__ import annotations
@@ -90,6 +115,10 @@ def path_of(name: str) -> Path:
 
 def _sidecar(name: str) -> Path:
     return root() / f"{_check_name(name)}.review.json"
+
+
+def _versions_path(name: str) -> Path:
+    return root() / f"{_check_name(name)}.versions.json"
 
 
 def _hash(text: str) -> str:
@@ -164,7 +193,8 @@ def _commit(name: str, message: str) -> None:
         if _git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
             _git("init", "-q")
         const = constitution_path(name)
-        files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name), const)
+        files = [p.name for p in (path_of(name), _sidecar(name), _decisions_path(name),
+                                  _versions_path(name), const)
                  if p is not None and p.exists()]
         _git("add", "--", *files)
         who = [] if _git("config", "user.email").stdout.strip() else [
@@ -189,26 +219,104 @@ def history(name: str, limit: int = 20) -> List[dict]:
             for line in out.splitlines() if line.count("\t") >= 2]
 
 
-def version_history(name: str, limit: int = 100) -> dict:
-    """The versions of a design in git, oldest first, and how its `# @amend:` values moved.
+def _label(source: str) -> Optional[str]:
+    """The version a source declares (``sos.version``), or None."""
+    label = (amend.declared_version(source) or {}).get("version")
+    if label is not None:
+        return label
+    try:
+        data = yaml.safe_load(source) or {}
+        sos = data.get("sos") if isinstance(data, dict) else None
+        return str(sos["version"]) if isinstance(sos, dict) and sos.get("version") is not None else None
+    except Exception:
+        return None
 
-    A version is the first commit that holds a new ``sos.version`` (or, for a
-    design without one, a new set of amendable values). ``values`` is
-    ``design_amend.history`` of those versions and ``movement`` is
-    ``design_amend.movement`` against the constitution. Without
-    ``CADL_WORKSPACE_GIT`` there is no history and the lists are empty.
+
+def _load_snapshots(name: str) -> Dict[str, dict]:
+    path = _versions_path(name)
+    if not path.exists():
+        return {}
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    versions = doc.get("versions") if isinstance(doc, dict) else None
+    return {str(k): v for k, v in versions.items()
+            if isinstance(v, dict) and isinstance(v.get("source"), str)} if isinstance(versions, dict) else {}
+
+
+def _save_snapshots(name: str, versions: Dict[str, dict]) -> None:
+    _versions_path(name).write_text(
+        json.dumps({"format": 1, "design": _check_name(name), "versions": versions},
+                   indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _snapshot(name: str, source: str, message: str = "", decider: Optional[dict] = None,
+              replace: bool = False) -> None:
+    """Keep ``source`` as the snapshot of the version it declares, unless one is kept
+    already (``replace`` puts it in place of that one, as the latest version)."""
+    label = _label(source)
+    if label is None:
+        return
+    versions = _load_snapshots(name)
+    if label in versions and not replace:
+        return
+    versions.pop(label, None)
+    versions[label] = {"source": source, "time": _now(), "message": message,
+                       "decided_by": decider}
+    _save_snapshots(name, versions)
+
+
+def snapshots(name: str) -> Dict[str, dict]:
+    """The versions kept in ``<name>.versions.json``, oldest first, keyed by version."""
+    return _load_snapshots(name)
+
+
+def _decider_of(name: str, label: str, snaps: Dict[str, dict]) -> Optional[dict]:
+    """Who decided the version ``label``: from its snapshot, else from the last applied
+    decision that declared it; None when nobody said."""
+    snap = snaps.get(label) or {}
+    if snap.get("decided_by"):
+        return snap["decided_by"]
+    for d in reversed(_load_state(name)["decisions"]):
+        if d.get("outcome", "applied") == "applied" and (d.get("version") or {}).get("to") == label:
+            return d.get("decider")
+    return None
+
+
+def version_history(name: str, limit: int = 100) -> dict:
+    """The versions of a design, oldest first, and how its `# @amend:` values moved.
+
+    With ``CADL_WORKSPACE_GIT``, a version is the first commit that holds a new
+    ``sos.version`` (or, for a design without one, a new set of amendable
+    values). Without it, the versions are the snapshots in
+    ``<name>.versions.json`` (``commit`` is None). Each version says who decided
+    it (``decided_by``: ``{"kind", "name"}``, or None when nobody said).
+    ``values`` is ``design_amend.history`` of those versions and ``movement`` is
+    ``design_amend.movement`` against the constitution; ``from`` is "git" or
+    "snapshots".
     """
-    commits = history(name, limit)
-    versions = _versions(name, commits)
+    snaps = _load_snapshots(name)
+    if git_enabled():
+        commits = history(name, limit)
+        versions = _versions(name, commits)
+    else:
+        commits = []
+        versions = [{"version": k, "commit": None, "time": v.get("time", ""),
+                     "message": v.get("message", ""), "source": v["source"]}
+                    for k, v in list(snaps.items())[-int(limit):]]
     pairs = [(v["version"], v["source"]) for v in versions]
     try:
         const = constitution(name)
     except WorkspaceError:
         const = None
-    return {"commits": commits,
-            "versions": [{k: v[k] for k in ("version", "commit", "time", "message")} for v in versions],
+    return {"commits": commits, "from": "git" if git_enabled() else "snapshots",
+            "versions": [{**{k: v[k] for k in ("version", "commit", "time", "message")},
+                          "decided_by": _decider_of(name, v["version"], snaps)} for v in versions],
             "values": amend.history(pairs), "movement": amend.movement(pairs, const),
-            **({} if git_enabled() else {"note": "Start with CADL_WORKSPACE_GIT=1 to keep the history."})}
+            **({} if git_enabled() else {
+                "note": f"Read from the snapshots in {_versions_path(name).name}; start with "
+                        "CADL_WORKSPACE_GIT=1 to keep every change in git as well."})}
 
 
 def _versions(name: str, commits: List[dict]) -> List[dict]:
@@ -238,21 +346,27 @@ def _versions(name: str, commits: List[dict]) -> List[dict]:
 
 
 def source_at_version(name: str, version: str) -> str:
-    """The design's source when it first declared ``sos.version`` ``version``, from git.
+    """The design's source when it first declared ``sos.version`` ``version``.
 
-    Needs ``CADL_WORKSPACE_GIT``, since only the history in git keeps the
-    earlier versions."""
-    if not git_enabled():
-        raise WorkspaceError("The sources of earlier versions are kept only in git: start with "
-                             "CADL_WORKSPACE_GIT=1 so that each version is committed.")
+    With ``CADL_WORKSPACE_GIT`` it is read from git, and from the snapshots in
+    ``<name>.versions.json`` for a version git does not hold; without git, from
+    the snapshots alone."""
     read(name)
     wanted = str(version or "").strip()
-    versions = _versions(name, history(name, 1000))
-    for v in versions:
-        if v["version"] == wanted:
-            return v["source"]
-    known = ", ".join(v["version"] for v in versions) or "none"
-    raise WorkspaceError(f"No version `{wanted}` of `{name}` in git. Versions: {known}.")
+    known: List[str] = []
+    if git_enabled():
+        versions = _versions(name, history(name, 1000))
+        for v in versions:
+            if v["version"] == wanted:
+                return v["source"]
+        known = [v["version"] for v in versions]
+    snaps = _load_snapshots(name)
+    if wanted in snaps:
+        return snaps[wanted]["source"]
+    known += [k for k in snaps if k not in known]
+    where = "in git or in the snapshots" if git_enabled() else f"in {_versions_path(name).name}"
+    raise WorkspaceError(f"No version `{wanted}` of `{name}` {where}. Versions: "
+                         f"{', '.join(known) or 'none'}.")
 
 
 def version_source(name: str, commit: str) -> str:
@@ -280,6 +394,7 @@ def write(name: str, source: str, note: str = "", commit: bool = True) -> None:
             state["proposals"] = {}
     path.write_text(source, encoding="utf-8")
     _save_state(name, state)
+    _snapshot(name, source, note or "edited")
     if commit:
         _commit(name, f"{_check_name(name)}: {note or 'edited'}")
 
@@ -313,7 +428,13 @@ def undo(name: str) -> str:
     if not state["undo"]:
         raise WorkspaceError(f"Nothing to undo for `{name}`.")
     entry = state["undo"].pop()
+    undone = path_of(name).read_text(encoding="utf-8") if path_of(name).exists() else ""
     path_of(name).write_text(entry["source"], encoding="utf-8")
+    label, restored = _label(undone), _label(entry["source"])
+    snaps = _load_snapshots(name)
+    if label is not None and label != restored and (snaps.get(label) or {}).get("source") == undone:
+        del snaps[label]
+        _save_snapshots(name, snaps)
     state["proposals"] = {}
     # Marks made by the undone change no longer describe the file.
     state["unreviewed"] = [u for u in state["unreviewed"] if u.get("time", "") < entry["time"]]
@@ -390,15 +511,56 @@ def proposals(name: str) -> Dict[str, dict]:
     return _load_state(name)["proposals"]
 
 
+DECIDER_KINDS = ("person", "rule", "assistant")
+Decider = Union[None, str, Dict[str, Any]]
+
+
+def _decider(decided_by: Decider) -> Optional[dict]:
+    """``decided_by`` as recorded: ``{"kind"}`` or ``{"kind", "name"}``, or None when not given.
+
+    It is a mapping ``{"kind": "person" | "rule" | "assistant", "name": "..."}``
+    (``name`` optional, e.g. "FACILITY_MANAGER" or "council rule substitute"), or
+    the kind alone as a string."""
+    if decided_by is None or decided_by == "" or decided_by == {}:
+        return None
+    if isinstance(decided_by, str):
+        decided_by = {"kind": decided_by}
+    if not isinstance(decided_by, dict):
+        raise WorkspaceError('`decided_by` is {"kind": "person" | "rule" | "assistant", "name": "..."}.')
+    unknown = set(decided_by) - {"kind", "name"}
+    if unknown:
+        raise WorkspaceError(f"`decided_by` takes `kind` and `name`, not {', '.join(sorted(unknown))}.")
+    kind = str(decided_by.get("kind") or "").strip().lower()
+    if kind not in DECIDER_KINDS:
+        raise WorkspaceError(f"`decided_by.kind` is one of {', '.join(DECIDER_KINDS)}, not "
+                             f"{decided_by.get('kind')!r}.")
+    who = str(decided_by.get("name") or "").strip()
+    return {"kind": kind, **({"name": who} if who else {})}
+
+
+def decider_text(decider: Optional[dict]) -> str:
+    """``rule (council rule substitute)``, ``person``; "" for None."""
+    if not decider:
+        return ""
+    return decider["kind"] + (f" ({decider['name']})" if decider.get("name") else "")
+
+
 def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
-                   reason: str = "", assumptions: Optional[List[str]] = None) -> dict:
+                   reason: str = "", assumptions: Optional[List[str]] = None,
+                   decided_by: Decider = None) -> dict:
     """Apply a stored proposal, mark what it touched as not yet reviewed, and record the decision.
 
     A proposal that adds an error is refused unless ``allow_errors`` is set.
     An amendment the constitution leaves to a person (a contract or
     regulation layer, or a safety-related rule) is refused without the
     person's ``reason``.
+
+    ``decided_by`` says who decided: ``{"kind": "person" | "rule" | "assistant",
+    "name": "..."}`` (``name`` optional). It is recorded with the decision, in the
+    decision record, in the commit and in the version's snapshot; without it
+    nothing is recorded about who decided.
     """
+    decider = _decider(decided_by)
     state = _load_state(name)
     entry = state["proposals"].get(proposal_id)
     if entry is None:
@@ -426,16 +588,20 @@ def apply_proposal(name: str, proposal_id: str, allow_errors: bool = False,
             "their decision. Ask them, then call apply_proposal again with their reason "
             "(and any assumptions they state).")
     write(name, entry["source"], note=f"proposal {proposal_id}", commit=False)
+    if entry.get("version"):
+        _snapshot(name, entry["source"], f"proposal {proposal_id}", decider, replace=True)
     state = _load_state(name)   # write() updated the undo stack and cleared proposals
     for change in entry["changes"]:
         state["unreviewed"].append({**change, "time": _now(), "rationale": entry.get("rationale", "")})
     state["decisions"].append(_decision(entry, proposal_id, "applied", reason, assumptions,
-                                        allowed_errors=bool(allow_errors and not entry.get("acceptable", True))))
+                                        allowed_errors=bool(allow_errors and not entry.get("acceptable", True)),
+                                        decider=decider))
     _save_state(name, state)
     _write_decisions(name, state["decisions"])
-    _commit(name, _message(name, entry, "", reason))
+    _commit(name, _message(name, entry, "", reason, decider))
     return {"applied": True, "changes": [c["summary"] for c in entry["changes"]],
             **({"version": entry["version"]} if entry.get("version") else {}),
+            **({"decided_by": decider} if decider else {}),
             **({"trial": entry["trial"]} if entry.get("trial") else {}),
             "unreviewed": len(state["unreviewed"]),
             "decision_record": str(_decisions_path(name)),
@@ -450,7 +616,8 @@ def _assumptions(assumptions: Union[None, str, List[str]]) -> List[str]:
 
 
 def _decision(entry: dict, proposal_id: str, outcome: str, reason: str,
-              assumptions: Union[None, str, List[str]], allowed_errors: bool = False) -> dict:
+              assumptions: Union[None, str, List[str]], allowed_errors: bool = False,
+              decider: Optional[dict] = None) -> dict:
     return {
         "time": _now(), "proposal": proposal_id, "outcome": outcome,
         "changes": [c["summary"] for c in entry["changes"]],
@@ -458,13 +625,15 @@ def _decision(entry: dict, proposal_id: str, outcome: str, reason: str,
         "assumptions": _assumptions(assumptions),
         "for_a_person": entry.get("for_a_person") or [],
         **({"decided_by": entry["decided_by"]} if entry.get("decided_by") else {}),
+        **({"decider": decider} if decider else {}),
         "allowed_errors": allowed_errors,
         **({"version": entry["version"]} if entry.get("version") else {}),
         **({"trial": entry["trial"]} if entry.get("trial") else {}),
     }
 
 
-def _message(name: str, entry: dict, prefix: str, reason: str) -> str:
+def _message(name: str, entry: dict, prefix: str, reason: str,
+             decider: Optional[dict] = None) -> str:
     version = entry.get("version") or {}
     trial = entry.get("trial") or {}
     return (f"{_check_name(name)}: {prefix}" + "; ".join(c["summary"] for c in entry["changes"])
@@ -472,6 +641,7 @@ def _message(name: str, entry: dict, prefix: str, reason: str) -> str:
                + (f", reverts {version['reverts']}" if version.get("reverts") else "")
                + (f", effective period {version['effective_period']}" if version.get("effective_period")
                   is not None else "") + ")" if version.get("to") else "")
+            + (f"\n\nDecided by: {decider_text(decider)}" if decider else "")
             + (f"\n\nReason: {reason}" if reason else "")
             + (f"\n\nProposed because: {entry['rationale']}" if entry.get("rationale") else "")
             + (f"\n\nTrial: " + ", ".join(f"{k} = {v:g}" for k, v in trial["results"].items())
@@ -480,20 +650,25 @@ def _message(name: str, entry: dict, prefix: str, reason: str) -> str:
 
 
 def discard_proposal(name: str, proposal_id: str, reason: str = "",
-                     assumptions: Union[None, str, List[str]] = None, record: bool = True) -> dict:
+                     assumptions: Union[None, str, List[str]] = None, record: bool = True,
+                     decided_by: Decider = None) -> dict:
     """Drop a pending proposal and, with ``record``, keep it in the decision record as
-    rejected, with the reason, the assumptions and any trial results."""
+    rejected, with the reason, the assumptions, any trial results and, when
+    ``decided_by`` is given (as for ``apply_proposal``), who decided."""
+    decider = _decider(decided_by)
     state = _load_state(name)
     entry = state["proposals"].pop(proposal_id, None)
     if entry is None:
         raise WorkspaceError(f"No pending proposal `{proposal_id}` for `{name}`.")
     if record:
-        state["decisions"].append(_decision(entry, proposal_id, "rejected", reason, assumptions))
+        state["decisions"].append(_decision(entry, proposal_id, "rejected", reason, assumptions,
+                                            decider=decider))
     _save_state(name, state)
     if record:
         _write_decisions(name, state["decisions"])
-        _commit(name, _message(name, entry, "rejected: ", str(reason or "").strip()))
+        _commit(name, _message(name, entry, "rejected: ", str(reason or "").strip(), decider))
     return {"discarded": proposal_id, "recorded": bool(record),
+            **({"decided_by": decider} if decider and record else {}),
             **({"trial": entry["trial"]} if entry.get("trial") else {})}
 
 
@@ -670,21 +845,30 @@ def _next_declaration(name: str, source: str, version: Union[None, bool, str],
                       effective_period: Optional[int]) -> Optional[dict]:
     """What the next version declares: {"from", "to", "effective_period"}, or None.
 
-    ``version`` is "auto" or True (the next number, ``design_amend.next_version``),
-    a version, or None or False (keep the version). Without ``effective_period``
-    the period moves on by the constitution's ``trial_periods`` when both are given.
+    ``version`` is "auto" or True (the next number), a version, or None or False
+    (keep the version). The next number follows the design's
+    ``amendment.versioning.scheme`` when it declares one, else
+    ``design_amend.next_version``. Without ``effective_period`` the period moves on
+    by the design's ``amendment.versioning.period_step``, else by the constitution's
+    ``trial_periods``, when the current period is given. A version or period that
+    breaks the declared rule is not refused here: ``design_amend.check_versioning``
+    reports it in the proposal's gate.
     """
     declared = amend.declared_version(source)
     if declared is None or version in (None, False, ""):
         return None
+    rule = amend.declared_versioning(source) or {}
     old = declared["version"]
-    new = amend.next_version(old) if version in (True, "auto") else str(version)
+    try:
+        new = amend.next_version(old, rule.get("scheme")) if version in (True, "auto") else str(version)
+    except ValueError as e:
+        raise WorkspaceError(str(e)) from e
     if new == old:
         raise WorkspaceError(f"The next version must differ from the current one ({old}).")
     period = effective_period
     eff = declared.get("effective") or {}
     if period is None and isinstance(eff.get("period"), int):
-        trial = constitution_settings(name).get("trial_periods")
+        trial = rule.get("period_step") or constitution_settings(name).get("trial_periods")
         period = eff["period"] + int(trial) if isinstance(trial, int) and trial > 0 else None
     if period is not None and (isinstance(period, bool) or int(period) < 1):
         raise WorkspaceError("The effective period is a positive whole number.")
@@ -716,12 +900,14 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "",
         raise WorkspaceError(str(e)) from e
     const = constitution(name)
     gate = amend.check_amendment(source, new_source, const)
+    versioning = [{"code": c, "message": m} for c, m in amend.check_versioning(source, new_source)]
     changes = [ops.Change(f"Amended {n}: {amend.fmt(a)} → {amend.fmt(b)}", "Amendments", n)
                for n, a, b in gate.changed]
     proposal = ops.compare(source, new_source, changes)
-    acceptable = proposal.acceptable and gate.ok
+    acceptable = proposal.acceptable and gate.ok and not versioning
     proposal_id = _store(name, source, proposal, rationale, for_a_person=gate.for_a_person,
-                         decided_by=gate.decided_by, gate=gate.reasons,
+                         decided_by=gate.decided_by,
+                         gate=gate.reasons + [f"{v['code']}: {v['message']}" for v in versioning],
                          **({"version": bump} if bump else {}))
     trial = _evaluate(name, proposal_id, source, new_source, evaluator) if evaluator else None
     return {
@@ -731,6 +917,7 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "",
         **({"trial": trial} if trial else {}),
         "constitution": constitution_path(name).name if const is not None else None,
         "constitution_allows": gate.ok, "constitution_problems": gate.reasons,
+        **({"versioning_problems": versioning} if versioning else {}),
         "decided_by_a_person": gate.for_a_person,
         **({"decided_by": gate.decided_by} if gate.decided_by else {}),
         "problems_introduced": [_finding(f) for f in proposal.introduced],
@@ -746,7 +933,8 @@ def add_amendment(name: str, values: Dict[str, float], rationale: str = "",
             "Show the change to the person. Apply with apply_proposal only after they agree, "
             "and pass their reason so the decision is recorded."
             if acceptable else
-            "This amendment does not pass (see constitution_problems or problems_introduced), "
+            "This amendment does not pass (see constitution_problems, versioning_problems or "
+            "problems_introduced), "
             "so apply_proposal will refuse it. Revise it and propose again."),
     }
 
@@ -756,7 +944,8 @@ def add_reversion(name: str, to_version: str, rationale: str = "",
                   evaluator: Optional[Evaluator] = None) -> dict:
     """Propose one new version that restores the `# @amend:` values of an earlier version.
 
-    The source of ``to_version`` is read from git (``CADL_WORKSPACE_GIT``).
+    The source of ``to_version`` is read with ``source_at_version``: from git
+    (``CADL_WORKSPACE_GIT``), or from the snapshots in ``<name>.versions.json``.
     Every tagged value goes back to its value there, written in place, and
     the next version (``version`` "auto": the next number, or a version) is
     declared with ``amendment.previous`` the current version and
@@ -796,12 +985,15 @@ def add_reversion(name: str, to_version: str, rationale: str = "",
         raise WorkspaceError(str(e)) from e
     const = constitution(name)
     gate = amend.check_amendment(source, new_source, const, base=base)
+    versioning = [{"code": c, "message": m} for c, m in amend.check_versioning(source, new_source)]
     changes = [ops.Change(f"Reverted {n}: {amend.fmt(a)} → {amend.fmt(b)} (the value of version {target})",
                           "Amendments", n) for n, a, b in gate.changed]
     proposal = ops.compare(source, new_source, changes)
-    acceptable = proposal.acceptable and gate.ok
+    acceptable = proposal.acceptable and gate.ok and not versioning
     proposal_id = _store(name, source, proposal, rationale, for_a_person=gate.for_a_person,
-                         decided_by=gate.decided_by, gate=gate.reasons, version=bump)
+                         decided_by=gate.decided_by,
+                         gate=gate.reasons + [f"{v['code']}: {v['message']}" for v in versioning],
+                         version=bump)
     trial = _evaluate(name, proposal_id, source, new_source, evaluator) if evaluator else None
     try:
         report = ds.amend_diff(source, new_source, base)
@@ -817,6 +1009,7 @@ def add_reversion(name: str, to_version: str, rationale: str = "",
         **({"trial": trial} if trial else {}),
         "constitution": constitution_path(name).name if const is not None else None,
         "constitution_allows": gate.ok, "constitution_problems": gate.reasons,
+        **({"versioning_problems": versioning} if versioning else {}),
         "decided_by_a_person": gate.for_a_person,
         **({"decided_by": gate.decided_by} if gate.decided_by else {}),
         **({"amend_diff": {"ok": report.get("ok"), "errors": report.get("errors") or [],
@@ -839,7 +1032,8 @@ def add_reversion(name: str, to_version: str, rationale: str = "",
             "Show the reversion to the person. Apply with apply_proposal only after they agree, "
             "and pass their reason so the decision is recorded."
             if acceptable else
-            "This reversion does not pass (see constitution_problems or problems_introduced), "
+            "This reversion does not pass (see constitution_problems, versioning_problems or "
+            "problems_introduced), "
             "so apply_proposal will refuse it."),
     }
 
@@ -869,10 +1063,16 @@ def _write_decisions(name: str, entries: List[dict]) -> None:
                       + (f", effective from period {version['effective_period']}"
                          if version.get("effective_period") is not None else "")
                       + (")." if outcome == "applied" else ") — not adopted."), ""]
+        decider = d.get("decider")
         if d.get("for_a_person"):
             who = d.get("decided_by") or {}
-            lines += ["Decided by a person under the constitution: "
-                      + ", ".join(f"{n} ({who[n]})" if n in who else n for n in d["for_a_person"]) + ".", ""]
+            lead = ("Decided by a person under the constitution: "
+                    if not decider or decider.get("kind") == "person" else
+                    "Left to a person under the constitution: ")
+            lines += [lead + ", ".join(f"{n} ({who[n]})" if n in who else n for n in d["for_a_person"])
+                      + ".", ""]
+        if decider:
+            lines += [f"Decided by: {decider_text(decider)}", ""]
         trial = d.get("trial") or {}
         if trial.get("results") or trial.get("note"):
             verdict = "" if trial.get("passed") is None else (" — passed" if trial["passed"] else " — failed")

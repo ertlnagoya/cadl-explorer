@@ -188,10 +188,11 @@ def test_amend_diff_says_when_the_installed_cadl_cannot_use_the_base(monkeypatch
 # ── The workspace ───────────────────────────────────────────────────
 
 
-def test_a_reversion_needs_the_history_in_git(ws):
+def test_a_reversion_needs_the_version_it_reverts_to(ws):
+    """Without git the versions are the snapshots; version 2 was never kept."""
     workspace.root()
     workspace.write("town", V2_3, note="version 2.3")
-    with pytest.raises(workspace.WorkspaceError, match="CADL_WORKSPACE_GIT"):
+    with pytest.raises(workspace.WorkspaceError, match="No version `2`.*town.versions.json.*Versions: 2.3"):
         workspace.add_reversion("town", "2")
     with pytest.raises(workspace.WorkspaceError, match="already version 2.3"):
         workspace.add_reversion("town", "2.3")
@@ -266,13 +267,13 @@ def test_add_reversion_end_to_end_in_git(ws, monkeypatch):
 # ── The MCP tool ────────────────────────────────────────────────────
 
 
-def test_the_mcp_tool_needs_git(ws):
+def test_the_mcp_tool_needs_the_version_it_reverts_to(ws):
     pytest.importorskip("mcp")
     import mcp_server
 
     workspace.root()
     workspace.write("town", V2_3)
-    assert "CADL_WORKSPACE_GIT" in mcp_server.propose_reversion("town", "2")["error"]
+    assert "No version `2`" in mcp_server.propose_reversion("town", "2")["error"]
 
 
 @needs_base

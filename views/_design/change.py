@@ -160,7 +160,7 @@ def _reverted_base(source_b: str, candidates: list) -> str | None:
         if text and (amend.declared_version(text) or {}).get("version") == target:
             return text
     name = ss.get("design_ws_name")
-    if name and workspace.git_enabled():
+    if name:
         try:
             return workspace.source_at_version(name, target)
         except Exception:

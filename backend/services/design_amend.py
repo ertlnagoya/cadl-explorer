@@ -300,11 +300,61 @@ def declared_version(source: str) -> Optional[dict]:
                            if isinstance(p, dict) and p.get("id") is not None]}
 
 
-def next_version(version: Optional[str]) -> str:
-    """The version after ``version``: the last number goes up by one (``2.1`` → ``2.2``,
+SCHEMES = ("dotted", "integer")
+
+
+def declared_versioning(source: str) -> Optional[dict]:
+    """``{"scheme", "period_step"}`` of ``amendment.versioning`` in a design that declares
+    it, or None. ``scheme`` is "dotted" or "integer" (None when absent or unknown) and
+    ``period_step`` a positive whole number (None when absent)::
+
+        amendment:
+          versioning:
+            scheme: dotted      # next of "M" is "M.1", of "M.n" is "M.(n+1)"
+            period_step: 3      # new effective.period >= old + period_step
+    """
+    try:
+        doc = yaml.safe_load(source or "") or {}
+    except yaml.YAMLError:
+        return None
+    sos = doc.get("sos") if isinstance(doc, dict) else None
+    block = sos.get("amendment") if isinstance(sos, dict) else None
+    rule = block.get("versioning") if isinstance(block, dict) else None
+    if not isinstance(rule, dict):
+        return None
+    scheme = str(rule.get("scheme") or "").strip().lower() or None
+    step = rule.get("period_step")
+    return {"scheme": scheme if scheme in SCHEMES else None,
+            "period_step": step if isinstance(step, int) and not isinstance(step, bool) and step > 0
+            else None}
+
+
+def next_version(version: Optional[str], scheme: Optional[str] = None) -> str:
+    """The version after ``version``.
+
+    With ``scheme`` "dotted" (``amendment.versioning.scheme``), the next of ``M`` is
+    ``M.1`` and of ``M.n`` is ``M.(n+1)`` (``2`` → ``2.1`` → ``2.2``; ``2.1.3`` → ``2.1.4``).
+    With "integer", the next of ``n`` is ``n+1``, and a version that is not a whole
+    number raises ValueError.
+
+    Without a scheme, the last number goes up by one (``2.1`` → ``2.2``,
     ``v3`` → ``v4``), and a version of one number gets ``.1`` (``2`` → ``2.1``), as the
     councils of care-night-sos and cadl-robot-town number their amendments."""
     text = str(version or "").strip()
+    if scheme == "integer":
+        if not text:
+            return "1"
+        if not re.fullmatch(r"\d+", text):
+            raise ValueError(f"Version {text} is not a whole number, so the integer scheme of "
+                             "amendment.versioning cannot number the next one.")
+        return str(int(text) + 1)
+    if scheme == "dotted":
+        if not text:
+            return "1"
+        head, dot, last = text.rpartition(".")
+        if dot and re.fullmatch(r"\d+", last):
+            return f"{head}.{int(last) + 1}"
+        return text + ".1"
     if not text:
         return "1"
     if re.fullmatch(r"\d+", text):
@@ -412,6 +462,38 @@ def declare(source: str, new: Dict[str, float], version: Optional[str] = None,
                     " " * (_indent(lines[at]) + 2)
                 lines.insert(at + 1, f"{ind}effective: {{ period: {int(effective_period)} }}\n")
     return "".join(lines)
+
+
+def check_versioning(before: str, after: str) -> List[Tuple[str, str]]:
+    """What breaks the ``amendment.versioning`` rule in going from ``before`` to ``after``:
+    ``[(code, message)]``, with the codes of CADL's side, ``version_not_next`` (``sos.version``
+    of ``after`` is not the next of that of ``before`` under ``scheme``) and
+    ``period_too_soon`` (``amendment.effective.period`` moves on by less than
+    ``period_step``). The rule is the one ``before`` declares, else the one ``after``
+    declares; an ``after`` that keeps the version is not a new version and is not checked."""
+    rule = declared_versioning(before) or declared_versioning(after)
+    old, new = declared_version(before), declared_version(after)
+    if not rule or old is None or new is None or new["version"] == old["version"]:
+        return []
+    out = []
+    if rule["scheme"]:
+        try:
+            expected = next_version(old["version"], rule["scheme"])
+        except ValueError as e:
+            out.append(("version_not_next", str(e)))
+        else:
+            if new["version"] != expected:
+                out.append(("version_not_next",
+                            f"Version {new['version']} is not the next of {old['version']} under the "
+                            f"{rule['scheme']} scheme of amendment.versioning ({expected})."))
+    step = rule["period_step"]
+    a = (old.get("effective") or {}).get("period")
+    b = (new.get("effective") or {}).get("period")
+    if step and isinstance(a, int) and isinstance(b, int) and b < a + step:
+        out.append(("period_too_soon",
+                    f"amendment.effective.period {b} is less than {a} + {step}: "
+                    f"amendment.versioning.period_step is {step}."))
+    return out
 
 
 @dataclass
@@ -550,5 +632,5 @@ def movement(versions: List[Tuple[str, str]], constitution: Optional[dict] = Non
 
 __all__ = ["Amendable", "Occurrence", "Gate", "amendables", "values", "load_constitution",
            "findings", "set_values", "check_amendment", "needs_human", "decider", "declare",
-           "declared_version", "next_version", "layer_of", "history",
+           "declared_version", "declared_versioning", "next_version", "check_versioning", "layer_of", "history",
            "movement", "steps", "fmt"]

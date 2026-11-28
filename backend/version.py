@@ -4,5 +4,5 @@ It is shown in the app (sidebar and About page) and recorded in every
 pipeline result as `pipeline_version`.
 """
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 RELEASES_URL = "https://github.com/ertlnagoya/cadl-explorer/releases"
